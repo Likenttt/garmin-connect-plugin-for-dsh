@@ -63,6 +63,11 @@ cp .env.example .env
 | `GARMIN_LOG_LEVEL` | ❌ | 日志级别：`debug` \| `info` \| `warn` \| `error` |
 
 > \* `GARMIN_PASSWORD` 和 `GARMIN_SESSION_TOKEN` 二选一即可。
+>
+> ⚠️ 如果密码包含 `#` 等特殊符号，请用**双引号**包裹，否则 `#` 后的内容会被当作注释截断：
+> ```
+> GARMIN_PASSWORD="my#secret!pass"
+> ```
 
 ### 3. 在 Harness 中启用
 
