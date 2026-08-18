@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+lib/
+dist/
+
+# Environment & Secrets — NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Garmin session cache (contains auth tokens)
+.garmin-session/
+*.garmin-session.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test & Coverage
+coverage/
+*.lcov
+
+# Logs
+*.log
+npm-debug.log*
