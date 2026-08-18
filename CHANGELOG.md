@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3] - 2026-08-19
+
+### Added
+- "More Apps" section at the top of both READMEs linking to the GameraSnap app family (GameraSnap, WristAlbum, WristTale, WristPass, 2FA4G, JiaKe.app).
+
+### Changed
+- README app icons constrained to a compact 32px size.
+
 ## [0.1.2] - 2026-08-19
 
 ### Changed
