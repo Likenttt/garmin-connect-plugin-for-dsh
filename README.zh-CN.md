@@ -89,6 +89,85 @@ plugins:
 npx @deepseek-ai/dsh web
 ```
 
+### 5. 集成测试（可选）
+
+在 `.env` 配置好凭据后，可以运行集成测试脚本一键验证所有 API 连通性：
+
+```bash
+npm run test:integration
+```
+
+<details>
+<summary>📋 点击展开完整示例输出</summary>
+
+```
+🔌 Garmin Connect Integration Test
+   Domain : garmin.com
+   User   : your-email@example.com
+   Date   : 2026-08-18
+
+── 1. Login ──
+  ✅ Login successful
+
+── 2. Activities ──
+  ✅ Got 3 activities
+{
+  "id": 23998327113,
+  "name": "Wuhan Running",
+  "type": "running",
+  "startTime": "2026-08-16 19:33:05",
+  "distanceMeters": 10017.73,
+  "durationSeconds": 3965,
+  "averageHeartRate": 145,
+  "maxHeartRate": 180,
+  "averagePaceMinPerKm": 6.6,
+  "calories": 656,
+  "elevationGainMeters": 4,
+  "averageCadence": 141.78
+}
+
+── 3. Sleep ──
+  ✅ Sleep score: 82, duration: 7.5h
+
+── 4. Steps ──
+  ✅ Steps: {
+  "date": "2026-08-18",
+  "totalSteps": 8523,
+  "goal": 10000,
+  "distanceMeters": 6120,
+  "highlyActiveSeconds": 1800
+}
+
+── 5. Heart Rate ──
+  ✅ Resting HR: 42, Max: 98
+
+── 6. Weight / Body Composition ──
+  ✅ Weight: 70.5 kg, BMI: 22.3, Body Fat: 15.2%
+
+── 7. Workouts / Calendar ──
+  ✅ Got 5 planned workouts
+{
+  "id": 1422905279,
+  "name": "跃升之阶",
+  "description": "",
+  "sportType": "running",
+  "createdDate": "2025-12-28T19:28:56.0",
+  "estimatedDurationMins": 94,
+  "estimatedDistanceMeters": null
+}
+
+── 8. User Profile ──
+  ✅ Profile: loaded
+
+── 9. Export Session Token ──
+  ✅ Token exported (oauth1 key: ********…)
+   💡 To use token-based auth, save the full JSON to GARMIN_SESSION_TOKEN in .env
+
+🏁 Integration test complete.
+```
+
+</details>
+
 ---
 
 ## 🔐 安全设计
