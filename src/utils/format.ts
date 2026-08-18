@@ -8,40 +8,66 @@
 
 // ---- Activity ----
 
-export interface FormattedActivity {
+/**
+ * Formatted activity. Every raw Garmin field is preserved (see `raw` keys),
+ * with the normalized convenience fields below layered on top.
+ */
+export interface FormattedActivity extends Record<string, unknown> {
   id: number | string
   name: string
   type: string
+  eventType: string | null
   startTime: string
   distanceMeters: number
   durationSeconds: number
+  elapsedDurationSeconds: number | null
+  movingDurationSeconds: number | null
+  averageSpeedMps: number | null
+  maxSpeedMps: number | null
+  averagePaceMinPerKm: number | null
+  maxPaceMinPerKm: number | null
   averageHeartRate: number | null
   maxHeartRate: number | null
-  averagePaceMinPerKm: number | null
   calories: number | null
   elevationGainMeters: number | null
+  elevationLossMeters: number | null
   averageCadence: number | null
 }
 
 export function formatActivity(raw: Record<string, unknown>): FormattedActivity {
   const distance = Number(raw.distance) || 0
   const duration = Number(raw.duration) || 0
+  const maxSpeed = Number(raw.maxSpeed) || 0
 
   return {
+    // Keep every raw field — no filtering.
+    ...raw,
     id: (raw.activityId as number | string) ?? '',
     name: (raw.activityName as string) ?? 'Unnamed',
     type: (raw.activityType as Record<string, unknown>)?.typeKey as string ?? 'unknown',
+    eventType: (raw.eventType as Record<string, unknown>)?.typeKey as string ?? null,
     startTime: (raw.startTimeLocal as string) ?? '',
     distanceMeters: Math.round(distance * 100) / 100,
     durationSeconds: Math.round(duration),
-    averageHeartRate: (raw.averageHR as number) ?? null,
-    maxHeartRate: (raw.maxHR as number) ?? null,
+    elapsedDurationSeconds: numOrNull(raw.elapsedDuration),
+    movingDurationSeconds: numOrNull(raw.movingDuration),
+    averageSpeedMps: numOrNull(raw.averageSpeed),
+    maxSpeedMps: numOrNull(raw.maxSpeed),
     averagePaceMinPerKm: distance > 0
-      ? Math.round((duration / 60) / (distance / 1000) * 100) / 100
+      ? round2((duration / 60) / (distance / 1000))
       : null,
-    calories: (raw.calories as number) ?? null,
-    elevationGainMeters: (raw.elevationGain as number) ?? null,
-    averageCadence: (raw.averageRunningCadenceInStepsPerMinute as number) ?? null,
+    // min/km pace derived from max speed (m/s): 1000m / (m/s * 60s)
+    maxPaceMinPerKm: maxSpeed > 0 ? round2(1000 / (maxSpeed * 60)) : null,
+    averageHeartRate: numOrNull(raw.averageHR),
+    maxHeartRate: numOrNull(raw.maxHR),
+    calories: numOrNull(raw.calories),
+    elevationGainMeters: numOrNull(raw.elevationGain),
+    elevationLossMeters: numOrNull(raw.elevationLoss),
+    averageCadence:
+      numOrNull(raw.averageRunningCadenceInStepsPerMinute) ??
+      numOrNull(raw.averageBikingCadenceInRevPerMinute) ??
+      numOrNull(raw.averageSwimCadenceInStrokesPerMinute) ??
+      numOrNull(raw.avgDoubleCadence),
   }
 }
 
@@ -171,4 +197,20 @@ export function formatWorkout(raw: Record<string, unknown>): FormattedWorkout {
       : null,
     estimatedDistanceMeters: (raw.estimatedDistanceInMeters as number) ?? null,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Convert a raw value to a finite number, or null when missing/invalid. */
+function numOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Round to two decimal places. */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
 }

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- `formatActivity` no longer filters the raw Garmin activity payload: every raw field is preserved, with normalized convenience fields (pace, speeds, durations, heart rate, cadence, elevation) layered on top.
+
 ## [0.1.1] - 2026-08-19
 
 ### Added

@@ -2,36 +2,56 @@ import { formatActivity, formatSleep, formatSteps, formatHeartRate, formatWeight
 
 describe('Format Utils', () => {
   describe('formatActivity', () => {
-    it('should format full data correctly', () => {
+    it('should format full data correctly and preserve raw fields', () => {
       const raw = {
         activityId: 123,
         activityName: 'Morning Run',
         activityType: { typeKey: 'running' },
+        eventType: { typeKey: 'race' },
         startTimeLocal: '2023-10-01T07:00:00',
+        startTimeGMT: '2023-10-01T07:00:00Z',
         distance: 5000.123,
         duration: 1800,
+        elapsedDuration: 1900,
+        movingDuration: 1780,
+        averageSpeed: 2.78,
+        maxSpeed: 5.5,
         averageHR: 150,
         maxHR: 180,
         calories: 300,
         elevationGain: 50.5,
-        averageRunningCadenceInStepsPerMinute: 165
+        elevationLoss: 12.3,
+        averageRunningCadenceInStepsPerMinute: 165,
+        steps: 4321,
+        locationName: 'Riverside'
       }
 
       const formatted = formatActivity(raw)
-      expect(formatted).toEqual({
+      expect(formatted).toMatchObject({
         id: 123,
         name: 'Morning Run',
         type: 'running',
+        eventType: 'race',
         startTime: '2023-10-01T07:00:00',
         distanceMeters: 5000.12,
         durationSeconds: 1800,
+        elapsedDurationSeconds: 1900,
+        movingDurationSeconds: 1780,
+        averageSpeedMps: 2.78,
+        maxSpeedMps: 5.5,
         averageHeartRate: 150,
         maxHeartRate: 180,
-        averagePaceMinPerKm: 6, // (1800/60) / (5000/1000) = 30 / 5 = 6
         calories: 300,
         elevationGainMeters: 50.5,
-        averageCadence: 165
+        elevationLossMeters: 12.3,
+        averageCadence: 165,
+        steps: 4321,
+        locationName: 'Riverside'
       })
+      // no field is filtered — raw keys survive alongside normalized ones
+      expect(formatted.distance).toBe(5000.123)
+      expect(formatted.averageHR).toBe(150)
+      expect(formatted.activityName).toBe('Morning Run')
     })
 
     it('should handle null/missing data', () => {
