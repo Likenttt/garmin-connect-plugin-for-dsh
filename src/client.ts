@@ -1,4 +1,4 @@
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { GarminConnect } from 'garmin-connect'
 import type { Config } from './config'
 import { MemoryCache } from './utils/cache'
@@ -16,6 +16,7 @@ export class GarminClient {
   private ctx: Context
   private config: Config
   private connected = false
+  private connecting: Promise<void> | null = null
 
   constructor(ctx: Context, config: Config) {
     this.ctx = ctx
@@ -30,7 +31,21 @@ export class GarminClient {
 
   // ---------- Lifecycle ---------------------------------------------------
 
+  /**
+   * Log in (or restore a session token) exactly once. Concurrent callers
+   * share the same in-flight promise, so eager warm-up and lazy first-use
+   * never race each other.
+   */
   async connect(): Promise<void> {
+    if (!this.connecting) {
+      this.connecting = this.login().finally(() => {
+        this.connecting = null
+      })
+    }
+    return this.connecting
+  }
+
+  private async login(): Promise<void> {
     try {
       if (this.config.sessionToken) {
         this.ctx.logger.info('[garmin] Restoring session from token…')
@@ -43,25 +58,21 @@ export class GarminClient {
       this.connected = true
       this.ctx.logger.info('[garmin] ✅ Connected successfully.')
     } catch (err) {
+      this.connected = false
       this.ctx.logger.error('[garmin] ❌ Connection failed:', err)
       throw err
     }
   }
 
-  destroy(): void {
-    this.cache.clear()
-    this.connected = false
-    this.ctx.logger.info('[garmin] Session destroyed.')
-  }
-
-  private ensureConnected(): void {
+  /** Lazily connect on first use. Failures are logged and rethrown to the caller. */
+  private async ensureConnected(): Promise<void> {
     if (!this.connected) {
-      throw new Error('[garmin] Not connected. Call connect() first.')
+      await this.connect()
     }
   }
 
   private async withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     for (let i = 0; i <= retries; i++) {
       try {
@@ -74,6 +85,7 @@ export class GarminClient {
         // Session expired -> auto-reconnect
         if (status === 401 || status === 403) {
           this.ctx.logger.warn('[garmin] Session expired, reconnecting…')
+          this.connected = false
           await this.connect()
           continue
         }
@@ -147,11 +159,7 @@ export class GarminClient {
 
   /** Export a session token so it can be stored securely for future logins. */
   async exportSession(): Promise<string> {
-    this.ensureConnected()
+    await this.ensureConnected()
     return JSON.stringify(this.gc.exportToken())
-  }
-
-  isConnected(): boolean {
-    return this.connected
   }
 }

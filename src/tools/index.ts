@@ -1,4 +1,4 @@
-import { Context, Schema } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { GarminClient } from '../client'
 import {
   formatActivity,
@@ -12,11 +12,13 @@ import {
 /**
  * Register all Garmin-related tools with the DeepSeek Harness tool registry.
  *
- * Each tool is described with a natural-language `description` so the LLM
- * can decide when to invoke it based on the user's conversational intent.
+ * Definitions follow the dsh tool registry contract:
+ *   - `parameters` is a JSON Schema object (compiled form),
+ *   - `output` declares a JSON Schema plus a `render` callback that turns the
+ *     execution result into text content blocks for the UI / trajectory.
  */
 export function registerTools(ctx: Context, client: GarminClient): void {
-  const tools = (ctx as any).dshTools
+  const tools = (ctx as any).tools
 
   // ------------------------------------------------------------------
   // 1. get_garmin_activities
@@ -27,14 +29,20 @@ export function registerTools(ctx: Context, client: GarminClient): void {
       'Retrieve the user\'s recent Garmin fitness activities (runs, rides, swims, hikes, etc.). ' +
       'Returns a list of activities with distance, duration, pace, heart rate, and calories. ' +
       'Example user query: "Show me my last 5 runs"',
-    parameters: Schema.object({
-      limit: Schema.number()
-        .default(5)
-        .description('Maximum number of activities to return (1–100).'),
-      offset: Schema.number()
-        .default(0)
-        .description('Pagination offset. 0 = most recent.'),
-    }),
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'integer',
+          description: 'Maximum number of activities to return (1–100).',
+        },
+        offset: {
+          type: 'integer',
+          description: 'Pagination offset. 0 = most recent.',
+        },
+      },
+    },
+    output: flexibleOutput,
     execute: async (args: { limit?: number; offset?: number }) => {
       try {
         const limit = Math.min(Math.max(args.limit ?? 5, 1), 100)
@@ -56,17 +64,13 @@ export function registerTools(ctx: Context, client: GarminClient): void {
       'Get the user\'s sleep data for a specific date or date range, including sleep score, ' +
       'total duration, and breakdowns (deep, light, REM, awake). ' +
       'Example user query: "How did I sleep last night?" or "My sleep trend this week"',
-    parameters: Schema.object({
-      startDate: Schema.string()
-        .description('Start date in YYYY-MM-DD format. Defaults to today.'),
-      endDate: Schema.string()
-        .description('End date in YYYY-MM-DD format. If omitted, queries only the startDate.'),
-    }),
+    parameters: dateRangeParameters,
+    output: flexibleOutput,
     execute: async (args: { startDate?: string; endDate?: string }) => {
       try {
         const start = isValidDate(args.startDate) ? args.startDate! : todayLocal()
         const end = isValidDate(args.endDate) ? args.endDate! : start
-        
+
         const dates = getDatesInRange(start, end)
         const results = await Promise.all(
           dates.map(async d => {
@@ -89,17 +93,13 @@ export function registerTools(ctx: Context, client: GarminClient): void {
     description:
       'Get the user\'s step count, step goal, and walking distance for a specific date or range. ' +
       'Example user query: "How many steps did I take today?"',
-    parameters: Schema.object({
-      startDate: Schema.string()
-        .description('Start date in YYYY-MM-DD format. Defaults to today.'),
-      endDate: Schema.string()
-        .description('End date in YYYY-MM-DD format. If omitted, queries only the startDate.'),
-    }),
+    parameters: dateRangeParameters,
+    output: flexibleOutput,
     execute: async (args: { startDate?: string; endDate?: string }) => {
       try {
         const start = isValidDate(args.startDate) ? args.startDate! : todayLocal()
         const end = isValidDate(args.endDate) ? args.endDate! : start
-        
+
         const dates = getDatesInRange(start, end)
         const results = await Promise.all(
           dates.map(async d => {
@@ -123,17 +123,13 @@ export function registerTools(ctx: Context, client: GarminClient): void {
       'Get the user\'s heart rate summary for a specific date or range, including ' +
       'resting, max, and min heart rate. ' +
       'Example user query: "What is my resting heart rate?"',
-    parameters: Schema.object({
-      startDate: Schema.string()
-        .description('Start date in YYYY-MM-DD format. Defaults to today.'),
-      endDate: Schema.string()
-        .description('End date in YYYY-MM-DD format. If omitted, queries only the startDate.'),
-    }),
+    parameters: dateRangeParameters,
+    output: flexibleOutput,
     execute: async (args: { startDate?: string; endDate?: string }) => {
       try {
         const start = isValidDate(args.startDate) ? args.startDate! : todayLocal()
         const end = isValidDate(args.endDate) ? args.endDate! : start
-        
+
         const dates = getDatesInRange(start, end)
         const results = await Promise.all(
           dates.map(async d => {
@@ -156,17 +152,13 @@ export function registerTools(ctx: Context, client: GarminClient): void {
     description:
       'Get the user\'s body composition data (weight, BMI, body fat, etc.) for a specific date or range. ' +
       'Example user query: "What was my weight today?"',
-    parameters: Schema.object({
-      startDate: Schema.string()
-        .description('Start date in YYYY-MM-DD format. Defaults to today.'),
-      endDate: Schema.string()
-        .description('End date in YYYY-MM-DD format. If omitted, queries only the startDate.'),
-    }),
+    parameters: dateRangeParameters,
+    output: flexibleOutput,
     execute: async (args: { startDate?: string; endDate?: string }) => {
       try {
         const start = isValidDate(args.startDate) ? args.startDate! : todayLocal()
         const end = isValidDate(args.endDate) ? args.endDate! : start
-        
+
         const dates = getDatesInRange(start, end)
         const results = await Promise.all(
           dates.map(async d => {
@@ -189,14 +181,20 @@ export function registerTools(ctx: Context, client: GarminClient): void {
     description:
       'Get the user\'s planned Garmin workouts and calendar. ' +
       'Example user query: "What workouts are on my Garmin calendar?"',
-    parameters: Schema.object({
-      limit: Schema.number()
-        .default(10)
-        .description('Maximum number of workouts to return (1–100).'),
-      offset: Schema.number()
-        .default(0)
-        .description('Pagination offset. 0 = most recent.'),
-    }),
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'integer',
+          description: 'Maximum number of workouts to return (1–100).',
+        },
+        offset: {
+          type: 'integer',
+          description: 'Pagination offset. 0 = most recent.',
+        },
+      },
+    },
+    output: flexibleOutput,
     execute: async (args: { limit?: number; offset?: number }) => {
       try {
         const limit = Math.min(Math.max(args.limit ?? 10, 1), 100)
@@ -216,7 +214,11 @@ export function registerTools(ctx: Context, client: GarminClient): void {
     name: 'get_garmin_profile',
     description:
       'Get the user\'s Garmin profile summary (display name, profile image URL, etc.).',
-    parameters: Schema.object({}),
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+    output: flexibleOutput,
     execute: async () => {
       try {
         return await client.getUserProfile()
@@ -235,7 +237,11 @@ export function registerTools(ctx: Context, client: GarminClient): void {
       'Export the current Garmin session token. The user can store this token ' +
       'in their environment as GARMIN_SESSION_TOKEN to avoid password-based login in the future. ' +
       '⚠️ The token is sensitive — never share it publicly.',
-    parameters: Schema.object({}),
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+    output: flexibleOutput,
     execute: async () => {
       try {
         const token = await client.exportSession()
@@ -252,6 +258,51 @@ export function registerTools(ctx: Context, client: GarminClient): void {
   })
 
   ctx.logger.info(`[garmin] Registered ${8} tools.`)
+}
+
+// ---------------------------------------------------------------------------
+// Shared schema fragments
+// ---------------------------------------------------------------------------
+
+/** Date range parameters shared by sleep / steps / heart rate / weight tools. */
+const dateRangeParameters = {
+  type: 'object',
+  properties: {
+    startDate: {
+      type: 'string',
+      description: 'Start date in YYYY-MM-DD format. Defaults to today.',
+    },
+    endDate: {
+      type: 'string',
+      description: 'End date in YYYY-MM-DD format. If omitted, queries only the startDate.',
+    },
+  },
+}
+
+/**
+ * Permissive output schema + renderer: Garmin formatters return either a
+ * single object, an array of objects, or an `{ error, message }` object, so
+ * the schema accepts both shapes and the renderer pretty-prints JSON.
+ */
+const flexibleOutput = {
+  schema: {
+    oneOf: [
+      {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: true,
+        },
+      },
+      {
+        type: 'object',
+        additionalProperties: true,
+      },
+    ],
+  },
+  render: (_args: unknown, value: unknown) => [
+    { type: 'text', text: JSON.stringify(value, null, 2) },
+  ],
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +331,7 @@ export function getDatesInRange(startStr: string, endStr: string): string[] {
   // Parse as local time to avoid UTC shift
   const curr = new Date(startStr + 'T00:00:00')
   const endDate = new Date(endStr + 'T00:00:00')
-  
+
   if (isNaN(curr.getTime()) || isNaN(endDate.getTime()) || curr > endDate) {
     return [startStr] // fallback to startStr if invalid range
   }

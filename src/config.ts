@@ -1,4 +1,4 @@
-import { Schema } from 'cordis'
+import z from '@deepseek-ai/schemastery'
 import * as dotenv from 'dotenv'
 
 // Load .env file — only takes effect if the file exists.
@@ -27,7 +27,7 @@ export interface Config {
 }
 
 /**
- * Cordis configuration schema.
+ * DeepSeek Harness plugin configuration schema (schemastery).
  *
  * Credential resolution priority:
  *   1. Values supplied directly in the Harness config file (plugin config)
@@ -37,30 +37,30 @@ export interface Config {
  * Passwords and session tokens are NEVER logged, serialized, or written to
  * the Harness trajectory / tool-call history.
  */
-export const Config: Schema<Config> = Schema.object({
-  username: Schema.string()
+export const Config = z.object({
+  username: z.string()
     .default(process.env.GARMIN_USERNAME ?? '')
     .description('Garmin account email. Env: GARMIN_USERNAME'),
 
-  password: Schema.string()
+  password: z.string()
     .role('secret')
     .default(process.env.GARMIN_PASSWORD || '')
     .description('Garmin password (prefer session token). Env: GARMIN_PASSWORD'),
 
-  sessionToken: Schema.string()
+  sessionToken: z.string()
     .role('secret')
     .default(process.env.GARMIN_SESSION_TOKEN || '')
     .description('Pre-auth session token. Env: GARMIN_SESSION_TOKEN'),
 
-  region: Schema.union(['global', 'cn'] as const)
+  region: z.union(['global', 'cn'] as const)
     .default((process.env.GARMIN_REGION as GarminRegion) ?? 'global')
     .description('Server region: global | cn. Env: GARMIN_REGION'),
 
-  cacheTtl: Schema.number()
+  cacheTtl: z.number()
     .default(Number(process.env.GARMIN_CACHE_TTL) || 300)
     .description('Cache TTL in seconds (0 to disable). Env: GARMIN_CACHE_TTL'),
 
-  logLevel: Schema.union(['debug', 'info', 'warn', 'error'] as const)
+  logLevel: z.union(['debug', 'info', 'warn', 'error'] as const)
     .default((process.env.GARMIN_LOG_LEVEL as Config['logLevel']) ?? 'info')
     .description('Log verbosity. Env: GARMIN_LOG_LEVEL'),
 })

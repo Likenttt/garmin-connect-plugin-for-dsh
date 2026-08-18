@@ -1,0 +1,3 @@
+- insert:
+    - id: garmin-connect
+      name: 'dsh-plugin-garmin-connect'

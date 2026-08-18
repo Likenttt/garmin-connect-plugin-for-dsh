@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.1.1] - 2026-08-19
 
 ### Added
 - Stale-while-revalidate (SWR) cache mechanism with LRU size bounds.
@@ -12,10 +12,17 @@ All notable changes to this project will be documented in this file.
 - Unit tests for cache, formatters, and tool utilities.
 - GitHub Actions CI/CD workflow.
 
+### Fixed
+- dsh compatibility: plugins now inject the `tools` service (dsh's tool registry) instead of the nonexistent `dshTools` service.
+- Tool definitions now follow the dsh registry contract (JSON Schema `parameters` + `output { schema, render }`), so all 8 tools register correctly.
+- Runtime imports moved to `@deepseek-ai/cordis` (the Cordis fork dsh runs on) and the config schema now uses `@deepseek-ai/schemastery`; the package is installable from the npm registry without a stray `cordis` peer dependency.
+- Garmin login no longer depends on a `ready` lifecycle event (dsh's Cordis fork does not emit one). The client now connects lazily on first tool use and eagerly warms up in the background at activation, with a shared in-flight promise to avoid duplicate logins.
+
 ### Changed
+- `dsh.bundle` manifest converted to the standard `{ patch: "./cordis.patch.yml" }` format with a checked-in `cordis.patch.yml`.
+- `prepare` script is self-contained (pinned TypeScript via `npx`) so GitHub source installs can build.
 - Improved error handling for all AI-callable tools. Errors are now returned gracefully to the agent.
 - Prompts added to tool descriptions to improve LLM invocation accuracy.
-- Upgraded `cordis` dependency version and configuration schemas.
 - Modified `.env.example` to clarify session token usage.
 
 ## [0.1.0] - Initial Release
