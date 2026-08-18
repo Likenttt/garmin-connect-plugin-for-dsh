@@ -4,6 +4,9 @@
   "description": "A DeepSeek Harness plugin that exposes Garmin Connect fitness and health data as AI-callable tools",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "dsh": {
+    "bundle": true
+  },
   "files": [
     "lib",
     "README.md",
