@@ -36,13 +36,46 @@
 
 ## 快速开始
 
-### 1. 安装
+### 1. 安装本插件 — 从 npm registry(推荐)
 
 ```bash
-npm install dsh-plugin-garmin-connect
+npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
 ```
 
-### 2. 配置凭据
+这一条命令会同时安装依赖并激活插件层,首次运行会自动初始化 `web` profile。你只需要 `pnpm` 在你的 `PATH` 中:
+
+```bash
+npm install -g pnpm
+```
+
+> `--legacy-peer-deps=false` 让 npm 正常解析 peer 依赖。如果你的 npm 配置了 `legacy-peer-deps=true`(会跳过 peer 包),dsh 会因缺少 `@deepseek-ai/cordis-plugin-group` 而报 `ERR_MODULE_NOT_FOUND`;没有该配置的机器上,这个参数是无害的默认行为。
+
+不启动即可验证插件层是否已组合进配置:
+
+```bash
+npx --legacy-peer-deps=false @deepseek-ai/dsh --profile web --dump-config | grep -A 2 garmin-connect
+```
+
+其他安装方式:
+
+```bash
+# 本地源码调试
+cd dsh-plugin-garmin-connect && npm install
+npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .
+
+# GitHub 源码安装
+npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>
+```
+
+### 2. 安装 Harness CLI(如果还没有)
+
+```bash
+npx --legacy-peer-deps=false @deepseek-ai/dsh web
+```
+
+默认在 `http://127.0.0.1:3080` 打开 Web 界面。如果通过 `npx` 启动,下面的命令同样加上 `npx --legacy-peer-deps=false @deepseek-ai/dsh` 前缀;如果已全局安装 `dsh`,则可以去掉 `npx @deepseek-ai/` 前缀。
+
+### 3. 配置凭据
 
 本插件**绝不**将密码写入配置文件或日志。凭据通过环境变量加载。
 
@@ -52,6 +85,8 @@ cp .env.example .env
 
 # 编辑 .env，填入你的 Garmin 账号信息
 ```
+
+请把 `.env` 放在你运行 `dsh` 的目录(工作区根目录),插件启动时会自动加载。
 
 | 环境变量 | 必填 | 说明 |
 |---|---|---|
@@ -69,25 +104,13 @@ cp .env.example .env
 > GARMIN_PASSWORD="my#secret!pass"
 > ```
 
-### 3. 在 Harness 中启用
-
-在 Harness 配置文件中添加插件：
-
-```yaml
-# dsh.config.yml
-plugins:
-  garmin-connect:
-    username: ${GARMIN_USERNAME}   # 自动从环境变量读取
-    # password 和 sessionToken 同样从环境变量自动加载
-    region: cn           # 如果你使用佳明中国
-    cacheTtl: 300
-```
-
 ### 4. 启动
 
 ```bash
-npx @deepseek-ai/dsh web
+npx --legacy-peer-deps=false @deepseek-ai/dsh web
 ```
+
+打开 `http://127.0.0.1:3080`。当 **设置 → 插件 → 插件列表** 中显示 `plugin-garmin-connect` 为 *已挂载、已启用* 时,说明插件已成功加载。然后直接对话:*"我昨晚睡得怎么样?"* 或 *"帮我看一下最近 5 次跑步。"*
 
 ### 5. 集成测试（可选）
 
@@ -177,7 +200,7 @@ npm run test:integration
 ### 凭据解析优先级
 
 ```
-1. 插件配置值（dsh.config.yml 中直接指定的）
+1. 插件配置值（profile patch / --patch 中为该插件行指定的 config）
    ↓ 回退
 2. 环境变量（.env 文件 / Shell 环境）
    ↓ 回退
@@ -235,6 +258,8 @@ GARMIN_SESSION_TOKEN=<导出的令牌>
 │  │  │  • get_garmin_sleep        │  │  │
 │  │  │  • get_garmin_steps        │  │  │
 │  │  │  • get_garmin_heart_rate   │  │  │
+│  │  │  • get_garmin_weight       │  │  │
+│  │  │  • get_garmin_workouts     │  │  │
 │  │  │  • get_garmin_profile      │  │  │
 │  │  │  • export_garmin_session   │  │  │
 │  │  └────────────────────────────┘  │  │
@@ -273,14 +298,38 @@ npm test
 ```
 src/
 ├── index.ts          # 插件入口（Cordis apply 函数）
-├── config.ts         # 配置 Schema，支持环境变量自动解析
+├── config.ts         # 配置 Schema（schemastery），支持环境变量自动解析
 ├── client.ts         # Garmin API 封装，含缓存层
 ├── tools/
-│   └── index.ts      # 工具定义与注册
+│   └── index.ts      # 工具定义与注册（dsh 工具注册契约）
 └── utils/
     ├── cache.ts       # 内存 TTL 缓存
     └── format.ts      # 原始数据 → LLM 友好格式转换器
 ```
+
+---
+
+## 发布与分发
+
+本包是一个标准的 dsh bundle:`package.json` 声明了 `dsh.bundle.patch` → `cordis.patch.yml`,`files` 会带上编译后的 `lib/`、中英 README 和 patch 文件。
+
+```bash
+npm run build   # prepublishOnly 也会自动执行
+npm publish
+```
+
+发布后,用户只需一条命令即可安装:
+
+```bash
+npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
+```
+
+分发说明:
+
+- **npm registry(推荐)** — 包内自带编译好的 `lib/`,安装时无需任何构建授权。
+- **本地源码** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .` 会链接源码目录,先执行 `npm install`。
+- **GitHub 安装** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>` 拉取源码并执行包的 `prepare` 脚本构建(脚本通过 `npx` 自包含地固定 TypeScript 版本);pnpm ≥ 10 默认拒绝执行构建脚本,`dsh` 会打印需要在 profile 的 `pnpm-workspace.yaml` 中填写的 `allowBuilds` 键。
+- 给 GitHub 仓库加上 `dsh-plugin` topic,方便用户发现。
 
 ---
 

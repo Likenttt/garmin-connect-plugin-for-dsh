@@ -28,13 +28,46 @@ This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/dsh) to [
 
 ## Quick Start
 
-### 1. Install
+### 1. Install this plugin — from the npm registry (recommended)
 
 ```bash
-npm install dsh-plugin-garmin-connect
+npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
 ```
 
-### 2. Configure Credentials
+This single command installs the dependency **and** activates the plugin layer — the first run automatically initializes the `web` profile. You only need `pnpm` on your `PATH`:
+
+```bash
+npm install -g pnpm
+```
+
+> `--legacy-peer-deps=false` makes npm resolve peer dependencies normally. If your npm config has `legacy-peer-deps=true` (it skips peer packages), dsh would fail to boot with `ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/cordis-plugin-group'`. On machines without that setting the flag is a harmless no-op.
+
+Verify the plugin layer is composed without booting:
+
+```bash
+npx --legacy-peer-deps=false @deepseek-ai/dsh --profile web --dump-config | grep -A 2 garmin-connect
+```
+
+Other install sources:
+
+```bash
+# Local checkout (development)
+cd dsh-plugin-garmin-connect && npm install
+npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .
+
+# GitHub source install
+npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>
+```
+
+### 2. Install the Harness CLI (if you haven't already)
+
+```bash
+npx --legacy-peer-deps=false @deepseek-ai/dsh web
+```
+
+The web UI starts at `http://127.0.0.1:3080` by default. If you launch Harness via `npx`, keep using the same prefix for the commands below (`npx --legacy-peer-deps=false @deepseek-ai/dsh …`); if you have `dsh` installed globally, you can drop the `npx @deepseek-ai/` prefix.
+
+### 3. Configure Credentials
 
 This plugin **never** stores passwords in config files or logs. Credentials are resolved through environment variables.
 
@@ -44,6 +77,8 @@ cp .env.example .env
 
 # Edit .env and fill in your Garmin credentials
 ```
+
+Put the `.env` file in the directory you run `dsh` from (your workspace root) — the plugin loads it automatically.
 
 | Variable | Required | Description |
 |---|---|---|
@@ -61,27 +96,13 @@ cp .env.example .env
 > GARMIN_PASSWORD="my#secret!pass"
 > ```
 
-### 3. Enable in DeepSeek Harness
-
-Add the plugin to your Harness configuration:
-
-```yaml
-# dsh config (e.g., dsh.config.yml)
-plugins:
-  garmin-connect:
-    username: ${GARMIN_USERNAME}   # resolved from env
-    # password and sessionToken are auto-loaded from env
-    region: global
-    cacheTtl: 300
-```
-
 ### 4. Run
 
 ```bash
-npx @deepseek-ai/dsh web
+npx --legacy-peer-deps=false @deepseek-ai/dsh web
 ```
 
-Then try: *"How was my sleep last night?"* or *"Show me my last 5 runs."*
+Open `http://127.0.0.1:3080`. The plugin is loaded when **Settings → Plugins → Plugin list** shows `plugin-garmin-connect` as *mounted & enabled*. Then try: *"How was my sleep last night?"* or *"Show me my last 5 runs."*
 
 ### 5. Integration Test (optional)
 
@@ -171,7 +192,7 @@ npm run test:integration
 ### Credential Resolution Order
 
 ```
-1. Plugin config values (dsh.config.yml)
+1. Plugin config values (set on the plugin row in a profile patch / `--patch` overlay)
    ↓ fallback
 2. Environment variables (.env / shell)
    ↓ fallback
@@ -275,6 +296,30 @@ src/
     ├── cache.ts       # In-memory TTL cache
     └── format.ts      # Raw-data → LLM-friendly formatters
 ```
+
+---
+
+## Publishing & Distribution
+
+The package is a standard dsh bundle: `package.json` declares `dsh.bundle.patch` → `cordis.patch.yml`, and `files` ships the compiled `lib/`, both READMEs, and the patch file.
+
+```bash
+npm run build   # prepublishOnly also runs this automatically
+npm publish
+```
+
+After publishing, users install with a single command:
+
+```bash
+npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
+```
+
+Distribution notes:
+
+- **npm registry (recommended)** — the tarball ships prebuilt `lib/`, so no build permission is needed at install time.
+- **Local checkout** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .` links the source directory; run `npm install` first.
+- **GitHub installs** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>` fetches sources and runs the package's `prepare` script to build them (self-contained, pinned TypeScript via `npx`); pnpm ≥ 10 refuses to run the script until you allow it — `dsh` prints the exact `allowBuilds` key for the profile's `pnpm-workspace.yaml`.
+- Add the `dsh-plugin` topic to your GitHub repository for discoverability.
 
 ---
 
