@@ -44,12 +44,12 @@ export const Config: Schema<Config> = Schema.object({
 
   password: Schema.string()
     .role('secret')
-    .default(process.env.GARMIN_PASSWORD ?? undefined)
+    .default(process.env.GARMIN_PASSWORD || '')
     .description('Garmin password (prefer session token). Env: GARMIN_PASSWORD'),
 
   sessionToken: Schema.string()
     .role('secret')
-    .default(process.env.GARMIN_SESSION_TOKEN ?? undefined)
+    .default(process.env.GARMIN_SESSION_TOKEN || '')
     .description('Pre-auth session token. Env: GARMIN_SESSION_TOKEN'),
 
   region: Schema.union(['global', 'cn'] as const)

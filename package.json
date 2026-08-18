@@ -9,11 +9,15 @@
     "README.md",
     "README.zh-CN.md"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/dsh-plugin-garmin-connect.git"
+  },
+  "homepage": "https://github.com/your-org/dsh-plugin-garmin-connect#readme",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "lint": "eslint src --ext .ts",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "test": "jest",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -30,7 +34,7 @@
   "author": "",
   "license": "MIT",
   "peerDependencies": {
-    "cordis": "^4.0.0"
+    "cordis": "^3.18.0 || >=4.0.0-rc.0"
   },
   "dependencies": {
     "garmin-connect": "^1.6.0",
@@ -38,7 +42,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "cordis": "^4.0.0",
+    "cordis": "^3.18.1",
     "typescript": "^5.6.0",
     "eslint": "^9.0.0",
     "jest": "^29.7.0",

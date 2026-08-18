@@ -19,6 +19,8 @@ export interface FormattedActivity {
   maxHeartRate: number | null
   averagePaceMinPerKm: number | null
   calories: number | null
+  elevationGainMeters: number | null
+  averageCadence: number | null
 }
 
 export function formatActivity(raw: Record<string, unknown>): FormattedActivity {
@@ -38,6 +40,8 @@ export function formatActivity(raw: Record<string, unknown>): FormattedActivity 
       ? Math.round((duration / 60) / (distance / 1000) * 100) / 100
       : null,
     calories: (raw.calories as number) ?? null,
+    elevationGainMeters: (raw.elevationGain as number) ?? null,
+    averageCadence: (raw.averageRunningCadenceInStepsPerMinute as number) ?? null,
   }
 }
 
@@ -76,6 +80,7 @@ export interface FormattedSteps {
   totalSteps: number
   goal: number
   distanceMeters: number
+  highlyActiveSeconds: number | null
 }
 
 export function formatSteps(raw: Record<string, unknown>): FormattedSteps {
@@ -84,6 +89,7 @@ export function formatSteps(raw: Record<string, unknown>): FormattedSteps {
     totalSteps: (raw.totalSteps as number) ?? 0,
     goal: (raw.stepGoal as number) ?? 0,
     distanceMeters: (raw.totalDistance as number) ?? 0,
+    highlyActiveSeconds: (raw.highlyActiveSeconds as number) ?? null,
   }
 }
 
@@ -102,5 +108,67 @@ export function formatHeartRate(raw: Record<string, unknown>): FormattedHeartRat
     restingHR: (raw.restingHeartRate as number) ?? null,
     maxHR: (raw.maxHeartRate as number) ?? null,
     minHR: (raw.minHeartRate as number) ?? null,
+  }
+}
+
+// ---- Weight ----
+
+export interface FormattedWeight {
+  date: string
+  weightKg: number | null
+  bmi: number | null
+  bodyFatPercentage: number | null
+  muscleMassKg: number | null
+  waterPercentage: number | null
+  boneMassKg: number | null
+}
+
+export function formatWeight(raw: Record<string, unknown>): FormattedWeight {
+  // raw.date contains the timestamp in ms, raw.weight contains the weight in grams
+  const kg = (raw.weight as number) ? (raw.weight as number) / 1000 : null
+  const muscleMassKg = (raw.muscleMass as number) ? (raw.muscleMass as number) / 1000 : null
+  const boneMassKg = (raw.boneMass as number) ? (raw.boneMass as number) / 1000 : null
+
+  // Garmin usually provides date as timestamp or calendarDate
+  const d = new Date(raw.date as number)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+
+  return {
+    date: `${y}-${m}-${day}`,
+    weightKg: kg ? Math.round(kg * 100) / 100 : null,
+    bmi: (raw.bmi as number) ?? null,
+    bodyFatPercentage: (raw.bodyFat as number) ?? null,
+    muscleMassKg: muscleMassKg ? Math.round(muscleMassKg * 100) / 100 : null,
+    waterPercentage: (raw.bodyWater as number) ?? null,
+    boneMassKg: boneMassKg ? Math.round(boneMassKg * 100) / 100 : null,
+  }
+}
+
+// ---- Workouts (Calendar) ----
+
+export interface FormattedWorkout {
+  id: number | string
+  name: string
+  description: string
+  sportType: string
+  createdDate: string
+  estimatedDurationMins: number | null
+  estimatedDistanceMeters: number | null
+}
+
+export function formatWorkout(raw: Record<string, unknown>): FormattedWorkout {
+  const sport = raw.sportType as Record<string, string>
+  return {
+    id: (raw.workoutId as number | string) ?? '',
+    name: (raw.workoutName as string) ?? 'Unnamed',
+    description: (raw.description as string) ?? '',
+    sportType: sport?.sportTypeKey ?? 'unknown',
+    createdDate: (raw.createdDate as string) ?? '',
+    estimatedDurationMins: raw.estimatedDurationInSecs
+      ? Math.round((raw.estimatedDurationInSecs as number) / 60)
+      : null,
+    estimatedDistanceMeters: (raw.estimatedDistanceInMeters as number) ?? null,
   }
 }

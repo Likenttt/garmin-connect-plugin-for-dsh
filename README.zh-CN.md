@@ -21,14 +21,16 @@
 
 ### 注册的工具
 
-| 工具名 | 用途 |
-|---|---|
-| `get_garmin_activities` | 获取近期运动记录（跑步、骑行、游泳等），含配速、心率、卡路里 |
-| `get_garmin_sleep` | 获取睡眠数据：睡眠评分、总时长、深睡/浅睡/REM 分段 |
-| `get_garmin_steps` | 获取每日步数、目标完成度、步行距离 |
-| `get_garmin_heart_rate` | 获取静息心率、最高/最低心率 |
-| `get_garmin_profile` | 获取用户资料概览 |
-| `export_garmin_session` | 导出会话令牌，后续登录无需密码 |
+| 工具名 | 用途 | 参数示例 |
+|---|---|---|
+| `get_garmin_activities` | 获取近期运动记录（跑步、骑行、游泳等），含配速、心率、卡路里 | |
+| `get_garmin_sleep` | 获取睡眠数据：睡眠评分、总时长、深睡/浅睡/REM 分段 | |
+| `get_garmin_steps` | 获取每日步数、目标完成度、步行距离 | |
+| `get_garmin_heart_rate` | 查询心率（静息心率、最高心率、最低心率） | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
+| `get_garmin_weight`     | 查询身体成分（体重、BMI、体脂率、骨骼肌等） | `{"startDate": "2023-10-01"}` |
+| `get_garmin_workouts`   | 查询近期日历计划中的训练课表 | `{"limit": 10, "offset": 0}` |
+| `get_garmin_profile`    | 获取个人的基础统计和勋章汇总 | `null` |
+| `export_garmin_session` | 导出用于 `.env` 鉴权的持久化 Token | `null` |
 
 ---
 
@@ -200,9 +202,9 @@ src/
 
 ## 路线图
 
-- [ ] **身体成分** — 体重、BMI、体脂率
+- [x] **身体成分** — 体重、BMI、体脂率
+- [x] **Garmin 日历** — 计划中的训练课表
 - [ ] **训练状态** — VO2 Max、训练负荷、恢复时间
-- [ ] **Garmin 日历** — 计划中的训练，与日程插件联动
 - [ ] **Webhook 推送** — 活动上传实时通知
 - [ ] **多账号支持** — 一个 Harness 会话管理多个 Garmin 账号
 - [ ] **OAuth 2.0** — 等待 Garmin 开放个人用途的官方 API 后迁移
