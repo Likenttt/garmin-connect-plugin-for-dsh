@@ -13,12 +13,12 @@
 
 | 图标 | 应用 | 一句话介绍 |
 |---|---|---|
-| [![GameraSnap](https://gamerasnap.com/static/images/appicon.png)](https://gamerasnap.com) | [GameraSnap](https://gamerasnap.com) | 用佳明手表远程控制手机拍照/录像 |
-| [![WristAlbum](https://wristalbum.wristtale.com/app-icon.svg)](https://wristalbum.wristtale.com) | [WristAlbum](https://wristalbum.wristtale.com) | 在佳明手表上保存私人照片相册 |
-| [![WristTale](https://wristtale.com/static/favicons/apple-touch-icon.png)](https://wristtale.com) | [WristTale](https://wristtale.com) | 在手表上阅读 TXT 和 Markdown 电子书 |
-| [![WristPass](https://wristpass.li2niu.com/static/favicons/apple-touch-icon.png)](https://wristpass.li2niu.com) | [WristPass](https://wristpass.li2niu.com) | 把会员卡、票券装进手腕,随时出示 |
-| [![2FA4G](https://2fa4g.li2niu.com/static/branding/app-icon.png)](https://2fa4g.li2niu.com) | [2FA4G](https://2fa4g.li2niu.com) | 在佳明手表上保存离线两步验证码 |
-| [![JiaKe.app](https://jiake.app/app-icon.png)](https://jiake.app) | [JiaKe.app](https://jiake.app) | 把 Garmin 截图做成精美宣传图 |
+| [<img src="https://gamerasnap.com/static/images/appicon.png" width="48" height="48" alt="GameraSnap" />](https://gamerasnap.com) | [GameraSnap](https://gamerasnap.com) | 用佳明手表远程控制手机拍照/录像 |
+| [<img src="https://wristalbum.wristtale.com/app-icon.svg" width="48" height="48" alt="WristAlbum" />](https://wristalbum.wristtale.com) | [WristAlbum](https://wristalbum.wristtale.com) | 在佳明手表上保存私人照片相册 |
+| [<img src="https://wristtale.com/static/favicons/apple-touch-icon.png" width="48" height="48" alt="WristTale" />](https://wristtale.com) | [WristTale](https://wristtale.com) | 在手表上阅读 TXT 和 Markdown 电子书 |
+| [<img src="https://wristpass.li2niu.com/static/favicons/apple-touch-icon.png" width="48" height="48" alt="WristPass" />](https://wristpass.li2niu.com) | [WristPass](https://wristpass.li2niu.com) | 把会员卡、票券装进手腕,随时出示 |
+| [<img src="https://2fa4g.li2niu.com/static/branding/app-icon.png" width="48" height="48" alt="2FA4G" />](https://2fa4g.li2niu.com) | [2FA4G](https://2fa4g.li2niu.com) | 在佳明手表上保存离线两步验证码 |
+| [<img src="https://jiake.app/app-icon.png" width="48" height="48" alt="JiaKe.app" />](https://jiake.app) | [JiaKe.app](https://jiake.app) | 把 Garmin 截图做成精美宣传图 |
 
 ---
 
