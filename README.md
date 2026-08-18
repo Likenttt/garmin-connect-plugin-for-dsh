@@ -13,14 +13,16 @@ This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/dsh) to [
 
 ### Registered Tools
 
-| Tool | Description |
-|---|---|
-| `get_garmin_activities` | Fetch recent activities (runs, rides, swims…) with pace, HR, calories |
-| `get_garmin_sleep` | Sleep score, duration, and stage breakdown (deep / light / REM) |
-| `get_garmin_steps` | Daily step count, goal progress, and walking distance |
-| `get_garmin_heart_rate` | Resting, max, and min heart rate for a given day |
-| `get_garmin_profile` | User profile summary |
-| `export_garmin_session` | Export a session token for password-free future logins |
+| Tool | Description | Example Args |
+|---|---|---|
+| `get_garmin_activities` | Fetch recent activities (runs, rides, swims…) with pace, HR, calories | |
+| `get_garmin_sleep` | Sleep score, duration, and stage breakdown (deep / light / REM) | |
+| `get_garmin_steps` | Daily step count, goal progress, and walking distance | |
+| `get_garmin_heart_rate` | Resting, max, and min heart rate for a given day | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
+| `get_garmin_weight` | Body composition (weight, BMI, body fat %, muscle mass, etc.) | `{"startDate": "2023-10-01"}` |
+| `get_garmin_workouts` | Planned workouts from your Garmin calendar | `{"limit": 10, "offset": 0}` |
+| `get_garmin_profile` | User profile summary | `null` |
+| `export_garmin_session` | Export a session token for password-free future logins | `null` |
 
 ---
 
@@ -53,6 +55,11 @@ cp .env.example .env
 | `GARMIN_LOG_LEVEL` | ❌ | `debug` \| `info` \| `warn` \| `error` |
 
 > \* You need **either** `GARMIN_PASSWORD` or `GARMIN_SESSION_TOKEN`, not both.
+>
+> ⚠️ If your password contains `#` or other special characters, wrap it in **double quotes** — otherwise `#` and everything after it will be treated as a comment:
+> ```
+> GARMIN_PASSWORD="my#secret!pass"
+> ```
 
 ### 3. Enable in DeepSeek Harness
 
@@ -75,6 +82,85 @@ npx @deepseek-ai/dsh web
 ```
 
 Then try: *"How was my sleep last night?"* or *"Show me my last 5 runs."*
+
+### 5. Integration Test (optional)
+
+After configuring `.env`, you can run the integration test to verify all API connections:
+
+```bash
+npm run test:integration
+```
+
+<details>
+<summary>📋 Click to expand sample output</summary>
+
+```
+🔌 Garmin Connect Integration Test
+   Domain : garmin.com
+   User   : your-email@example.com
+   Date   : 2026-08-18
+
+── 1. Login ──
+  ✅ Login successful
+
+── 2. Activities ──
+  ✅ Got 3 activities
+{
+  "id": 23998327113,
+  "name": "Wuhan Running",
+  "type": "running",
+  "startTime": "2026-08-16 19:33:05",
+  "distanceMeters": 10017.73,
+  "durationSeconds": 3965,
+  "averageHeartRate": 145,
+  "maxHeartRate": 180,
+  "averagePaceMinPerKm": 6.6,
+  "calories": 656,
+  "elevationGainMeters": 4,
+  "averageCadence": 141.78
+}
+
+── 3. Sleep ──
+  ✅ Sleep score: 82, duration: 7.5h
+
+── 4. Steps ──
+  ✅ Steps: {
+  "date": "2026-08-18",
+  "totalSteps": 8523,
+  "goal": 10000,
+  "distanceMeters": 6120,
+  "highlyActiveSeconds": 1800
+}
+
+── 5. Heart Rate ──
+  ✅ Resting HR: 42, Max: 98
+
+── 6. Weight / Body Composition ──
+  ✅ Weight: 70.5 kg, BMI: 22.3, Body Fat: 15.2%
+
+── 7. Workouts / Calendar ──
+  ✅ Got 5 planned workouts
+{
+  "id": 1422905279,
+  "name": "跃升之阶",
+  "description": "",
+  "sportType": "running",
+  "createdDate": "2025-12-28T19:28:56.0",
+  "estimatedDurationMins": 94,
+  "estimatedDistanceMeters": null
+}
+
+── 8. User Profile ──
+  ✅ Profile: loaded
+
+── 9. Export Session Token ──
+  ✅ Token exported (oauth1 key: ********…)
+   💡 To use token-based auth, save the full JSON to GARMIN_SESSION_TOKEN in .env
+
+🏁 Integration test complete.
+```
+
+</details>
 
 ---
 
@@ -141,6 +227,8 @@ GARMIN_SESSION_TOKEN=<the-token>
 │  │  │  • get_garmin_sleep        │  │  │
 │  │  │  • get_garmin_steps        │  │  │
 │  │  │  • get_garmin_heart_rate   │  │  │
+│  │  │  • get_garmin_weight       │  │  │
+│  │  │  • get_garmin_workouts     │  │  │
 │  │  │  • get_garmin_profile      │  │  │
 │  │  │  • export_garmin_session   │  │  │
 │  │  └────────────────────────────┘  │  │
@@ -160,7 +248,7 @@ GARMIN_SESSION_TOKEN=<the-token>
 
 ```bash
 # Clone & install
-git clone https://github.com/your-org/dsh-plugin-garmin-connect.git
+git clone https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
 cd dsh-plugin-garmin-connect
 npm install
 
@@ -192,9 +280,9 @@ src/
 
 ## Roadmap
 
-- [ ] **Body Composition** — weight, BMI, body fat %
+- [x] **Body Composition** — weight, BMI, body fat %
+- [x] **Garmin Calendar** — planned workouts
 - [ ] **Training Status** — VO2 Max, training load, recovery time
-- [ ] **Garmin Calendar** — planned workouts, sync with scheduling plugins
 - [ ] **Webhook / Push** — real-time activity upload notifications
 - [ ] **Multi-account** — support multiple Garmin accounts in one Harness session
 - [ ] **OAuth 2.0** — migrate to official Garmin API when available for personal use
