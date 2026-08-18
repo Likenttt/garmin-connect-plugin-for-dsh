@@ -7,6 +7,19 @@
 
 ---
 
+## More Apps
+
+| Icon | App | What it does |
+|---|---|---|
+| [![GameraSnap](https://gamerasnap.com/static/images/appicon.png)](https://gamerasnap.com) | [GameraSnap](https://gamerasnap.com) | Control your phone camera from your Garmin watch |
+| [![WristAlbum](https://wristalbum.wristtale.com/app-icon.svg)](https://wristalbum.wristtale.com) | [WristAlbum](https://wristalbum.wristtale.com) | Keep a private photo album on your Garmin |
+| [![WristTale](https://wristtale.com/static/favicons/apple-touch-icon.png)](https://wristtale.com) | [WristTale](https://wristtale.com) | Read TXT and Markdown on your Garmin watch |
+| [![WristPass](https://wristpass.li2niu.com/static/favicons/apple-touch-icon.png)](https://wristpass.li2niu.com) | [WristPass](https://wristpass.li2niu.com) | Keep cards and tickets ready on your wrist |
+| [![2FA4G](https://2fa4g.li2niu.com/static/branding/app-icon.png)](https://2fa4g.li2niu.com) | [2FA4G](https://2fa4g.li2niu.com) | Keep offline 2FA codes on your Garmin |
+| [![JiaKe.app](https://jiake.app/app-icon.png)](https://jiake.app) | [JiaKe.app](https://jiake.app) | Turn Garmin screenshots into polished assets |
+
+---
+
 ## What It Does
 
 This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/dsh) to [Garmin Connect](https://connect.garmin.com/), exposing your wearable data as **AI-callable tools**. Once installed, the DeepSeek agent can automatically query your activities, sleep, steps, and heart rate to provide personalized fitness insights — all through natural language.

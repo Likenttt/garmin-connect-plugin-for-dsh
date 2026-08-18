@@ -9,6 +9,19 @@
 
 ---
 
+## 我的更多应用
+
+| 图标 | 应用 | 一句话介绍 |
+|---|---|---|
+| [![GameraSnap](https://gamerasnap.com/static/images/appicon.png)](https://gamerasnap.com) | [GameraSnap](https://gamerasnap.com) | 用佳明手表远程控制手机拍照/录像 |
+| [![WristAlbum](https://wristalbum.wristtale.com/app-icon.svg)](https://wristalbum.wristtale.com) | [WristAlbum](https://wristalbum.wristtale.com) | 在佳明手表上保存私人照片相册 |
+| [![WristTale](https://wristtale.com/static/favicons/apple-touch-icon.png)](https://wristtale.com) | [WristTale](https://wristtale.com) | 在手表上阅读 TXT 和 Markdown 电子书 |
+| [![WristPass](https://wristpass.li2niu.com/static/favicons/apple-touch-icon.png)](https://wristpass.li2niu.com) | [WristPass](https://wristpass.li2niu.com) | 把会员卡、票券装进手腕,随时出示 |
+| [![2FA4G](https://2fa4g.li2niu.com/static/branding/app-icon.png)](https://2fa4g.li2niu.com) | [2FA4G](https://2fa4g.li2niu.com) | 在佳明手表上保存离线两步验证码 |
+| [![JiaKe.app](https://jiake.app/app-icon.png)](https://jiake.app) | [JiaKe.app](https://jiake.app) | 把 Garmin 截图做成精美宣传图 |
+
+---
+
 ## 这个插件做什么？
 
 安装本插件后，DeepSeek Harness 的 AI 代理可以通过自然语言**自动调用** Garmin Connect 数据。你只需要说一句话，比如：
