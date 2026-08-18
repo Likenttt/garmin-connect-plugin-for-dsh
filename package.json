@@ -11,13 +11,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/dsh-plugin-garmin-connect.git"
+    "url": "https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git"
   },
-  "homepage": "https://github.com/your-org/dsh-plugin-garmin-connect#readme",
+  "homepage": "https://github.com/Likenttt/garmin-connect-plugin-for-dsh#readme",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "jest",
+    "test:integration": "npx tsx scripts/integration-test.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
