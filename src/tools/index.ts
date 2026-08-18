@@ -1,5 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { GarminClient } from '../client'
+import type { Config } from '../config'
 import {
   formatActivity,
   formatSleep,
@@ -8,6 +9,7 @@ import {
   formatWeight,
   formatWorkout,
 } from '../utils/format'
+import type { ActivityDetail } from '../utils/format'
 
 /**
  * Register all Garmin-related tools with the DeepSeek Harness tool registry.
@@ -17,7 +19,7 @@ import {
  *   - `output` declares a JSON Schema plus a `render` callback that turns the
  *     execution result into text content blocks for the UI / trajectory.
  */
-export function registerTools(ctx: Context, client: GarminClient): void {
+export function registerTools(ctx: Context, client: GarminClient, config: Config): void {
   const tools = (ctx as any).tools
 
   // ------------------------------------------------------------------
@@ -27,7 +29,8 @@ export function registerTools(ctx: Context, client: GarminClient): void {
     name: 'get_garmin_activities',
     description:
       'Retrieve the user\'s recent Garmin fitness activities (runs, rides, swims, hikes, etc.). ' +
-      'Returns a list of activities with distance, duration, pace, heart rate, and calories. ' +
+      'Returns activities with distance, duration, pace, heart rate, and calories by default. ' +
+      'Pass detail="full" when the user asks for complete data (all raw Garmin fields). ' +
       'Example user query: "Show me my last 5 runs"',
     parameters: {
       type: 'object',
@@ -40,15 +43,21 @@ export function registerTools(ctx: Context, client: GarminClient): void {
           type: 'integer',
           description: 'Pagination offset. 0 = most recent.',
         },
+        detail: {
+          type: 'string',
+          enum: ['compact', 'full'],
+          description: 'compact (default) returns curated fields to save context; full returns every raw Garmin field.',
+        },
       },
     },
     output: flexibleOutput,
-    execute: async (args: { limit?: number; offset?: number }) => {
+    execute: async (args: { limit?: number; offset?: number; detail?: string }) => {
       try {
         const limit = Math.min(Math.max(args.limit ?? 5, 1), 100)
         const offset = Math.max(args.offset ?? 0, 0)
+        const detail: ActivityDetail = (args.detail ?? config.activityDetail) === 'full' ? 'full' : 'compact'
         const raw = await client.getActivities(offset, limit)
-        return (raw as Record<string, unknown>[]).map(formatActivity)
+        return (raw as Record<string, unknown>[]).map(a => formatActivity(a, detail))
       } catch (err: any) {
         return { error: true, message: err.message || 'Failed to fetch activities' }
       }

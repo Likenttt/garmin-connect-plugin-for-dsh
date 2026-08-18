@@ -24,6 +24,8 @@ export interface Config {
   cacheTtl: number
   /** Logging verbosity */
   logLevel: 'debug' | 'info' | 'warn' | 'error'
+  /** Default detail level for get_garmin_activities: compact (curated, saves context) or full (all raw fields) */
+  activityDetail: 'compact' | 'full'
 }
 
 /**
@@ -63,4 +65,8 @@ export const Config = z.object({
   logLevel: z.union(['debug', 'info', 'warn', 'error'] as const)
     .default((process.env.GARMIN_LOG_LEVEL as Config['logLevel']) ?? 'info')
     .description('Log verbosity. Env: GARMIN_LOG_LEVEL'),
+
+  activityDetail: z.union(['compact', 'full'] as const)
+    .default((process.env.GARMIN_ACTIVITY_DETAIL as Config['activityDetail']) ?? 'compact')
+    .description('Default detail for get_garmin_activities: compact (curated fields, saves context) or full (all raw fields). Env: GARMIN_ACTIVITY_DETAIL'),
 })

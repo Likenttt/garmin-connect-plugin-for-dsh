@@ -16,5 +16,5 @@ export function apply(ctx: Context, config: Config) {
   void client.connect().catch(() => {})
 
   // Register all AI-callable tools
-  registerTools(ctx, client)
+  registerTools(ctx, client, config)
 }

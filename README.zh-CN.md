@@ -96,6 +96,7 @@ cp .env.example .env
 | `GARMIN_REGION` | ❌ | `global`（默认，国际版）或 `cn`（佳明中国） |
 | `GARMIN_CACHE_TTL` | ❌ | 缓存有效期，单位秒（默认 `300`） |
 | `GARMIN_LOG_LEVEL` | ❌ | 日志级别：`debug` \| `info` \| `warn` \| `error` |
+| `GARMIN_ACTIVITY_DETAIL` | ❌ | `get_garmin_activities` 的默认详情级别：`compact`（默认，精选字段，节省上下文）或 `full`（全部原始字段） |
 
 > \* `GARMIN_PASSWORD` 和 `GARMIN_SESSION_TOKEN` 二选一即可。
 >

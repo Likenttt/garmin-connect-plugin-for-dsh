@@ -2,7 +2,44 @@ import { formatActivity, formatSleep, formatSteps, formatHeartRate, formatWeight
 
 describe('Format Utils', () => {
   describe('formatActivity', () => {
-    it('should format full data correctly and preserve raw fields', () => {
+    it('should return a compact curated subset by default', () => {
+      const raw = {
+        activityId: 123,
+        activityName: 'Morning Run',
+        activityType: { typeKey: 'running' },
+        eventType: { typeKey: 'race' },
+        startTimeLocal: '2023-10-01T07:00:00',
+        distance: 5000.123,
+        duration: 1800,
+        averageHR: 150,
+        maxHR: 180,
+        calories: 300,
+        elevationGain: 50.5,
+        averageRunningCadenceInStepsPerMinute: 165,
+        steps: 4321
+      }
+
+      const formatted = formatActivity(raw)
+      expect(formatted).toEqual({
+        id: 123,
+        name: 'Morning Run',
+        type: 'running',
+        startTime: '2023-10-01T07:00:00',
+        distanceMeters: 5000.12,
+        durationSeconds: 1800,
+        averageHeartRate: 150,
+        maxHeartRate: 180,
+        averagePaceMinPerKm: 6,
+        calories: 300,
+        elevationGainMeters: 50.5,
+        averageCadence: 165
+      })
+      // compact mode filters out raw passthrough fields
+      expect(formatted.steps).toBeUndefined()
+      expect(formatted.eventType).toBeUndefined()
+    })
+
+    it('should return every raw field with detail="full"', () => {
       const raw = {
         activityId: 123,
         activityName: 'Morning Run',
@@ -26,7 +63,7 @@ describe('Format Utils', () => {
         locationName: 'Riverside'
       }
 
-      const formatted = formatActivity(raw)
+      const formatted = formatActivity(raw, 'full')
       expect(formatted).toMatchObject({
         id: 123,
         name: 'Morning Run',

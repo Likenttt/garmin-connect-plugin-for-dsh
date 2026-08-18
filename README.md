@@ -88,6 +88,7 @@ Put the `.env` file in the directory you run `dsh` from (your workspace root) �
 | `GARMIN_REGION` | ❌ | `global` (default) or `cn` for Garmin China |
 | `GARMIN_CACHE_TTL` | ❌ | Cache duration in seconds (default: `300`) |
 | `GARMIN_LOG_LEVEL` | ❌ | `debug` \| `info` \| `warn` \| `error` |
+| `GARMIN_ACTIVITY_DETAIL` | ❌ | Default detail for `get_garmin_activities`: `compact` (default, curated fields, saves context) or `full` (all raw Garmin fields) |
 
 > \* You need **either** `GARMIN_PASSWORD` or `GARMIN_SESSION_TOKEN`, not both.
 >

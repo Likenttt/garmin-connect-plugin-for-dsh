@@ -5,7 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
-- `formatActivity` no longer filters the raw Garmin activity payload: every raw field is preserved, with normalized convenience fields (pace, speeds, durations, heart rate, cadence, elevation) layered on top.
+- `formatActivity` now supports a `compact` / `full` detail switch: `compact` (default) returns the curated subset to save context tokens, while `full` returns every raw Garmin field with normalized convenience fields (pace, speeds, durations, heart rate, cadence, elevation) layered on top.
+- `get_garmin_activities` accepts a per-call `detail` argument (`compact` | `full`), defaulting to the new `GARMIN_ACTIVITY_DETAIL` config (`compact`).
 
 ## [0.1.1] - 2026-08-19
 

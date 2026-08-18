@@ -9,32 +9,74 @@
 // ---- Activity ----
 
 /**
- * Formatted activity. Every raw Garmin field is preserved (see `raw` keys),
- * with the normalized convenience fields below layered on top.
+ * Formatted activity. The required fields exist in both modes; the optional
+ * normalized fields below are present only in `full` detail mode.
  */
 export interface FormattedActivity extends Record<string, unknown> {
   id: number | string
   name: string
   type: string
-  eventType: string | null
   startTime: string
   distanceMeters: number
   durationSeconds: number
-  elapsedDurationSeconds: number | null
-  movingDurationSeconds: number | null
-  averageSpeedMps: number | null
-  maxSpeedMps: number | null
   averagePaceMinPerKm: number | null
-  maxPaceMinPerKm: number | null
   averageHeartRate: number | null
   maxHeartRate: number | null
   calories: number | null
   elevationGainMeters: number | null
-  elevationLossMeters: number | null
   averageCadence: number | null
+  /** Present only in `full` detail mode. */
+  eventType?: string | null
+  elapsedDurationSeconds?: number | null
+  movingDurationSeconds?: number | null
+  averageSpeedMps?: number | null
+  maxSpeedMps?: number | null
+  maxPaceMinPerKm?: number | null
+  elevationLossMeters?: number | null
 }
 
-export function formatActivity(raw: Record<string, unknown>): FormattedActivity {
+export type ActivityDetail = 'compact' | 'full'
+
+/**
+ * Format an activity.
+ *
+ * `compact` (default) returns a curated subset of the most useful metrics to
+ * save context tokens. `full` returns every raw Garmin field with the
+ * normalized convenience fields layered on top — request it explicitly when
+ * the user needs the complete dataset.
+ */
+export function formatActivity(
+  raw: Record<string, unknown>,
+  detail: ActivityDetail = 'compact',
+): FormattedActivity {
+  return detail === 'full' ? fullActivity(raw) : compactActivity(raw)
+}
+
+/** Curated subset — keeps tool output small and readable. */
+function compactActivity(raw: Record<string, unknown>): FormattedActivity {
+  const distance = Number(raw.distance) || 0
+  const duration = Number(raw.duration) || 0
+
+  return {
+    id: (raw.activityId as number | string) ?? '',
+    name: (raw.activityName as string) ?? 'Unnamed',
+    type: (raw.activityType as Record<string, unknown>)?.typeKey as string ?? 'unknown',
+    startTime: (raw.startTimeLocal as string) ?? '',
+    distanceMeters: Math.round(distance * 100) / 100,
+    durationSeconds: Math.round(duration),
+    averageHeartRate: numOrNull(raw.averageHR),
+    maxHeartRate: numOrNull(raw.maxHR),
+    averagePaceMinPerKm: distance > 0
+      ? round2((duration / 60) / (distance / 1000))
+      : null,
+    calories: numOrNull(raw.calories),
+    elevationGainMeters: numOrNull(raw.elevationGain),
+    averageCadence: numOrNull(raw.averageRunningCadenceInStepsPerMinute),
+  }
+}
+
+/** Full detail — no filtering; every raw field plus normalized conveniences. */
+function fullActivity(raw: Record<string, unknown>): FormattedActivity {
   const distance = Number(raw.distance) || 0
   const duration = Number(raw.duration) || 0
   const maxSpeed = Number(raw.maxSpeed) || 0
