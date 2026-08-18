@@ -10,7 +10,7 @@
  */
 
 import 'dotenv/config'
-import GarminConnect from 'garmin-connect'
+import { GarminConnect } from 'garmin-connect'
 import {
   formatActivity,
   formatSleep,
