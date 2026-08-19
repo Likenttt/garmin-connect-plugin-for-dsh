@@ -433,6 +433,11 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugi
 - [x] **跑步教练** — 8 大核心跑步训练技能知识库
 - [ ] **训练状态** — VO2 Max、训练负荷、恢复时间
 - [ ] **多账号同步** — 在中国区 ↔ 国际版账号之间同步运动数据
+  - [ ] `list_garmin_accounts` — 列出已配置的账号及连接状态
+  - [ ] `compare_garmin_accounts` — 比对两个账号的活动差异（按时间+距离+类型模糊匹配）
+  - [ ] `sync_garmin_activity` — 从源账号下载 FIT 文件 → 上传到目标账号
+  - [ ] 去重检测 — 跳过目标账号中已存在的活动
+  - [ ] 环境变量：`GARMIN_USERNAME_2` / `GARMIN_PASSWORD_2` / `GARMIN_REGION_2`（完全向后兼容）
 - [ ] **Webhook 推送** — 活动上传实时通知
 - [ ] **OAuth 2.0** — 等待 Garmin 开放个人用途的官方 API 后迁移
 

@@ -423,6 +423,11 @@ Distribution notes:
 - [x] **Running Coach** — 8-skill training knowledge base
 - [ ] **Training Status** — VO2 Max, training load, recovery time
 - [ ] **Multi-account Sync** — sync activities between CN ↔ Global accounts
+  - [ ] `list_garmin_accounts` — list configured accounts with connection status
+  - [ ] `compare_garmin_accounts` — diff activities across two accounts (fuzzy match by time + distance + type)
+  - [ ] `sync_garmin_activity` — download FIT from source account → upload to target account
+  - [ ] Duplicate detection — skip activities that already exist in the target
+  - [ ] Env vars: `GARMIN_USERNAME_2` / `GARMIN_PASSWORD_2` / `GARMIN_REGION_2` (fully backward-compatible)
 - [ ] **Webhook / Push** — real-time activity upload notifications
 - [ ] **OAuth 2.0** — migrate to official Garmin API when available for personal use
 
