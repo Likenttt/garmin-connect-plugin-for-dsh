@@ -150,6 +150,17 @@ export class GarminClient {
     })
   }
 
+  /** Create a workout in Garmin Connect. Returns the created workout object. */
+  async addWorkout(workout: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.withRetry(async () => {
+      const result = await (this.gc as any).addWorkout(workout)
+      // Invalidate workout list cache since we just added one
+      this.cache.invalidatePrefix('workouts:')
+      this.ctx.logger.info(`[garmin] ✅ Created workout: ${workout.workoutName}`)
+      return result as Record<string, unknown>
+    })
+  }
+
   /** Return user profile summary. */
   async getUserProfile(): Promise<unknown> {
     return this.withRetry(() => {

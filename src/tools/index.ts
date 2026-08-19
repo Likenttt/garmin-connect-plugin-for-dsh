@@ -11,6 +11,8 @@ import {
 } from '../utils/format'
 import type { ActivityDetail } from '../utils/format'
 import { findSkills, formatSkillCard } from '../knowledge/running-skills'
+import { buildGarminWorkout, validateWorkoutDef } from '../knowledge/workout-schema'
+import type { WorkoutDef } from '../knowledge/workout-schema'
 
 /**
  * Register all Garmin-related tools with the DeepSeek Harness tool registry.
@@ -336,7 +338,134 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
     },
   })
 
-  ctx.logger.info(`[garmin] Registered ${9} tools.`)
+  // ------------------------------------------------------------------
+  // 10. create_garmin_workout
+  // ------------------------------------------------------------------
+  tools.register({
+    name: 'create_garmin_workout',
+    description:
+      'Create a structured workout in Garmin Connect that automatically syncs to the user\'s watch. ' +
+      'Supports warmup, interval, recovery, cooldown, rest steps with pace/HR targets, and repeat groups. ' +
+      'After creation, the workout appears in the user\'s Garmin Connect workout library and syncs ' +
+      'to the watch via Bluetooth/Wi-Fi. ' +
+      'IMPORTANT: Use this tool AFTER consulting get_running_skill_advice and/or recent activities ' +
+      'to create a personalized, science-based training plan. ' +
+      'Example: user says "帮我创建一个门槛跑训练" or "Create a 10K race-pace workout". ' +
+      'Step format guide: ' +
+      'type: warmup|interval|recovery|cooldown|rest|repeat. ' +
+      'endCondition: distance (endValue in meters), time (endValue in seconds), or lapButton. ' +
+      'target: open (free run), pace (set paceFrom/paceTo as "mm:ss" per km), heartRate (set hrFrom/hrTo in bpm). ' +
+      'For repeat groups: set iterations and nest sub-steps in steps array.',
+    parameters: {
+      type: 'object',
+      required: ['name', 'steps'],
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Workout name shown on the watch, e.g. "周二·轻松跑6km"',
+        },
+        description: {
+          type: 'string',
+          description: 'Coaching notes (shown in Garmin Connect app)',
+        },
+        sport: {
+          type: 'string',
+          enum: ['running', 'cycling', 'swimming', 'strength', 'other'],
+          description: 'Sport type (default: running)',
+        },
+        steps: {
+          type: 'array',
+          description: 'Ordered workout steps',
+          items: {
+            type: 'object',
+            properties: {
+              type: {
+                type: 'string',
+                enum: ['warmup', 'interval', 'recovery', 'cooldown', 'rest', 'repeat'],
+                description: 'Step type. Use "repeat" for interval groups.',
+              },
+              description: {
+                type: 'string',
+                description: 'Short label shown on the watch (≤20 chars)',
+              },
+              endCondition: {
+                type: 'string',
+                enum: ['distance', 'time', 'lapButton'],
+                description: 'How this step ends',
+              },
+              endValue: {
+                type: 'number',
+                description: 'Meters for distance, seconds for time. Not needed for lapButton.',
+              },
+              target: {
+                type: 'string',
+                enum: ['open', 'pace', 'heartRate'],
+                description: 'Target type (default: open)',
+              },
+              paceFrom: {
+                type: 'string',
+                description: 'Faster pace "mm:ss" per km, e.g. "5:00". Required when target=pace.',
+              },
+              paceTo: {
+                type: 'string',
+                description: 'Slower pace "mm:ss" per km, e.g. "5:15". Required when target=pace.',
+              },
+              hrFrom: {
+                type: 'integer',
+                description: 'Lower HR bound in bpm. Required when target=heartRate.',
+              },
+              hrTo: {
+                type: 'integer',
+                description: 'Upper HR bound in bpm. Required when target=heartRate.',
+              },
+              iterations: {
+                type: 'integer',
+                description: 'Number of repetitions (only for type=repeat)',
+              },
+              steps: {
+                type: 'array',
+                description: 'Sub-steps to repeat (only for type=repeat)',
+                items: {
+                  type: 'object',
+                  additionalProperties: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    output: flexibleOutput,
+    execute: async (args: WorkoutDef) => {
+      try {
+        // Validate the workout definition
+        const error = validateWorkoutDef(args)
+        if (error) {
+          return { error: true, message: `Invalid workout definition: ${error}` }
+        }
+
+        // Convert to Garmin format
+        const garminWorkout = buildGarminWorkout(args)
+
+        // Create via API
+        const result = await client.addWorkout(garminWorkout)
+
+        return {
+          success: true,
+          workoutId: (result as any)?.workoutId ?? null,
+          workoutName: args.name,
+          message:
+            `Workout "${args.name}" created successfully in Garmin Connect. ` +
+            'It will sync to the watch automatically via the Garmin Connect app (Bluetooth/Wi-Fi). ' +
+            'The user can also find it in Garmin Connect → Training → Workouts.',
+        }
+      } catch (err: any) {
+        return { error: true, message: err.message || 'Failed to create workout' }
+      }
+    },
+  })
+
+  ctx.logger.info(`[garmin] Registered ${10} tools.`)
 }
 
 // ---------------------------------------------------------------------------

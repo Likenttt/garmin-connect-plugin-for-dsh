@@ -4,6 +4,9 @@
   "description": "A DeepSeek Harness plugin that exposes Garmin Connect fitness and health data as AI-callable tools",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "bin": {
+    "garmin-connect-mcp": "lib/mcp.js"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -37,7 +40,11 @@
     "fitness",
     "health",
     "cordis",
-    "plugin"
+    "plugin",
+    "dsh-plugin",
+    "mcp",
+    "running",
+    "workout"
   ],
   "author": "",
   "license": "MIT",
@@ -48,6 +55,10 @@
     "@deepseek-ai/schemastery": "^3.18.1",
     "dotenv": "^16.4.0",
     "garmin-connect": "^1.6.0"
+  },
+  "optionalDependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

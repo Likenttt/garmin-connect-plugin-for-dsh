@@ -82,6 +82,16 @@ export class MemoryCache {
     this.pending.delete(key)
   }
 
+  /** Invalidate all keys that start with the given prefix. */
+  invalidatePrefix(prefix: string): void {
+    for (const key of [...this.store.keys()]) {
+      if (key.startsWith(prefix)) this.store.delete(key)
+    }
+    for (const key of [...this.pending.keys()]) {
+      if (key.startsWith(prefix)) this.pending.delete(key)
+    }
+  }
+
   /** Drop everything. */
   clear(): void {
     this.store.clear()
