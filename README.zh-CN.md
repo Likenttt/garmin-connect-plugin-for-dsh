@@ -44,6 +44,7 @@
 | `get_garmin_workouts`   | 查询近期日历计划中的训练课表 | `{"limit": 10, "offset": 0}` |
 | `get_garmin_profile`    | 获取个人的基础统计和勋章汇总 | `null` |
 | `export_garmin_session` | 导出用于 `.env` 鉴权的持久化 Token | `null` |
+| `get_running_skill_advice` | 跑步训练专家：8 大核心技能（心率区间、练法、避坑指南） | `{"query": "门槛", "includeRecentActivities": true}` |
 
 ---
 
@@ -276,6 +277,7 @@ GARMIN_SESSION_TOKEN=<导出的令牌>
 │  │  │  • get_garmin_workouts     │  │  │
 │  │  │  • get_garmin_profile      │  │  │
 │  │  │  • export_garmin_session   │  │  │
+│  │  │  • get_running_skill_advice│  │  │
 │  │  └────────────────────────────┘  │  │
 │  └───────────────────────────────────┘  │
 │                                         │

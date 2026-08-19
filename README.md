@@ -36,6 +36,7 @@ This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/dsh) to [
 | `get_garmin_workouts` | Planned workouts from your Garmin calendar | `{"limit": 10, "offset": 0}` |
 | `get_garmin_profile` | User profile summary | `null` |
 | `export_garmin_session` | Export a session token for password-free future logins | `null` |
+| `get_running_skill_advice` | Expert running coaching: 8 core training skills with HR zones, practice methods & common mistakes | `{"query": "threshold", "includeRecentActivities": true}` |
 
 ---
 
@@ -266,6 +267,7 @@ GARMIN_SESSION_TOKEN=<the-token>
 │  │  │  • get_garmin_workouts     │  │  │
 │  │  │  • get_garmin_profile      │  │  │
 │  │  │  • export_garmin_session   │  │  │
+│  │  │  • get_running_skill_advice│  │  │
 │  │  └────────────────────────────┘  │  │
 │  └───────────────────────────────────┘  │
 │                                         │

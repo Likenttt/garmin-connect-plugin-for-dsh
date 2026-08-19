@@ -10,6 +10,7 @@ import {
   formatWorkout,
 } from '../utils/format'
 import type { ActivityDetail } from '../utils/format'
+import { findSkills, formatSkillCard } from '../knowledge/running-skills'
 
 /**
  * Register all Garmin-related tools with the DeepSeek Harness tool registry.
@@ -266,7 +267,76 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
     },
   })
 
-  ctx.logger.info(`[garmin] Registered ${8} tools.`)
+  // ------------------------------------------------------------------
+  // 9. get_running_skill_advice
+  // ------------------------------------------------------------------
+  tools.register({
+    name: 'get_running_skill_advice',
+    description:
+      'Look up expert running training advice from an 8-skill coaching knowledge base. ' +
+      'Covers: Easy Run, Marathon Pace, Lactate Threshold, VO₂max Intervals, ' +
+      'Strides & Repetitions, Fartlek, Hill Repeats, and Marathon-Specific Endurance. ' +
+      'Each skill includes heart-rate zones, how to practice, and common mistakes. ' +
+      'Use this tool when the user asks about running training methods, workout planning, ' +
+      'race preparation, or wants to improve their running performance. ' +
+      'Returns bilingual (Chinese + English) coaching cards. ' +
+      'Can be combined with actual Garmin activity data to give personalized advice. ' +
+      'Example queries: "How should I train for a marathon?", "What is threshold running?", ' +
+      '"我该怎么练间歇跑？", "帮我制定一周跑步计划"',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Keyword to search for a specific skill. Examples: "threshold", "间歇", "hill", "马拉松". ' +
+            'Pass "all" or omit to get all 8 skills.',
+        },
+        includeRecentActivities: {
+          type: 'boolean',
+          description:
+            'If true, also fetches the user\'s 5 most recent Garmin running activities ' +
+            'so the advice can reference actual training data (pace, heart rate, distance).',
+        },
+      },
+    },
+    output: flexibleOutput,
+    execute: async (args: { query?: string; includeRecentActivities?: boolean }) => {
+      try {
+        const skills = findSkills(args.query)
+        const cards = skills.map(formatSkillCard)
+
+        const result: Record<string, unknown> = {
+          matchedSkills: cards,
+          totalSkillsInKB: 8,
+          tip: 'Use these coaching cards to give the user specific, actionable running advice. ' +
+               'Cite heart-rate zones and practice methods. If recent activities are included, ' +
+               'cross-reference the user\'s actual pace/HR data with the recommended zones.',
+        }
+
+        if (args.includeRecentActivities) {
+          try {
+            const raw = await client.getActivities(0, 5)
+            const activities = (raw as Record<string, unknown>[])
+              .filter((a: any) => {
+                const type = String(a.activityType?.typeKey || a.activityType || '').toLowerCase()
+                return type.includes('run') || type.includes('trail')
+              })
+              .map(a => formatActivity(a, 'compact'))
+            result.recentRunningActivities = activities.length > 0 ? activities : 'No recent running activities found.'
+          } catch {
+            result.recentRunningActivities = 'Could not fetch activities (login may be required).'
+          }
+        }
+
+        return result
+      } catch (err: any) {
+        return { error: true, message: err.message || 'Failed to look up running skills' }
+      }
+    },
+  })
+
+  ctx.logger.info(`[garmin] Registered ${9} tools.`)
 }
 
 // ---------------------------------------------------------------------------
