@@ -45,6 +45,7 @@
 | `get_garmin_profile`    | 获取个人的基础统计和勋章汇总 | `null` |
 | `export_garmin_session` | 导出用于 `.env` 鉴权的持久化 Token | `null` |
 | `get_running_skill_advice` | 跑步训练专家：8 大核心技能（心率区间、练法、避坑指南） | `{"query": "门槛", "includeRecentActivities": true}` |
+| `create_garmin_workout` | 创建结构化训练计划（热身/间歇/重复组/放松，支持配速和心率目标），自动同步到手表 | `{"name": "门槛巡航3×8分钟", "steps": [...]}` |
 
 ---
 
@@ -253,6 +254,74 @@ GARMIN_SESSION_TOKEN=<导出的令牌>
 
 ---
 
+## 在其他 AI 编程助手中使用（MCP 协议）
+
+本插件同时提供了一个独立的 **MCP (Model Context Protocol) 服务器**，让你可以在 Claude Desktop、Codex CLI、Cursor、Windsurf 等任何支持 MCP 的客户端中使用相同的 Garmin 工具 — **无需安装 DeepSeek Harness**。
+
+### Claude Desktop
+
+编辑 `~/.claude/claude_desktop_config.json`（Mac）或 `%APPDATA%\Claude\claude_desktop_config.json`（Windows）：
+
+```json
+{
+  "mcpServers": {
+    "garmin-connect": {
+      "command": "npx",
+      "args": ["-y", "dsh-plugin-garmin-connect", "garmin-connect-mcp"],
+      "env": {
+        "GARMIN_USERNAME": "你的佳明邮箱",
+        "GARMIN_PASSWORD": "你的密码",
+        "GARMIN_REGION": "cn"
+      }
+    }
+  }
+}
+```
+
+重启 Claude Desktop 后，你会看到 🔌 图标表示工具已加载。试试说：*"帮我看下最近 5 次跑步记录"* 或 *"帮我创建一个门槛跑训练并同步到手表"*。
+
+### Cursor / Windsurf
+
+1. 打开 **设置 → MCP Servers → 添加服务器**
+2. 名称：`garmin-connect`
+3. 类型：**stdio**
+4. 命令：`npx -y dsh-plugin-garmin-connect garmin-connect-mcp`
+5. 添加环境变量：`GARMIN_USERNAME`、`GARMIN_PASSWORD`、`GARMIN_REGION`
+
+### OpenAI Codex CLI
+
+在 `.codex/config.json` 中添加：
+
+```json
+{
+  "mcpServers": {
+    "garmin-connect": {
+      "command": "npx",
+      "args": ["-y", "dsh-plugin-garmin-connect", "garmin-connect-mcp"],
+      "env": {
+        "GARMIN_USERNAME": "你的佳明邮箱",
+        "GARMIN_PASSWORD": "你的密码"
+      }
+    }
+  }
+}
+```
+
+### 本地开发 / 手动运行
+
+```bash
+# 克隆并构建
+git clone https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
+cd dsh-plugin-garmin-connect && npm install && npm run build
+
+# 运行 MCP 服务器（标准输入输出）
+GARMIN_USERNAME=xxx GARMIN_PASSWORD=xxx node lib/mcp.js
+```
+
+MCP 服务器暴露全部 10 个工具（运动记录、睡眠、步数、心率、体重、训练计划、个人资料、Token 导出、跑步技能、创建训练），通过标准 MCP 协议通信。
+
+---
+
 ## 架构概览
 
 ```
@@ -267,26 +336,28 @@ GARMIN_SESSION_TOKEN=<导出的令牌>
 │  │  │ (Schema) │    │  (含缓存)   │  │  │
 │  │  └─────────┘    └──────┬──────┘  │  │
 │  │                        │         │  │
-│  │  ┌─────────────────────▼──────┐  │  │
-│  │  │      工具注册中心           │  │  │
-│  │  │  • get_garmin_activities   │  │  │
-│  │  │  • get_garmin_sleep        │  │  │
-│  │  │  • get_garmin_steps        │  │  │
-│  │  │  • get_garmin_heart_rate   │  │  │
-│  │  │  • get_garmin_weight       │  │  │
-│  │  │  • get_garmin_workouts     │  │  │
-│  │  │  • get_garmin_profile      │  │  │
-│  │  │  • export_garmin_session   │  │  │
-│  │  │  • get_running_skill_advice│  │  │
-│  │  └────────────────────────────┘  │  │
+│  │  ┌─────────────────────▼───────┐ │  │
+│  │  │      工具注册中心 (10)     │ │  │
+│  │  │  • get_garmin_activities    │ │  │
+│  │  │  • get_garmin_sleep         │ │  │
+│  │  │  • get_garmin_steps         │ │  │
+│  │  │  • get_garmin_heart_rate    │ │  │
+│  │  │  • get_garmin_weight        │ │  │
+│  │  │  • get_garmin_workouts      │ │  │
+│  │  │  • get_garmin_profile       │ │  │
+│  │  │  • export_garmin_session    │ │  │
+│  │  │  • get_running_skill_advice │ │  │
+│  │  │  • create_garmin_workout    │ │  │
+│  │  └─────────────────────────────┘ │  │
 │  └───────────────────────────────────┘  │
-│                                         │
 │               Cordis 运行时              │
-└─────────────────────────────────────────┘
-           │
-           ▼
-   connect.garmin.com（国际版）
-   connect.garmin.cn（中国区）
+└────────────────┬────────────────────────┘
+                 │
+      ┌──────────┴──────────┐
+      ▼                     ▼
+connect.garmin.com    MCP Server (stdio)
+connect.garmin.cn     → Claude / Codex /
+                        Cursor / Windsurf
 ```
 
 ---
@@ -316,10 +387,14 @@ src/
 ├── index.ts          # 插件入口（Cordis apply 函数）
 ├── config.ts         # 配置 Schema（schemastery），支持环境变量自动解析
 ├── client.ts         # Garmin API 封装，含缓存层
+├── mcp.ts            # 独立的 MCP 服务器（用于 Claude/Codex/Cursor）
+├── knowledge/
+│   ├── running-skills.ts  # 8 大跑步核心技能知识库
+│   └── workout-schema.ts  # 训练定义 → Garmin JSON 构建器
 ├── tools/
-│   └── index.ts      # 工具定义与注册（dsh 工具注册契约）
+│   └── index.ts      # 工具定义与注册（10 个工具）
 └── utils/
-    ├── cache.ts       # 内存 TTL 缓存
+    ├── cache.ts       # 内存 TTL 缓存（含 SWR）
     └── format.ts      # 原始数据 → LLM 友好格式转换器
 ```
 
@@ -353,9 +428,12 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugi
 
 - [x] **身体成分** — 体重、BMI、体脂率
 - [x] **Garmin 日历** — 计划中的训练课表
+- [x] **创建训练** — 创建结构化训练计划并自动同步到手表
+- [x] **MCP 服务器** — 支持 Claude Desktop、Codex CLI、Cursor、Windsurf
+- [x] **跑步教练** — 8 大核心跑步训练技能知识库
 - [ ] **训练状态** — VO2 Max、训练负荷、恢复时间
+- [ ] **多账号同步** — 在中国区 ↔ 国际版账号之间同步运动数据
 - [ ] **Webhook 推送** — 活动上传实时通知
-- [ ] **多账号支持** — 一个 Harness 会话管理多个 Garmin 账号
 - [ ] **OAuth 2.0** — 等待 Garmin 开放个人用途的官方 API 后迁移
 
 ---

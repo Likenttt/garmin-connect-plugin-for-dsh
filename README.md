@@ -37,6 +37,7 @@ This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/dsh) to [
 | `get_garmin_profile` | User profile summary | `null` |
 | `export_garmin_session` | Export a session token for password-free future logins | `null` |
 | `get_running_skill_advice` | Expert running coaching: 8 core training skills with HR zones, practice methods & common mistakes | `{"query": "threshold", "includeRecentActivities": true}` |
+| `create_garmin_workout` | Create a structured workout (warmup/interval/repeat/cooldown with pace & HR targets) that syncs to the watch | `{"name": "Threshold 3×8min", "steps": [...]}` |
 
 ---
 
@@ -243,6 +244,74 @@ GARMIN_SESSION_TOKEN=<the-token>
 
 ---
 
+## Use with Other AI Coding Agents (MCP)
+
+This plugin also ships as a standalone **MCP (Model Context Protocol) server**, so you can use the same Garmin tools with Claude Desktop, Codex CLI, Cursor, Windsurf, and any other MCP-compatible client — no DeepSeek Harness required.
+
+### Claude Desktop
+
+Edit `~/.claude/claude_desktop_config.json` (Mac) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "garmin-connect": {
+      "command": "npx",
+      "args": ["-y", "dsh-plugin-garmin-connect", "garmin-connect-mcp"],
+      "env": {
+        "GARMIN_USERNAME": "your@email.com",
+        "GARMIN_PASSWORD": "yourpassword",
+        "GARMIN_REGION": "global"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop. You'll see a 🔌 icon indicating the tools are loaded. Try: *"Show my last 5 runs"* or *"Create a threshold workout and sync to my watch"*.
+
+### Cursor / Windsurf
+
+1. Open **Settings → MCP Servers → Add Server**
+2. Name: `garmin-connect`
+3. Type: **stdio**
+4. Command: `npx -y dsh-plugin-garmin-connect garmin-connect-mcp`
+5. Add environment variables: `GARMIN_USERNAME`, `GARMIN_PASSWORD`, `GARMIN_REGION`
+
+### OpenAI Codex CLI
+
+Add to your `.codex/config.json`:
+
+```json
+{
+  "mcpServers": {
+    "garmin-connect": {
+      "command": "npx",
+      "args": ["-y", "dsh-plugin-garmin-connect", "garmin-connect-mcp"],
+      "env": {
+        "GARMIN_USERNAME": "your@email.com",
+        "GARMIN_PASSWORD": "yourpassword"
+      }
+    }
+  }
+}
+```
+
+### Local Development / Manual Run
+
+```bash
+# Clone and build
+git clone https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
+cd dsh-plugin-garmin-connect && npm install && npm run build
+
+# Run the MCP server (stdin/stdout)
+GARMIN_USERNAME=xxx GARMIN_PASSWORD=xxx node lib/mcp.js
+```
+
+The MCP server exposes all 10 tools (activities, sleep, steps, heart rate, weight, workouts, profile, session export, running skills, and workout creation) through standard MCP protocol.
+
+---
+
 ## Architecture
 
 ```
@@ -257,26 +326,28 @@ GARMIN_SESSION_TOKEN=<the-token>
 │  │  │ (Schema) │    │  (cached)   │  │  │
 │  │  └─────────┘    └──────┬──────┘  │  │
 │  │                        │         │  │
-│  │  ┌─────────────────────▼──────┐  │  │
-│  │  │     Tool Registry          │  │  │
-│  │  │  • get_garmin_activities   │  │  │
-│  │  │  • get_garmin_sleep        │  │  │
-│  │  │  • get_garmin_steps        │  │  │
-│  │  │  • get_garmin_heart_rate   │  │  │
-│  │  │  • get_garmin_weight       │  │  │
-│  │  │  • get_garmin_workouts     │  │  │
-│  │  │  • get_garmin_profile      │  │  │
-│  │  │  • export_garmin_session   │  │  │
-│  │  │  • get_running_skill_advice│  │  │
-│  │  └────────────────────────────┘  │  │
+│  │  ┌─────────────────────▼───────┐ │  │
+│  │  │      Tool Registry (10)     │ │  │
+│  │  │  • get_garmin_activities    │ │  │
+│  │  │  • get_garmin_sleep         │ │  │
+│  │  │  • get_garmin_steps         │ │  │
+│  │  │  • get_garmin_heart_rate    │ │  │
+│  │  │  • get_garmin_weight        │ │  │
+│  │  │  • get_garmin_workouts      │ │  │
+│  │  │  • get_garmin_profile       │ │  │
+│  │  │  • export_garmin_session    │ │  │
+│  │  │  • get_running_skill_advice │ │  │
+│  │  │  • create_garmin_workout    │ │  │
+│  │  └─────────────────────────────┘ │  │
 │  └───────────────────────────────────┘  │
-│                                         │
 │               Cordis Runtime            │
-└─────────────────────────────────────────┘
-           │
-           ▼
-   connect.garmin.com
-   (or connect.garmin.cn)
+└────────────────┬────────────────────────┘
+                 │
+      ┌──────────┴──────────┐
+      ▼                     ▼
+connect.garmin.com    MCP Server (stdio)
+connect.garmin.cn     → Claude / Codex /
+                        Cursor / Windsurf
 ```
 
 ---
@@ -306,10 +377,14 @@ src/
 ├── index.ts          # Plugin entry point (Cordis apply function)
 ├── config.ts         # Configuration schema with env-var resolution
 ├── client.ts         # Garmin API wrapper with caching
+├── mcp.ts            # Standalone MCP server for Claude/Codex/Cursor
+├── knowledge/
+│   ├── running-skills.ts  # 8-skill running coaching knowledge base
+│   └── workout-schema.ts  # Workout definition → Garmin JSON builder
 ├── tools/
-│   └── index.ts      # Tool definitions & registration
+│   └── index.ts      # Tool definitions & registration (10 tools)
 └── utils/
-    ├── cache.ts       # In-memory TTL cache
+    ├── cache.ts       # In-memory TTL cache with SWR
     └── format.ts      # Raw-data → LLM-friendly formatters
 ```
 
@@ -343,9 +418,12 @@ Distribution notes:
 
 - [x] **Body Composition** — weight, BMI, body fat %
 - [x] **Garmin Calendar** — planned workouts
+- [x] **Workout Creation** — create structured workouts that sync to the watch
+- [x] **MCP Server** — use with Claude Desktop, Codex CLI, Cursor, Windsurf
+- [x] **Running Coach** — 8-skill training knowledge base
 - [ ] **Training Status** — VO2 Max, training load, recovery time
+- [ ] **Multi-account Sync** — sync activities between CN ↔ Global accounts
 - [ ] **Webhook / Push** — real-time activity upload notifications
-- [ ] **Multi-account** — support multiple Garmin accounts in one Harness session
 - [ ] **OAuth 2.0** — migrate to official Garmin API when available for personal use
 
 ---
