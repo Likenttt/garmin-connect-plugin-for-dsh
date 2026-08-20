@@ -242,7 +242,7 @@ or provide a token only through an existing trusted local workflow.
 
 ## Use with Other AI Coding Agents (MCP)
 
-This plugin also ships as a standalone **MCP (Model Context Protocol) server**, so you can use the same Garmin tools with OpenAI Codex, Claude Code, Claude Desktop, Cursor, Windsurf, and any other MCP-compatible client — no DeepSeek Harness required.
+This plugin also ships as a standalone **MCP (Model Context Protocol) server**, so you can use the same Garmin tools with OpenAI Codex, Claude Code, Claude Desktop, Cursor, Windsurf, WorkBuddy, ZCode, and any other MCP-compatible client — no DeepSeek Harness required.
 
 > **Current availability:** npm `0.1.4` predates the MCP entry point. Until a
 > newer MCP-capable version is published, use a local checkout; the registry
@@ -383,11 +383,77 @@ Open **Windsurf Settings → Cascade → MCP Servers**, or edit
 `~/.codeium/windsurf/mcp_config.json`, and add the same
 `mcpServers.garmin-connect` object shown above.
 
-The Claude Desktop, Cursor, and Windsurf JSON examples store credentials in
-their client configuration. Restrict those files' permissions, never commit
-them, or use a client-supported secret-injection mechanism. The Codex and
-Claude Code examples above forward environment variables so raw credential
-values do not need to be written into their MCP configuration.
+### WorkBuddy
+
+WorkBuddy Desktop supports local MCP servers at user and project scope. For
+personal Garmin data, prefer the user-level `~/.workbuddy/mcp.json`. Open
+**Plugins → MCP Servers → Configure MCP**, or edit that file directly, and add:
+
+```json
+{
+  "mcpServers": {
+    "garmin-connect": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],
+      "env": {
+        "GARMIN_USERNAME": "your@email.com",
+        "GARMIN_PASSWORD": "yourpassword",
+        "GARMIN_REGION": "global"
+      }
+    }
+  }
+}
+```
+
+Use `command -v node` on macOS/Linux or `where node` on Windows to find the
+absolute Node.js executable; GUI applications may not inherit an `nvm` shell
+path. In JSON on Windows, use forward slashes such as `C:/.../node.exe`, or
+escape each backslash as `\\`. Leave out `type` in WorkBuddy's local-command
+format. Save the file and confirm that the server status turns green, then start
+with a read-only request. See the [official WorkBuddy MCP guide](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide).
+
+### ZCode
+
+Open **Settings → MCP Servers → New MCP Server**, choose **User** scope and
+`stdio`, then enter the same absolute Node.js command, `lib/mcp.js` argument,
+and Garmin environment variables. Alternatively, edit the native user config
+at `~/.zcode/cli/config.json`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "garmin-connect": {
+        "command": "/absolute/path/to/node",
+        "args": ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],
+        "env": {
+          "GARMIN_USERNAME": "your@email.com",
+          "GARMIN_PASSWORD": "yourpassword",
+          "GARMIN_REGION": "global"
+        }
+      }
+    }
+  }
+}
+```
+
+ZCode can also import an existing Codex or Claude Code MCP entry. Its generic
+`~/.agents/mcp.json` support uses the `mcpServers` shape, but if the same scope's
+`.zcode` config contains any MCP server, ZCode skips that `.agents` file rather
+than merging it. See the [official ZCode MCP guide](https://zcode.z.ai/en/docs/mcp-services).
+
+These configurations have been checked against both clients' published schemas;
+an end-to-end WorkBuddy/ZCode smoke test with a real Garmin account has not yet
+been recorded.
+
+The Claude Desktop, Cursor, Windsurf, WorkBuddy, and ZCode JSON examples store
+credentials in their client configuration. Restrict those files' permissions,
+never commit them, or use a client-supported secret-injection mechanism. The
+Codex and Claude Code examples above forward environment variables so raw
+credential values do not need to be written into their MCP configuration. MCP
+results can place sleep, heart-rate, weight, activity, and location data in the
+selected model's context; review that client's data controls and keep activity
+detail at `compact` unless precise expanded data is necessary.
 
 After a version containing the MCP executable is published to npm, the local
 `node …/lib/mcp.js` command can be replaced with:
@@ -444,7 +510,8 @@ intentionally unavailable through either AI interface.
       ▼                     ▼
 connect.garmin.com    MCP Server (stdio)
 connect.garmin.cn     → Claude Desktop / Claude Code /
-                        Codex / Cursor / Windsurf
+                        Codex / Cursor / Windsurf /
+                        WorkBuddy / ZCode
 ```
 
 ---
@@ -519,7 +586,7 @@ Distribution notes:
 - [x] **Body Composition** — weight, BMI, body fat %
 - [x] **Workout Library** — list reusable Garmin workout templates
 - [x] **Workout Creation** — safely preview and create structured workout-library entries
-- [x] **MCP Server** — use with Codex, Claude Code/Desktop, Cursor, Windsurf
+- [x] **MCP Server** — use with Codex, Claude Code/Desktop, Cursor, Windsurf, WorkBuddy, ZCode
 - [x] **Running Coach** — 8-skill training knowledge base
 - [ ] **Training Status** — VO2 Max, training load, recovery time
 - [ ] **Multi-account Sync** — sync activities between CN ↔ Global accounts

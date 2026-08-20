@@ -240,7 +240,7 @@ npm run test:integration
 
 ## 在其他 AI 编程助手中使用（MCP 协议）
 
-本插件同时提供了一个独立的 **MCP (Model Context Protocol) 服务器**，让你可以在 OpenAI Codex、Claude Code、Claude Desktop、Cursor、Windsurf 等任何支持 MCP 的客户端中使用相同的 Garmin 工具 — **无需安装 DeepSeek Harness**。
+本插件同时提供了一个独立的 **MCP (Model Context Protocol) 服务器**，让你可以在 OpenAI Codex、Claude Code、Claude Desktop、Cursor、Windsurf、WorkBuddy、ZCode 等任何支持 MCP 的客户端中使用相同的 Garmin 工具 — **无需安装 DeepSeek Harness**。
 
 > **当前可用性：** npm `0.1.4` 早于 MCP 入口加入。新的 MCP 版本发布前，
 > 请使用本地源码；下文 registry `npx` 命令明确仅供未来发布后使用。
@@ -370,9 +370,71 @@ claude mcp list
 `~/.codeium/windsurf/mcp_config.json`，加入上方相同的
 `mcpServers.garmin-connect` 对象。
 
-Claude Desktop、Cursor 与 Windsurf 的 JSON 示例会把凭据保存在客户端配置中。
-请限制配置文件权限、不要提交它们，或改用客户端支持的密钥注入机制。上面的 Codex
-与 Claude Code 示例只转发环境变量，无需把原始凭据值写入 MCP 配置。
+### WorkBuddy
+
+WorkBuddy 桌面端支持用户级和项目级的本地 MCP。Garmin 属于个人健康数据，推荐使用
+用户级 `~/.workbuddy/mcp.json`。打开 **插件 → MCP 服务器 → 配置 MCP**，或直接编辑
+该文件，加入：
+
+```json
+{
+  "mcpServers": {
+    "garmin-connect": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],
+      "env": {
+        "GARMIN_USERNAME": "你的佳明邮箱",
+        "GARMIN_PASSWORD": "你的密码",
+        "GARMIN_REGION": "cn"
+      }
+    }
+  }
+}
+```
+
+macOS/Linux 用 `command -v node`、Windows 用 `where node` 查找 Node.js 的绝对
+路径；GUI 应用不一定继承 `nvm` 的 shell 路径。Windows JSON 路径请使用
+`C:/.../node.exe` 形式，或把每个反斜杠写成 `\\`。WorkBuddy 的本地命令格式不要
+添加 `type`。保存后确认服务器状态变绿，再从只读查询开始测试。参见
+[WorkBuddy 官方 MCP 指南](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide)。
+
+### ZCode
+
+打开 **设置 → MCP 服务器 → 新建 MCP 服务器**，选择**用户**作用域和 `stdio`，填写
+同样的 Node.js 绝对路径、`lib/mcp.js` 参数及 Garmin 环境变量。也可以直接编辑用户级
+原生配置 `~/.zcode/cli/config.json`：
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "garmin-connect": {
+        "command": "/absolute/path/to/node",
+        "args": ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],
+        "env": {
+          "GARMIN_USERNAME": "你的佳明邮箱",
+          "GARMIN_PASSWORD": "你的密码",
+          "GARMIN_REGION": "cn"
+        }
+      }
+    }
+  }
+}
+```
+
+ZCode 也可以导入已有的 Codex 或 Claude Code MCP 配置。它兼容使用 `mcpServers`
+结构的 `~/.agents/mcp.json`，但同一作用域的 `.zcode` 配置只要包含任意 MCP 服务，
+ZCode 就会整体跳过该 `.agents` 文件，而不是合并。参见
+[ZCode 官方 MCP 指南](https://zcode.z.ai/cn/docs/mcp-services)。
+
+以上配置已与两款客户端公布的 schema 核对，但尚未记录使用真实 Garmin 账号完成的
+WorkBuddy/ZCode 端到端冒烟测试。
+
+Claude Desktop、Cursor、Windsurf、WorkBuddy 与 ZCode 的 JSON 示例会把凭据保存在
+客户端配置中。请限制配置文件权限、不要提交它们，或改用客户端支持的密钥注入机制。
+上面的 Codex 与 Claude Code 示例只转发环境变量，无需把原始凭据值写入 MCP 配置。
+MCP 结果可能把睡眠、心率、体重、运动及位置数据送入所选模型的上下文；请检查客户端
+的数据处理设置，非必要保持 `compact`，只有确需精确扩展数据时才使用 `full`。
 
 等包含 MCP 可执行入口的版本发布到 npm 后，可以把本地的 `node …/lib/mcp.js`
 替换为：
@@ -428,7 +490,8 @@ MCP 服务器通过标准协议暴露与 dsh 插件**相同的 9 个工具及参
       ▼                     ▼
 connect.garmin.com    MCP Server (stdio)
 connect.garmin.cn     → Claude Desktop / Claude Code /
-                        Codex / Cursor / Windsurf
+                        Codex / Cursor / Windsurf /
+                        WorkBuddy / ZCode
 ```
 
 ---
@@ -503,7 +566,7 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugi
 - [x] **身体成分** — 体重、BMI、体脂率
 - [x] **训练库** — 查询可复用的 Garmin 训练模板
 - [x] **创建训练** — 安全预览并创建训练库条目
-- [x] **MCP 服务器** — 支持 Codex、Claude Code/Desktop、Cursor、Windsurf
+- [x] **MCP 服务器** — 支持 Codex、Claude Code/Desktop、Cursor、Windsurf、WorkBuddy、ZCode
 - [x] **跑步教练** — 8 大核心跑步训练技能知识库
 - [ ] **训练状态** — VO2 Max、训练负荷、恢复时间
 - [ ] **多账号同步** — 在中国区 ↔ 国际版账号之间同步运动数据
