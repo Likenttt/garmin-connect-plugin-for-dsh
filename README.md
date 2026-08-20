@@ -205,6 +205,35 @@ npm run auth:setup -- --account personal --region global
 npm run auth:setup -- --account personal --region cn
 ```
 
+`auth:setup` is the source-checkout npm-script alias. The stable executable name
+for an installed package is `garmin-connect-auth`, so Codex, Claude Code, and
+other local clients can all point users to the same bootstrap command:
+
+```bash
+garmin-connect-auth --help
+garmin-connect-auth login --account personal --region global
+```
+
+Direct invocation requires an installation that places npm executables on
+`PATH`, normally a global install; a nested dsh dependency or an ordinary local
+dependency does not do that. To test the current checkout as a system command,
+you can explicitly run `npm install -g .` from the repository first. After a
+future package version is published, either install that version globally or
+use this pattern from your own terminal, replacing `PUBLISHED_VERSION`:
+
+```bash
+npx -y --package dsh-plugin-garmin-connect@PUBLISHED_VERSION \
+  garmin-connect-auth login --account personal --region global
+```
+
+The currently published npm `0.1.4` package predates this executable. Until a
+later prerelease or release containing it is installed, use the source-checkout
+`npm run auth:setup -- ...` command above. In either form, run it yourself in a
+trusted interactive terminal. The local MCP/plugin process may read the
+resulting session file by its configured path; Codex, Claude Code, the model,
+and other agents must never read or copy the file contents, password, or MFA
+code.
+
 The command asks for the email, password, and—only when Garmin challenges the
 login—the verification code. Password and MFA code are entered with terminal
 echo disabled. They are not accepted as command-line flags, environment

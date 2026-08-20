@@ -198,6 +198,32 @@ npm run auth:setup -- --account personal --region global
 npm run auth:setup -- --account personal --region cn
 ```
 
+`auth:setup` 只是源码仓库中的 npm script 别名。安装包对外稳定的系统命令名是
+`garmin-connect-auth`，因此 Codex、Claude Code（CC）及其他本地客户端都可以引导用户
+使用同一个认证入口：
+
+```bash
+garmin-connect-auth --help
+garmin-connect-auth login --account personal --region global
+```
+
+直接运行裸命令的前提是 npm 可执行文件已进入 `PATH`，通常需要全局安装；
+dsh 的嵌套依赖或普通本地依赖不会自动暴露这个系统命令。如需在当前源码上测试系统
+命令，可先在仓库目录中显式执行 `npm install -g .`。未来包含该命令的版本发布后，
+可全局安装该版本，或在用户自己的终端中按以下格式运行，并替换
+`PUBLISHED_VERSION`：
+
+```bash
+npx -y --package dsh-plugin-garmin-connect@PUBLISHED_VERSION \
+  garmin-connect-auth login --account personal --region global
+```
+
+当前 npm registry 上的 `0.1.4` 早于这个可执行命令；在后续包含该命令的预发布版或
+正式版安装前，请继续使用上方源码方式 `npm run auth:setup -- ...`。无论使用哪种入口，
+都应由用户本人在可信的交互式终端运行。本地 MCP/插件进程可以按配置路径读取
+session 文件；Codex、Claude Code、模型及其他代理不得读取或复制 session 文件内容、
+密码或 MFA 验证码。
+
 命令会询问邮箱、密码，并且只在 Garmin 要求两步验证时询问验证码。密码与 MFA
 验证码都在关闭终端回显的状态下输入，不接受命令行参数、环境变量、MCP 工具参数或
 模型输入。请直接在自己的终端运行，不要让 Codex、Claude Code 或其他代理通过其
