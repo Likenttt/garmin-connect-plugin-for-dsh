@@ -46,6 +46,24 @@ const defaultDependencies: AuthCliDependencies = {
   writeSession: writeSessionTokenFile,
 }
 
+const AUTH_CLI_HELP = `Garmin Connect authentication
+
+Usage:
+  garmin-connect-auth login [options]
+
+Options:
+  --account <alias>       Account alias (default: default)
+  --region <global|cn>    Garmin account region (default: global)
+  --output <path>         OAuth session file path
+  -h, --help              Show this help
+  -V, --version           Show the installed version
+
+Passwords and MFA codes are requested interactively with terminal echo disabled.
+Never pass either secret as a command-line option, environment variable, or model input.
+`
+
+const AUTH_CLI_VERSION = (require('../package.json') as { version: string }).version
+
 /** Run the one-time foreground authentication flow without exposing secrets. */
 export async function runAuthSetup(input: AuthSetupInput): Promise<AuthSetupResult> {
   const parsed = parseArgs(input.argv)
@@ -256,8 +274,31 @@ function requireTty(input: Readable & { isTTY?: boolean }): void {
 
 async function main(): Promise<void> {
   try {
+    const argv = process.argv.slice(2)
+    const helpRequested = (
+      argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h')
+    ) || (
+      argv.length === 2
+      && argv[0] === 'login'
+      && (argv[1] === '--help' || argv[1] === '-h')
+    )
+    if (helpRequested) {
+      process.stdout.write(AUTH_CLI_HELP)
+      return
+    }
+    const versionRequested = (
+      argv.length === 1 && (argv[0] === '--version' || argv[0] === '-V')
+    ) || (
+      argv.length === 2
+      && argv[0] === 'login'
+      && (argv[1] === '--version' || argv[1] === '-V')
+    )
+    if (versionRequested) {
+      process.stdout.write(`${AUTH_CLI_VERSION}\n`)
+      return
+    }
     await runAuthSetup({
-      argv: process.argv.slice(2),
+      argv,
       env: process.env,
       io: terminalIO(),
     })

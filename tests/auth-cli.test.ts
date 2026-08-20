@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import {
   defaultAccountSessionPath,
@@ -26,6 +28,79 @@ function fixture(answers: string[]) {
 }
 
 describe('Garmin interactive auth CLI', () => {
+  it('publishes the stable garmin-connect-auth executable name', () => {
+    const manifest = JSON.parse(readFileSync(
+      path.resolve(__dirname, '../package.json'),
+      'utf8',
+    )) as { bin?: Record<string, string> }
+
+    expect(manifest.bin?.['garmin-connect-auth']).toBe('lib/auth-cli.js')
+  })
+
+  it('shows command help without starting an interactive login', () => {
+    const entrypoint = path.resolve(__dirname, '../src/auth-cli.ts')
+    const result = spawnSync(
+      process.execPath,
+      ['--import', require.resolve('tsx'), entrypoint, '--help'],
+      { encoding: 'utf8', timeout: 5_000 },
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('garmin-connect-auth login [options]')
+    expect(result.stdout).toContain('--account <alias>')
+    expect(result.stdout).toContain('--region <global|cn>')
+    expect(result.stdout).toContain('--output <path>')
+    expect(result.stdout).toContain('Passwords and MFA codes are requested interactively')
+    expect(result.stderr).toBe('')
+  })
+
+  it('shows the same help for the login subcommand', () => {
+    const entrypoint = path.resolve(__dirname, '../src/auth-cli.ts')
+    const result = spawnSync(
+      process.execPath,
+      ['--import', require.resolve('tsx'), entrypoint, 'login', '--help'],
+      { encoding: 'utf8', timeout: 5_000 },
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('garmin-connect-auth login [options]')
+    expect(result.stderr).toBe('')
+  })
+
+  it('shows the package version without starting an interactive login', () => {
+    const entrypoint = path.resolve(__dirname, '../src/auth-cli.ts')
+    const manifest = JSON.parse(readFileSync(
+      path.resolve(__dirname, '../package.json'),
+      'utf8',
+    )) as { version: string }
+    const result = spawnSync(
+      process.execPath,
+      ['--import', require.resolve('tsx'), entrypoint, '--version'],
+      { encoding: 'utf8', timeout: 5_000 },
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe(`${manifest.version}\n`)
+    expect(result.stderr).toBe('')
+  })
+
+  it('shows the same version for the login subcommand', () => {
+    const entrypoint = path.resolve(__dirname, '../src/auth-cli.ts')
+    const manifest = JSON.parse(readFileSync(
+      path.resolve(__dirname, '../package.json'),
+      'utf8',
+    )) as { version: string }
+    const result = spawnSync(
+      process.execPath,
+      ['--import', require.resolve('tsx'), entrypoint, 'login', '--version'],
+      { encoding: 'utf8', timeout: 5_000 },
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe(`${manifest.version}\n`)
+    expect(result.stderr).toBe('')
+  })
+
   it('prompts locally for password and MFA, then persists only the session tokens', async () => {
     const { io, prompt, write, authenticate, writeSession, dependencies } = fixture([
       'runner@example.test',
