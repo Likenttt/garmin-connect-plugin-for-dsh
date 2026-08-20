@@ -1,3 +1,4 @@
+import { GarminToolService } from '../src/tool-service'
 import { getDatesInRange, registerTools, todayLocal } from '../src/tools/index'
 
 describe('Tools Utils', () => {
@@ -30,8 +31,8 @@ describe('Tools Utils', () => {
     })
   })
 
-  it('registers the same nine non-secret Garmin tools for the DSH adapter', () => {
-    const definitions: Array<{ name: string; parameters?: any }> = []
+  it('registers the same ten non-secret Garmin tools for the DSH adapter', () => {
+    const definitions: Array<{ name: string; description?: string; parameters?: any }> = []
     const ctx = {
       tools: { register: (definition: { name: string }) => definitions.push(definition) },
       logger: { info: jest.fn() },
@@ -43,6 +44,7 @@ describe('Tools Utils', () => {
       getHeartRate: jest.fn(),
       getWeight: jest.fn(),
       getWorkouts: jest.fn(),
+      downloadOriginalActivityZip: jest.fn(),
       addWorkout: jest.fn(),
       getUserProfile: jest.fn(),
     }
@@ -54,6 +56,7 @@ describe('Tools Utils', () => {
       cacheTtl: 300,
       logLevel: 'info',
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-tools-test-output',
     })
 
     expect(definitions.map(definition => definition.name)).toEqual([
@@ -66,7 +69,26 @@ describe('Tools Utils', () => {
       'get_garmin_profile',
       'get_running_skill_advice',
       'create_garmin_workout',
+      'download_garmin_activity_fit',
     ])
+
+    const downloadFit = definitions.find(
+      definition => definition.name === 'download_garmin_activity_fit',
+    )!
+    expect(downloadFit.description).toContain('GARMIN_FIT_DOWNLOAD_DIR')
+    expect(downloadFit.description).toContain('parent directory')
+    expect(downloadFit.parameters).toMatchObject({
+      type: 'object',
+      required: ['activityId'],
+      additionalProperties: false,
+      properties: {
+        activityId: {
+          type: 'integer',
+          minimum: 1,
+          maximum: Number.MAX_SAFE_INTEGER,
+        },
+      },
+    })
 
     const createWorkout = definitions.find(
       definition => definition.name === 'create_garmin_workout',
@@ -104,6 +126,7 @@ describe('Tools Utils', () => {
       getHeartRate: jest.fn(),
       getWeight: jest.fn(),
       getWorkouts: jest.fn(),
+      downloadOriginalActivityZip: jest.fn(),
       addWorkout,
       getUserProfile: jest.fn(),
     }
@@ -114,6 +137,7 @@ describe('Tools Utils', () => {
       cacheTtl: 300,
       logLevel: 'info',
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-tools-test-output',
     })
 
     const createWorkout = definitions.find(definition => definition.name === 'create_garmin_workout')!
@@ -124,6 +148,51 @@ describe('Tools Utils', () => {
 
     expect(result).toEqual(expect.objectContaining({ requiresConfirmation: true }))
     expect(addWorkout).not.toHaveBeenCalled()
+  })
+
+  it('returns only FIT file metadata from the DSH adapter', async () => {
+    const definitions: Array<{ name: string; execute: (args: any) => Promise<any> }> = []
+    const download = jest.spyOn(GarminToolService.prototype, 'downloadActivityFit')
+      .mockResolvedValue({
+        success: true,
+        activityId: 42,
+        fileName: '42.fit',
+        sizeBytes: 14,
+        sha256: 'a'.repeat(64),
+      })
+    const ctx = {
+      tools: { register: (definition: any) => definitions.push(definition) },
+      logger: { info: jest.fn() },
+    }
+
+    try {
+      registerTools(ctx as any, {} as any, {
+        username: 'runner@example.com',
+        password: 'not-used-by-this-test',
+        region: 'global',
+        cacheTtl: 300,
+        logLevel: 'info',
+        activityDetail: 'compact',
+        fitDownloadDir: '/private/downloads',
+      })
+
+      const tool = definitions.find(
+        definition => definition.name === 'download_garmin_activity_fit',
+      )!
+      const result = await tool.execute({ activityId: 42 })
+      expect(result).toEqual({
+        success: true,
+        activityId: 42,
+        fileName: '42.fit',
+        sizeBytes: 14,
+        sha256: 'a'.repeat(64),
+      })
+      expect(JSON.stringify(result)).not.toContain('runner@example.com')
+      expect(JSON.stringify(result)).not.toContain('/private/downloads')
+      expect(download).toHaveBeenCalledWith({ activityId: 42 })
+    } finally {
+      download.mockRestore()
+    }
   })
 
   it('does not expose unexpected upstream error details in tool output', async () => {
@@ -139,6 +208,7 @@ describe('Tools Utils', () => {
       getHeartRate: jest.fn(),
       getWeight: jest.fn(),
       getWorkouts: jest.fn(),
+      downloadOriginalActivityZip: jest.fn(),
       addWorkout: jest.fn(),
       getUserProfile: jest.fn().mockRejectedValue(new Error(
         'password=do-not-leak response contained private@example.test',
@@ -151,6 +221,7 @@ describe('Tools Utils', () => {
       cacheTtl: 300,
       logLevel: 'info',
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-tools-test-output',
     })
 
     const profile = definitions.find(definition => definition.name === 'get_garmin_profile')!

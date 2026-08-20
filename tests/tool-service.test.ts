@@ -1,5 +1,19 @@
+import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { zipSync } from 'fflate'
 import type { GarminDataClient } from '../src/tool-service'
 import { GarminToolService } from '../src/tool-service'
+
+jest.mock('node:fs/promises', () => {
+  const actual = jest.requireActual<typeof import('node:fs/promises')>('node:fs/promises')
+  return { ...actual, rm: jest.fn(actual.rm) }
+})
+
+const actualRm = jest.requireActual<typeof import('node:fs/promises')>(
+  'node:fs/promises',
+).rm
+const mockedRm = rm as jest.MockedFunction<typeof rm>
 
 function clientWith(overrides: Partial<GarminDataClient> = {}): GarminDataClient {
   return {
@@ -9,6 +23,7 @@ function clientWith(overrides: Partial<GarminDataClient> = {}): GarminDataClient
     getHeartRate: jest.fn(),
     getWeight: jest.fn(),
     getWorkouts: jest.fn(),
+    downloadOriginalActivityZip: jest.fn(),
     addWorkout: jest.fn(),
     getUserProfile: jest.fn(),
     ...overrides,
@@ -20,6 +35,8 @@ describe('GarminToolService', () => {
     const getSleep = jest.fn()
     const service = new GarminToolService(clientWith({ getSleep }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.getSleep({ startDate: '2026-02-30' }))
@@ -33,6 +50,8 @@ describe('GarminToolService', () => {
     }))
     const service = new GarminToolService(clientWith({ getSleep }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.getSleep({
@@ -49,6 +68,8 @@ describe('GarminToolService', () => {
     const getSleep = jest.fn()
     const service = new GarminToolService(clientWith({ getSleep }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.getSleep({
@@ -70,6 +91,8 @@ describe('GarminToolService', () => {
     })
     const service = new GarminToolService(clientWith({ getSleep }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await service.getSleep({ startDate: '2026-08-01', endDate: '2026-08-10' })
@@ -90,7 +113,7 @@ describe('GarminToolService', () => {
     const service = new GarminToolService(clientWith({
       getSleep: fetchDate,
       getSteps: fetchDate,
-    }), { activityDetail: 'compact' })
+    }), { activityDetail: 'compact', fitDownloadDir: '/tmp/garmin-fit-service-test-output', accountUsername: 'runner@example.com' })
 
     await Promise.all([
       service.getSleep({ startDate: '2026-08-01', endDate: '2026-08-10' }),
@@ -108,6 +131,8 @@ describe('GarminToolService', () => {
     })
     const service = new GarminToolService(clientWith({ getSleep }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.getSleep({
@@ -122,6 +147,8 @@ describe('GarminToolService', () => {
     const getSleep = jest.fn().mockRejectedValue(undefined)
     const service = new GarminToolService(clientWith({ getSleep }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.getSleep({ startDate: '2026-08-01' }))
@@ -139,6 +166,8 @@ describe('GarminToolService', () => {
     }])
     const service = new GarminToolService(clientWith({ getActivities }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     const result = await service.getActivities({ limit: 500, offset: -4, detail: 'full' })
@@ -149,10 +178,276 @@ describe('GarminToolService', () => {
     ])
   })
 
+  it('downloads, validates, and saves one FIT file without returning binary data', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'garmin-fit-service-test-'))
+    const fitDownloadDir = join(root, 'exports')
+    let privateDownloadDir = ''
+    const downloadOriginalActivityZip = jest.fn(async (
+      activityId: number,
+      destinationDir: string,
+    ) => {
+      privateDownloadDir = destinationDir
+      const directoryInfo = await stat(destinationDir)
+      if (process.platform !== 'win32') {
+        expect(directoryInfo.mode & 0o777).toBe(0o700)
+      }
+      const fit = Buffer.from([
+        0x0E, 0x10, 0xD9, 0x07, 0x00, 0x00, 0x00, 0x00,
+        0x2E, 0x46, 0x49, 0x54, 0x91, 0x33, 0x00, 0x00,
+      ])
+      const zipPath = join(destinationDir, `${activityId}.zip`)
+      await writeFile(zipPath, zipSync({ 'nested/activity.fit': fit }))
+      return zipPath
+    })
+    const service = new GarminToolService(clientWith({
+      downloadOriginalActivityZip,
+    }), {
+      activityDetail: 'compact',
+      fitDownloadDir,
+      accountUsername: 'runner@example.com',
+    })
+
+    try {
+      const result = await service.downloadActivityFit({ activityId: 42 })
+
+      expect(result).toEqual({
+        success: true,
+        activityId: 42,
+        fileName: '42.fit',
+        sizeBytes: 16,
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      })
+      expect(Object.keys(result).sort()).toEqual([
+        'activityId',
+        'fileName',
+        'sha256',
+        'sizeBytes',
+        'success',
+      ])
+      await expect(stat(join(
+        fitDownloadDir,
+        'GARMIN_FIT_runner@example.com',
+        '42.fit',
+      ))).resolves.toMatchObject({ size: 16 })
+      expect(JSON.stringify(result)).not.toContain('runner@example.com')
+      expect(JSON.stringify(result)).not.toContain(fitDownloadDir)
+      expect(downloadOriginalActivityZip).toHaveBeenCalledWith(42, privateDownloadDir)
+      await expect(stat(privateDownloadDir)).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('isolates the same activity ID into separate per-account directories', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'garmin-fit-accounts-test-'))
+    const downloadOriginalActivityZip = jest.fn(async (
+      activityId: number,
+      destinationDir: string,
+    ) => {
+      const fit = Buffer.from([
+        0x0E, 0x10, 0xD9, 0x07, 0x00, 0x00, 0x00, 0x00,
+        0x2E, 0x46, 0x49, 0x54, 0x91, 0x33, 0x00, 0x00,
+      ])
+      const zipPath = join(destinationDir, `${activityId}.zip`)
+      await writeFile(zipPath, zipSync({ 'activity.fit': fit }))
+      return zipPath
+    })
+    const makeService = (accountUsername: string) => new GarminToolService(clientWith({
+      downloadOriginalActivityZip,
+    }), {
+      activityDetail: 'compact',
+      fitDownloadDir: root,
+      accountUsername,
+    })
+
+    try {
+      const [personal, work] = await Promise.all([
+        makeService('Personal@Example.com').downloadActivityFit({ activityId: 42 }),
+        makeService('work@example.com').downloadActivityFit({ activityId: 42 }),
+      ])
+
+      await expect(stat(join(
+        root,
+        'GARMIN_FIT_personal@example.com',
+        '42.fit',
+      ))).resolves.toMatchObject({ size: 16 })
+      await expect(stat(join(
+        root,
+        'GARMIN_FIT_work@example.com',
+        '42.fit',
+      ))).resolves.toMatchObject({ size: 16 })
+      expect(JSON.stringify([personal, work])).not.toContain('example.com')
+      expect(JSON.stringify([personal, work])).not.toContain(root)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps a malicious account identifier inside the selected parent directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'garmin-fit-account-path-test-'))
+    const downloadOriginalActivityZip = jest.fn(async (
+      activityId: number,
+      destinationDir: string,
+    ) => {
+      const fit = Buffer.from([
+        0x0E, 0x10, 0xD9, 0x07, 0x00, 0x00, 0x00, 0x00,
+        0x2E, 0x46, 0x49, 0x54, 0x91, 0x33, 0x00, 0x00,
+      ])
+      const zipPath = join(destinationDir, `${activityId}.zip`)
+      await writeFile(zipPath, zipSync({ 'activity.fit': fit }))
+      return zipPath
+    })
+    const service = new GarminToolService(clientWith({
+      downloadOriginalActivityZip,
+    }), {
+      activityDetail: 'compact',
+      fitDownloadDir: root,
+      accountUsername: '../../outside\\runner@example.com',
+    })
+
+    try {
+      const result = await service.downloadActivityFit({ activityId: 42 })
+      const entries = await readdir(root, { withFileTypes: true })
+
+      expect(entries).toHaveLength(1)
+      expect(entries[0].isDirectory()).toBe(true)
+      expect(entries[0].name).toMatch(/^GARMIN_FIT_/)
+      expect(entries[0].name).not.toContain('/')
+      expect(entries[0].name).not.toContain('\\')
+      await expect(stat(join(root, entries[0].name, '42.fit')))
+        .resolves.toMatchObject({ size: 16 })
+      expect(JSON.stringify(result)).not.toContain('runner@example.com')
+      expect(JSON.stringify(result)).not.toContain(root)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid FIT activity ID %s before downloading',
+    async (activityId) => {
+      const downloadOriginalActivityZip = jest.fn()
+      const service = new GarminToolService(clientWith({
+        downloadOriginalActivityZip,
+      }), {
+        activityDetail: 'compact',
+        fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+        accountUsername: 'runner@example.com',
+      })
+
+      await expect(service.downloadActivityFit({ activityId })).rejects.toThrow(
+        'Invalid activityId: expected a positive integer',
+      )
+      expect(downloadOriginalActivityZip).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['', '   ', undefined])(
+    'requires an explicit FIT directory before making a Garmin request (%s)',
+    async (fitDownloadDir) => {
+      const downloadOriginalActivityZip = jest.fn()
+      const service = new GarminToolService(clientWith({
+        downloadOriginalActivityZip,
+      }), {
+        activityDetail: 'compact',
+        fitDownloadDir,
+        accountUsername: 'runner@example.com',
+      } as any)
+
+      await expect(service.downloadActivityFit({ activityId: 42 })).rejects.toThrow(
+        'FIT download directory is not configured; set GARMIN_FIT_DOWNLOAD_DIR',
+      )
+      expect(downloadOriginalActivityZip).not.toHaveBeenCalled()
+    },
+  )
+
+  it('removes the private ZIP directory when the Garmin download fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'garmin-fit-service-failure-test-'))
+    let privateDownloadDir = ''
+    const downloadOriginalActivityZip = jest.fn(async (
+      _activityId: number,
+      destinationDir: string,
+    ): Promise<string> => {
+      privateDownloadDir = destinationDir
+      throw new Error('download failed')
+    })
+    const service = new GarminToolService(clientWith({
+      downloadOriginalActivityZip,
+    }), {
+      activityDetail: 'compact',
+      fitDownloadDir: join(root, 'exports'),
+      accountUsername: 'runner@example.com',
+    })
+
+    try {
+      await expect(service.downloadActivityFit({ activityId: 42 }))
+        .rejects.toThrow('download failed')
+      await expect(stat(privateDownloadDir)).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not turn a completed FIT export into a failure when temp cleanup fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'garmin-fit-cleanup-test-'))
+    let privateDownloadDir = ''
+    const downloadOriginalActivityZip = jest.fn(async (
+      activityId: number,
+      destinationDir: string,
+    ) => {
+      privateDownloadDir = destinationDir
+      const fit = Buffer.from([
+        0x0E, 0x10, 0xD9, 0x07, 0x00, 0x00, 0x00, 0x00,
+        0x2E, 0x46, 0x49, 0x54, 0x91, 0x33, 0x00, 0x00,
+      ])
+      const zipPath = join(destinationDir, `${activityId}.zip`)
+      await writeFile(zipPath, zipSync({ 'activity.fit': fit }))
+      return zipPath
+    })
+    const service = new GarminToolService(clientWith({
+      downloadOriginalActivityZip,
+    }), {
+      activityDetail: 'compact',
+      fitDownloadDir: join(root, 'exports'),
+      accountUsername: 'runner@example.com',
+    })
+    mockedRm.mockImplementation(async (
+      path,
+      options,
+    ) => {
+      if (path === privateDownloadDir) throw new Error('simulated cleanup failure')
+      return actualRm(path, options)
+    })
+
+    try {
+      await expect(service.downloadActivityFit({ activityId: 42 })).resolves.toEqual({
+        success: true,
+        activityId: 42,
+        fileName: '42.fit',
+        sizeBytes: 16,
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      })
+      await expect(stat(join(
+        root,
+        'exports',
+        'GARMIN_FIT_runner@example.com',
+        '42.fit',
+      ))).resolves.toMatchObject({ size: 16 })
+    } finally {
+      mockedRm.mockImplementation(actualRm)
+      if (privateDownloadDir) {
+        await rm(privateDownloadDir, { recursive: true, force: true })
+      }
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('uses defaults when an adapter omits all optional read arguments', async () => {
     const getActivities = jest.fn().mockResolvedValue([])
     const service = new GarminToolService(clientWith({ getActivities }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect((service as any).getActivities()).resolves.toEqual([])
@@ -168,6 +463,8 @@ describe('GarminToolService', () => {
     }))
     const service = new GarminToolService(clientWith({ getSteps }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.getSteps({ startDate: '2026-08-20' })).resolves.toEqual({
@@ -188,6 +485,8 @@ describe('GarminToolService', () => {
     }))
     const service = new GarminToolService(clientWith({ getHeartRate }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.getHeartRate({
@@ -217,6 +516,8 @@ describe('GarminToolService', () => {
     }))
     const service = new GarminToolService(clientWith({ getWeight }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.getWeight({ startDate: '2026-08-20' })).resolves.toEqual(
@@ -238,6 +539,8 @@ describe('GarminToolService', () => {
     }])
     const service = new GarminToolService(clientWith({ getWorkouts }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.getWorkouts({ limit: 0, offset: -3 })).resolves.toEqual([
@@ -250,6 +553,8 @@ describe('GarminToolService', () => {
     const getActivities = jest.fn()
     const service = new GarminToolService(clientWith({ getActivities }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     const result = await service.getRunningAdvice({ query: 'threshold' })
@@ -278,6 +583,8 @@ describe('GarminToolService', () => {
     ])
     const service = new GarminToolService(clientWith({ getActivities }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     const result = await service.getRunningAdvice({ includeRecentActivities: true })
@@ -293,6 +600,8 @@ describe('GarminToolService', () => {
     ))
     const service = new GarminToolService(clientWith({ getActivities }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.getRunningAdvice({
@@ -316,6 +625,8 @@ describe('GarminToolService', () => {
     }))
     const service = new GarminToolService(clientWith({ getUserProfile }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.getProfile()).resolves.toEqual({
@@ -330,6 +641,8 @@ describe('GarminToolService', () => {
     const addWorkout = jest.fn()
     const service = new GarminToolService(clientWith({ addWorkout }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.createWorkout({
@@ -351,6 +664,8 @@ describe('GarminToolService', () => {
     const addWorkout = jest.fn(async () => ({ workoutId: 'new-42' }))
     const service = new GarminToolService(clientWith({ addWorkout }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     const definition = {
@@ -378,6 +693,8 @@ describe('GarminToolService', () => {
     const addWorkout = jest.fn()
     const service = new GarminToolService(clientWith({ addWorkout }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
 
     await expect(service.createWorkout({
@@ -397,6 +714,8 @@ describe('GarminToolService', () => {
     const addWorkout = jest.fn()
     const service = new GarminToolService(clientWith({ addWorkout }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
     const definition = {
       name: 'Type-confusion attempt',
@@ -416,6 +735,8 @@ describe('GarminToolService', () => {
     const addWorkout = jest.fn()
     const service = new GarminToolService(clientWith({ addWorkout }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
     const preview = await service.createWorkout({
       name: 'Easy Run',
@@ -436,6 +757,8 @@ describe('GarminToolService', () => {
     const addWorkout = jest.fn()
     const service = new GarminToolService(clientWith({ addWorkout }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
     const definition = {
       name: 'Expiring preview',
@@ -457,6 +780,8 @@ describe('GarminToolService', () => {
     const addWorkout = jest.fn().mockResolvedValue({ workoutId: 'one-write' })
     const service = new GarminToolService(clientWith({ addWorkout }), {
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
     })
     const definition = {
       name: 'One-time preview',

@@ -5,20 +5,22 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { config as loadEnv } from 'dotenv'
 import { z } from 'zod'
 import { GarminClient } from './client'
+import type { Config } from './config'
 import { GarminToolService } from './tool-service'
 import type {
   ActivityArgs,
   CreateWorkoutArgs,
   DateRangeArgs,
+  DownloadActivityFitArgs,
   PaginationArgs,
   RunningAdviceArgs,
 } from './tool-service'
-import type { Config } from './config'
 import {
   PublicToolError,
   publicErrorMessage,
   safeUpstreamLogLine,
 } from './utils/errors'
+import { resolveFitDownloadDir } from './utils/path'
 
 type ToolService = Pick<
   GarminToolService,
@@ -31,6 +33,7 @@ type ToolService = Pick<
   | 'getProfile'
   | 'getRunningAdvice'
   | 'createWorkout'
+  | 'downloadActivityFit'
 >
 
 const dateRangeSchema = {
@@ -192,6 +195,21 @@ export function createMcpServer(service: ToolService): McpServer {
     false,
   )
 
+  register(
+    'download_garmin_activity_fit',
+    'Download one Garmin activity as a FIT file. GARMIN_FIT_DOWNLOAD_DIR must explicitly select a trusted local parent directory; files are isolated under GARMIN_FIT_<account-email>. Returns non-sensitive metadata without the local path or binary content.',
+    {
+      activityId: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).describe(
+        'Positive Garmin activity ID returned by get_garmin_activities.',
+      ),
+    },
+    (args: DownloadActivityFitArgs) => invoke(() => service.downloadActivityFit(args)),
+    // Existing FIT files are never overwritten. A repeated call returns
+    // OUTPUT_EXISTS, so this intentionally shares the non-idempotent hint.
+    WRITE_ANNOTATIONS,
+    false,
+  )
+
   return server
 }
 
@@ -239,9 +257,12 @@ export function standaloneConfig(): Config {
   const username = process.env.GARMIN_USERNAME?.trim() ?? ''
   const password = process.env.GARMIN_PASSWORD
   const sessionToken = process.env.GARMIN_SESSION_TOKEN
+  const sessionTokenFile = process.env.GARMIN_SESSION_TOKEN_FILE
   if (!username) throw new PublicToolError('GARMIN_USERNAME is required')
-  if (!password && !sessionToken) {
-    throw new PublicToolError('GARMIN_PASSWORD or GARMIN_SESSION_TOKEN is required')
+  if (!password?.trim() && !sessionToken?.trim() && !sessionTokenFile?.trim()) {
+    throw new PublicToolError(
+      'GARMIN_PASSWORD, GARMIN_SESSION_TOKEN, or GARMIN_SESSION_TOKEN_FILE is required',
+    )
   }
 
   const region = process.env.GARMIN_REGION === 'cn' ? 'cn' : 'global'
@@ -250,8 +271,10 @@ export function standaloneConfig(): Config {
     username,
     password,
     sessionToken,
+    sessionTokenFile,
     region,
     activityDetail,
+    fitDownloadDir: resolveFitDownloadDir(process.env.GARMIN_FIT_DOWNLOAD_DIR),
     cacheTtl: envNumber('GARMIN_CACHE_TTL', 300, true),
     requestTimeoutMs: envNumber('GARMIN_REQUEST_TIMEOUT_MS', 15_000, false),
     logLevel: envChoice(
@@ -298,7 +321,10 @@ async function main(): Promise<void> {
   // Install the stdio guard before dotenv or any other third-party startup
   // work; stdout is reserved exclusively for JSON-RPC from the first byte.
   const writeStderr = console.error.bind(console)
-  let logSecrets: ReadonlyArray<string | undefined> = [process.env.DOTENV_KEY]
+  let logSecrets: ReadonlyArray<string | undefined> = [
+    process.env.GARMIN_SESSION_TOKEN_FILE,
+    process.env.DOTENV_KEY,
+  ]
   console.log = (...args: unknown[]) => {
     writeStderr('[garmin-connect upstream]', safeUpstreamLogLine(args, logSecrets))
   }
@@ -316,11 +342,14 @@ async function main(): Promise<void> {
     config.username,
     config.password,
     config.sessionToken,
+    config.sessionTokenFile,
     process.env.DOTENV_KEY,
   ]
   const client = new GarminClient(stderrContext(), config)
   const service = new GarminToolService(client, {
     activityDetail: config.activityDetail,
+    fitDownloadDir: config.fitDownloadDir,
+    accountUsername: config.username,
   })
   const server = createMcpServer(service)
   await server.connect(new StdioServerTransport())

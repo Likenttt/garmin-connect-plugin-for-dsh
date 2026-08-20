@@ -3,7 +3,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { createMcpServer, standaloneConfig } from '../src/mcp'
 
 describe('MCP adapter', () => {
-  it('exposes the same nine non-secret Garmin tools as the plugin', async () => {
+  it('exposes the same ten non-secret Garmin tools as the plugin', async () => {
     const service = serviceStub()
     const server = createMcpServer(service as any)
     const client = new Client({ name: 'test-client', version: '1.0.0' })
@@ -26,6 +26,7 @@ describe('MCP adapter', () => {
         'get_garmin_profile',
         'get_running_skill_advice',
         'create_garmin_workout',
+        'download_garmin_activity_fit',
       ])
       const createWorkout = result.tools.find(tool => tool.name === 'create_garmin_workout')!
       expect(createWorkout.inputSchema).toMatchObject({
@@ -43,8 +44,31 @@ describe('MCP adapter', () => {
         destructiveHint: false,
         idempotentHint: false,
       })
+
+      const downloadFit = result.tools.find(
+        tool => tool.name === 'download_garmin_activity_fit',
+      )!
+      expect(downloadFit.description).toContain('GARMIN_FIT_DOWNLOAD_DIR')
+      expect(downloadFit.description).toContain('parent directory')
+      expect(downloadFit.inputSchema).toMatchObject({
+        type: 'object',
+        required: ['activityId'],
+        additionalProperties: false,
+        properties: {
+          activityId: expect.any(Object),
+        },
+      })
+      expect(downloadFit.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      })
       expect(result.tools
-        .filter(tool => tool.name !== 'create_garmin_workout')
+        .filter(tool => ![
+          'create_garmin_workout',
+          'download_garmin_activity_fit',
+        ].includes(tool.name))
         .every(tool => tool.annotations?.readOnlyHint === true)).toBe(true)
     } finally {
       await client.close()
@@ -83,6 +107,54 @@ describe('MCP adapter', () => {
       expect(result.content).toEqual(expect.arrayContaining([
         expect.objectContaining({ type: 'text' }),
       ]))
+    } finally {
+      await client.close()
+      await server.close()
+    }
+  })
+
+  it('strictly validates activityId before invoking the FIT download service', async () => {
+    const service = serviceStub()
+    service.downloadActivityFit.mockResolvedValue({
+      success: true,
+      activityId: 42,
+      fileName: '42.fit',
+      sizeBytes: 14,
+      sha256: 'a'.repeat(64),
+    })
+    const server = createMcpServer(service as any)
+    const client = new Client({ name: 'test-client', version: '1.0.0' })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+
+    await Promise.all([
+      server.connect(serverTransport),
+      client.connect(clientTransport),
+    ])
+
+    try {
+      for (const args of [
+        { activityId: 0 },
+        { activityId: 1.5 },
+        { activityId: Number.MAX_SAFE_INTEGER + 1 },
+        { activityId: 42, unexpected: true },
+      ]) {
+        const invalid = await client.callTool({
+          name: 'download_garmin_activity_fit',
+          arguments: args,
+        })
+        expect(invalid.isError).toBe(true)
+      }
+      expect(service.downloadActivityFit).not.toHaveBeenCalled()
+
+      const result = await client.callTool({
+        name: 'download_garmin_activity_fit',
+        arguments: { activityId: 42 },
+      })
+      expect(result.isError).not.toBe(true)
+      expect(service.downloadActivityFit).toHaveBeenCalledWith({ activityId: 42 })
+      expect(JSON.stringify(result.content)).not.toContain('binary')
+      expect(JSON.stringify(result.content)).not.toContain('runner@example.com')
+      expect(JSON.stringify(result.content)).not.toContain('/private/downloads')
     } finally {
       await client.close()
       await server.close()
@@ -209,6 +281,41 @@ describe('standalone MCP config', () => {
     process.env.GARMIN_LOG_LEVEL = 'verbose'
     expect(standaloneConfig().logLevel).toBe('info')
   })
+
+  it('does not choose a FIT download directory unless explicitly configured', () => {
+    process.env.GARMIN_USERNAME = 'fixture@example.test'
+    process.env.GARMIN_PASSWORD = 'fixture-password'
+    delete process.env.GARMIN_FIT_DOWNLOAD_DIR
+
+    expect(standaloneConfig().fitDownloadDir).toBe('')
+  })
+
+  it('accepts a session-token file as the only configured credential', () => {
+    process.env.GARMIN_USERNAME = 'fixture@example.test'
+    delete process.env.GARMIN_PASSWORD
+    delete process.env.GARMIN_SESSION_TOKEN
+    process.env.GARMIN_SESSION_TOKEN_FILE = '/private/session-token.json'
+    process.env.GARMIN_FIT_DOWNLOAD_DIR = '/private/garmin-fit-downloads'
+
+    expect(standaloneConfig()).toMatchObject({
+      username: 'fixture@example.test',
+      password: undefined,
+      sessionToken: undefined,
+      sessionTokenFile: '/private/session-token.json',
+      fitDownloadDir: '/private/garmin-fit-downloads',
+    })
+  })
+
+  it('requires a password, inline token, or token file after trimming whitespace', () => {
+    process.env.GARMIN_USERNAME = 'fixture@example.test'
+    process.env.GARMIN_PASSWORD = '   '
+    process.env.GARMIN_SESSION_TOKEN = ''
+    process.env.GARMIN_SESSION_TOKEN_FILE = '\t'
+
+    expect(() => standaloneConfig()).toThrow(
+      'GARMIN_PASSWORD, GARMIN_SESSION_TOKEN, or GARMIN_SESSION_TOKEN_FILE is required',
+    )
+  })
 })
 
 function serviceStub() {
@@ -222,5 +329,6 @@ function serviceStub() {
     getProfile: jest.fn().mockResolvedValue({}),
     getRunningAdvice: jest.fn().mockResolvedValue({}),
     createWorkout: jest.fn().mockResolvedValue({}),
+    downloadActivityFit: jest.fn().mockResolvedValue({}),
   }
 }

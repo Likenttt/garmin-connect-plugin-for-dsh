@@ -1,5 +1,8 @@
 import z from '@deepseek-ai/schemastery'
 import * as dotenv from 'dotenv'
+import { resolveFitDownloadDir } from './utils/path'
+
+export { resolveFitDownloadDir } from './utils/path'
 
 // Load .env file — only takes effect if the file exists.
 // In production, credentials should be set directly in the shell environment.
@@ -18,6 +21,8 @@ export interface Config {
   password?: string
   /** Pre-authenticated session token — avoids storing the password entirely */
   sessionToken?: string
+  /** Path to a JSON file containing a pre-authenticated session token */
+  sessionTokenFile?: string
   /** Garmin server region */
   region: GarminRegion
   /** In-memory cache TTL in seconds (0 = disabled) */
@@ -28,6 +33,8 @@ export interface Config {
   logLevel: 'debug' | 'info' | 'warn' | 'error'
   /** Default activity detail: compact, or expanded full data with private fields filtered */
   activityDetail: 'compact' | 'full'
+  /** User-selected trusted local directory used for extracted FIT activity files */
+  fitDownloadDir: string
 }
 
 /**
@@ -56,6 +63,11 @@ export const Config = z.object({
     .role('secret')
     .default('')
     .description('Pre-auth session token. Env: GARMIN_SESSION_TOKEN'),
+
+  sessionTokenFile: z.string()
+    .role('secret')
+    .default('')
+    .description('Path to a pre-auth session token JSON file. Env: GARMIN_SESSION_TOKEN_FILE'),
 
   region: z.union(['global', 'cn'] as const)
     .default(envChoice(process.env.GARMIN_REGION, ['global', 'cn'] as const, 'global'))
@@ -86,6 +98,10 @@ export const Config = z.object({
       'compact',
     ))
     .description('Activity detail: compact, or full with expanded fitness/location data and private fields filtered. Env: GARMIN_ACTIVITY_DETAIL'),
+
+  fitDownloadDir: z.string()
+    .default('')
+    .description('User-selected local FIT directory (no default). Env: GARMIN_FIT_DOWNLOAD_DIR'),
 })
 
 /** Resolve secrets at runtime so schema metadata never contains credentials. */
@@ -95,6 +111,14 @@ export function resolveConfig(input: Config): Config {
     username: preferNonEmpty(input.username, process.env.GARMIN_USERNAME),
     password: preferNonEmpty(input.password, process.env.GARMIN_PASSWORD),
     sessionToken: preferNonEmpty(input.sessionToken, process.env.GARMIN_SESSION_TOKEN),
+    sessionTokenFile: preferNonEmpty(
+      input.sessionTokenFile,
+      process.env.GARMIN_SESSION_TOKEN_FILE,
+    ),
+    fitDownloadDir: resolveFitDownloadDir(preferNonEmpty(
+      input.fitDownloadDir,
+      process.env.GARMIN_FIT_DOWNLOAD_DIR,
+    )),
   }
 }
 

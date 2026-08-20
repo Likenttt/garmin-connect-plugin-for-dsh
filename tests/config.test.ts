@@ -4,9 +4,11 @@ describe('Config environment defaults', () => {
   const originalUsername = process.env.GARMIN_USERNAME
   const originalPassword = process.env.GARMIN_PASSWORD
   const originalSessionToken = process.env.GARMIN_SESSION_TOKEN
+  const originalSessionTokenFile = process.env.GARMIN_SESSION_TOKEN_FILE
   const originalRegion = process.env.GARMIN_REGION
   const originalLogLevel = process.env.GARMIN_LOG_LEVEL
   const originalActivityDetail = process.env.GARMIN_ACTIVITY_DETAIL
+  const originalFitDownloadDir = process.env.GARMIN_FIT_DOWNLOAD_DIR
 
   beforeEach(() => {
     jest.resetModules()
@@ -50,9 +52,11 @@ describe('Config environment defaults', () => {
     delete process.env.GARMIN_USERNAME
     delete process.env.GARMIN_PASSWORD
     delete process.env.GARMIN_SESSION_TOKEN
+    delete process.env.GARMIN_SESSION_TOKEN_FILE
     delete process.env.GARMIN_REGION
     delete process.env.GARMIN_LOG_LEVEL
     delete process.env.GARMIN_ACTIVITY_DETAIL
+    delete process.env.GARMIN_FIT_DOWNLOAD_DIR
   })
 
   afterAll(() => {
@@ -66,12 +70,16 @@ describe('Config environment defaults', () => {
     else process.env.GARMIN_PASSWORD = originalPassword
     if (originalSessionToken === undefined) delete process.env.GARMIN_SESSION_TOKEN
     else process.env.GARMIN_SESSION_TOKEN = originalSessionToken
+    if (originalSessionTokenFile === undefined) delete process.env.GARMIN_SESSION_TOKEN_FILE
+    else process.env.GARMIN_SESSION_TOKEN_FILE = originalSessionTokenFile
     if (originalRegion === undefined) delete process.env.GARMIN_REGION
     else process.env.GARMIN_REGION = originalRegion
     if (originalLogLevel === undefined) delete process.env.GARMIN_LOG_LEVEL
     else process.env.GARMIN_LOG_LEVEL = originalLogLevel
     if (originalActivityDetail === undefined) delete process.env.GARMIN_ACTIVITY_DETAIL
     else process.env.GARMIN_ACTIVITY_DETAIL = originalActivityDetail
+    if (originalFitDownloadDir === undefined) delete process.env.GARMIN_FIT_DOWNLOAD_DIR
+    else process.env.GARMIN_FIT_DOWNLOAD_DIR = originalFitDownloadDir
     jest.dontMock('dotenv')
     jest.dontMock('@deepseek-ai/schemastery')
   })
@@ -107,12 +115,14 @@ describe('Config environment defaults', () => {
     process.env.GARMIN_USERNAME = 'environment-user'
     process.env.GARMIN_PASSWORD = 'environment-password'
     process.env.GARMIN_SESSION_TOKEN = 'environment-session'
+    process.env.GARMIN_SESSION_TOKEN_FILE = '/private/session-token.json'
     const { Config } = require('../src/config') as typeof import('../src/config')
 
     expect(Config({})).toMatchObject({
       username: '',
       password: '',
       sessionToken: '',
+      sessionTokenFile: '',
     })
   })
 
@@ -120,13 +130,40 @@ describe('Config environment defaults', () => {
     process.env.GARMIN_USERNAME = 'environment-user'
     process.env.GARMIN_PASSWORD = 'environment-password'
     process.env.GARMIN_SESSION_TOKEN = 'environment-session'
+    process.env.GARMIN_SESSION_TOKEN_FILE = '/environment/session-token.json'
     const { Config, resolveConfig } = require('../src/config') as typeof import('../src/config')
 
     expect(resolveConfig(Config({ username: 'plugin-user' }))).toMatchObject({
       username: 'plugin-user',
       password: 'environment-password',
       sessionToken: 'environment-session',
+      sessionTokenFile: '/environment/session-token.json',
     })
+  })
+
+  it('prefers a non-empty plugin session-token file path over the environment', () => {
+    process.env.GARMIN_SESSION_TOKEN_FILE = '/environment/session-token.json'
+    const { Config, resolveConfig } = require('../src/config') as typeof import('../src/config')
+
+    expect(resolveConfig(Config({
+      username: 'plugin-user',
+      sessionTokenFile: '/plugin/session-token.json',
+    })).sessionTokenFile).toBe('/plugin/session-token.json')
+  })
+
+  it('leaves FIT downloads disabled until the user selects a directory', () => {
+    const { resolveFitDownloadDir } = require('../src/config') as typeof import('../src/config')
+
+    expect(resolveFitDownloadDir('', '/private/home')).toBe('')
+    expect(resolveFitDownloadDir('~/private-fit', '/private/home'))
+      .toBe('/private/home/private-fit')
+  })
+
+  it('lets GARMIN_FIT_DOWNLOAD_DIR supply an absolute runtime destination', () => {
+    process.env.GARMIN_FIT_DOWNLOAD_DIR = '/private/garmin-fit'
+    const { Config, resolveConfig } = require('../src/config') as typeof import('../src/config')
+
+    expect(resolveConfig(Config({})).fitDownloadDir).toBe('/private/garmin-fit')
   })
 
   it('rejects negative cache TTLs and non-positive request timeouts from plugin config', () => {

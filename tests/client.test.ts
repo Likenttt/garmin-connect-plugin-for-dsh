@@ -1,7 +1,12 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { GarminConnect } from 'garmin-connect'
 import { GarminClient } from '../src/client'
 import type { Config } from '../src/config'
+import { bindSessionTokensToAccount } from '../src/session-store'
+import { MAX_ZIP_BYTES } from '../src/fit-export'
 
 jest.mock('garmin-connect', () => ({
   GarminConnect: jest.fn().mockImplementation(() => ({
@@ -15,13 +20,14 @@ jest.mock('garmin-connect', () => ({
     getHeartRate: jest.fn(),
     getDailyWeightData: jest.fn(),
     getWorkouts: jest.fn(),
+    downloadOriginalActivityData: jest.fn(),
     addWorkout: jest.fn(),
     getUserProfile: jest.fn(),
   })),
 }))
 
 type MockGarmin = {
-  client: { client: { defaults: { timeout?: number } } }
+  client: { client: { defaults: { timeout?: number; maxContentLength?: number } } }
   login: jest.Mock
   loadToken: jest.Mock
   exportToken: jest.Mock
@@ -31,6 +37,7 @@ type MockGarmin = {
   getHeartRate: jest.Mock
   getDailyWeightData: jest.Mock
   getWorkouts: jest.Mock
+  downloadOriginalActivityData: jest.Mock
   addWorkout: jest.Mock
   getUserProfile: jest.Mock
 }
@@ -39,10 +46,12 @@ const baseConfig: Config = {
   username: 'runner@example.test',
   password: 'password-value',
   sessionToken: '',
+  sessionTokenFile: '',
   region: 'global',
   cacheTtl: 0,
   logLevel: 'info',
   activityDetail: 'compact',
+  fitDownloadDir: '/tmp/garmin-fit-client-test-output',
 }
 
 function createContext() {
@@ -61,9 +70,25 @@ function latestGarmin(): MockGarmin {
   return constructor.mock.results.at(-1)?.value as MockGarmin
 }
 
+const temporaryDirectories: string[] = []
+
+async function createSessionFile(source: string): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), 'garmin-session-test-'))
+  temporaryDirectories.push(directory)
+  const path = join(directory, 'session.json')
+  await writeFile(path, source, { encoding: 'utf8', mode: 0o600 })
+  return path
+}
+
 describe('GarminClient', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    await Promise.all(temporaryDirectories.splice(0).map(directory => (
+      rm(directory, { recursive: true, force: true })
+    )))
   })
 
   it('fails fast when the Garmin username is empty', () => {
@@ -78,7 +103,83 @@ describe('GarminClient', () => {
       ...baseConfig,
       password: '',
       sessionToken: '',
-    })).toThrow('Garmin password or session token is required')
+      sessionTokenFile: '',
+    })).toThrow('Garmin password, session token, or session token file is required')
+  })
+
+  it('loads a session token file when no inline token or password is configured', async () => {
+    const tokens = {
+      oauth1: { oauth_token: 'oauth-one' },
+      oauth2: { access_token: 'oauth-two' },
+    }
+    const sessionTokenFile = await createSessionFile(JSON.stringify(tokens))
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: '',
+      sessionTokenFile,
+    })
+
+    await expect(client.connect()).resolves.toBeUndefined()
+    expect(latestGarmin().loadToken).toHaveBeenCalledWith(tokens.oauth1, tokens.oauth2)
+    expect(latestGarmin().login).not.toHaveBeenCalled()
+  })
+
+  it('rejects a session file bound to another account before loading its tokens', async () => {
+    const session = bindSessionTokensToAccount(
+      { oauth1: { oauth_token: 'other' }, oauth2: { access_token: 'other' } },
+      'other@example.test',
+      'global',
+    )
+    const sessionTokenFile = await createSessionFile(JSON.stringify(session))
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: '',
+      sessionTokenFile,
+    })
+
+    await expect(client.connect()).rejects.toThrow(
+      'Garmin session token file does not match the configured account or region',
+    )
+    expect(latestGarmin().loadToken).not.toHaveBeenCalled()
+  })
+
+  it('prefers an explicit session token over the configured token file', async () => {
+    const inlineTokens = {
+      oauth1: { oauth_token: 'inline-oauth-one' },
+      oauth2: { access_token: 'inline-oauth-two' },
+    }
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: '',
+      sessionToken: JSON.stringify(inlineTokens),
+      sessionTokenFile: '/private/SHOULD_NOT_BE_READ/session.json',
+    })
+
+    await expect(client.connect()).resolves.toBeUndefined()
+    expect(latestGarmin().loadToken).toHaveBeenCalledWith(
+      inlineTokens.oauth1,
+      inlineTokens.oauth2,
+    )
+  })
+
+  it('falls back to password without logging malformed token-file content or its path', async () => {
+    const context = createContext()
+    const sessionTokenFile = await createSessionFile(
+      '{"oauth1":{"secret":"TOP_SECRET_FILE_FRAGMENT"}',
+    )
+    const client = new GarminClient(context, {
+      ...baseConfig,
+      sessionTokenFile,
+    })
+
+    await expect(client.connect()).resolves.toBeUndefined()
+    expect(latestGarmin().loadToken).not.toHaveBeenCalled()
+    expect(latestGarmin().login).toHaveBeenCalledTimes(1)
+    const logged = Object.values(context.logger)
+      .flatMap(logger => (logger as unknown as jest.Mock).mock.calls)
+      .flat().map(String).join(' ')
+    expect(logged).not.toContain('TOP_SECRET_FILE_FRAGMENT')
+    expect(logged).not.toContain(sessionTokenFile)
   })
 
   it('suppresses info logs when the configured threshold is error', async () => {
@@ -141,6 +242,12 @@ describe('GarminClient', () => {
     }, 'garmin.cn')
   })
 
+  it('caps buffered Garmin responses before an oversized ZIP can fill memory', () => {
+    new GarminClient(createContext(), baseConfig)
+
+    expect(latestGarmin().client.client.defaults.maxContentLength).toBe(MAX_ZIP_BYTES)
+  })
+
   it('reconnects when the SDK preserves HTTP 401 only in a wrapped message', async () => {
     const client = new GarminClient(createContext(), baseConfig)
     latestGarmin().getSleepData
@@ -169,6 +276,50 @@ describe('GarminClient', () => {
     })
     expect(latestGarmin().getSleepData).toHaveBeenCalledTimes(2)
     jest.useRealTimers()
+  })
+
+  it('downloads an original activity ZIP through the authenticated read boundary', async () => {
+    const client = new GarminClient(createContext(), baseConfig)
+    latestGarmin().downloadOriginalActivityData.mockResolvedValue(undefined)
+
+    await expect(client.downloadOriginalActivityZip(42, '/private/tmp/garmin-fit-download'))
+      .resolves.toBe('/private/tmp/garmin-fit-download/42.zip')
+
+    expect(latestGarmin().login).toHaveBeenCalledTimes(1)
+    expect(latestGarmin().downloadOriginalActivityData).toHaveBeenCalledWith(
+      { activityId: 42 },
+      '/private/tmp/garmin-fit-download',
+      'zip',
+    )
+  })
+
+  it('retries a rate-limited original activity ZIP download because it is a GET', async () => {
+    jest.useFakeTimers()
+    const client = new GarminClient(createContext(), baseConfig)
+    latestGarmin().downloadOriginalActivityData
+      .mockRejectedValueOnce(Object.assign(new Error('rate limited'), { status: 429 }))
+      .mockResolvedValueOnce(undefined)
+
+    const request = client.downloadOriginalActivityZip(42, '/private/tmp/garmin-fit-download')
+    await jest.runAllTimersAsync()
+
+    await expect(request).resolves.toBe('/private/tmp/garmin-fit-download/42.zip')
+    expect(latestGarmin().downloadOriginalActivityData).toHaveBeenCalledTimes(2)
+    jest.useRealTimers()
+  })
+
+  it('applies the configured request timeout to original activity ZIP downloads', async () => {
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      requestTimeoutMs: 10,
+    })
+    latestGarmin().downloadOriginalActivityData.mockReturnValue(new Promise(() => {}))
+
+    await expect(client.downloadOriginalActivityZip(
+      42,
+      '/private/tmp/garmin-fit-download',
+    )).rejects.toThrow('Garmin activity download timed out after 10ms')
+    expect(latestGarmin().downloadOriginalActivityData).toHaveBeenCalledTimes(1)
   })
 
   it('falls back to password login after a restored session token is rejected', async () => {

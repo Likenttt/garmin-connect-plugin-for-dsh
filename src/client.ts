@@ -1,6 +1,9 @@
 import { Context } from '@deepseek-ai/cordis'
+import { join } from 'node:path'
 import { GarminConnect } from 'garmin-connect'
 import type { Config } from './config'
+import { MAX_ZIP_BYTES } from './fit-export'
+import { readSessionTokenFile, sessionFileMatchesAccount } from './session-store'
 import { MemoryCache } from './utils/cache'
 import { parseLocalDate } from './utils/date'
 import { PublicToolError } from './utils/errors'
@@ -36,8 +39,12 @@ export class GarminClient {
     if (!config.username.trim()) {
       throw new Error('Garmin username is required')
     }
-    if (!config.password?.trim() && !config.sessionToken?.trim()) {
-      throw new Error('Garmin password or session token is required')
+    if (
+      !config.password?.trim()
+      && !config.sessionToken?.trim()
+      && !config.sessionTokenFile?.trim()
+    ) {
+      throw new Error('Garmin password, session token, or session token file is required')
     }
 
     this.ctx = ctx
@@ -51,6 +58,10 @@ export class GarminClient {
     }, config.region === 'cn' ? 'garmin.cn' : 'garmin.com')
     this.hardenUpstreamClient()
     this.gc.client.client.defaults.timeout = this.requestTimeoutMs
+    // The pinned SDK requests original ZIPs as one ArrayBuffer. Bound Axios at
+    // the transport layer so an oversized response is aborted before the full
+    // archive can be retained in memory.
+    this.gc.client.client.defaults.maxContentLength = MAX_ZIP_BYTES
   }
 
   // ---------- Lifecycle ---------------------------------------------------
@@ -73,10 +84,10 @@ export class GarminClient {
 
   private async login(): Promise<void> {
     try {
-      if (this.config.sessionToken && !this.sessionTokenRejected) {
+      if (this.hasConfiguredSession() && !this.sessionTokenRejected) {
         this.log('info', '[garmin] Restoring session from token…')
-        if (!this.restoreConfiguredSession()) {
-          this.log('warn', '[garmin] Session token is invalid; falling back to password login.')
+        if (!await this.restoreConfiguredSession()) {
+          this.log('warn', '[garmin] Configured session is unavailable; falling back to password login.')
           await this.withRequestTimeout(() => this.gc.login())
         }
       } else if (this.config.password?.trim()) {
@@ -102,23 +113,49 @@ export class GarminClient {
     }
   }
 
-  private restoreConfiguredSession(): boolean {
+  private async restoreConfiguredSession(): Promise<boolean> {
+    const inlineToken = this.config.sessionToken?.trim()
     try {
-      const tokens = JSON.parse(this.config.sessionToken ?? '') as unknown
+      let tokens: unknown
+      if (inlineToken) {
+        tokens = JSON.parse(inlineToken) as unknown
+        if (!isRecord(tokens) || !isRecord(tokens.oauth1) || !isRecord(tokens.oauth2)) {
+          throw new Error('Invalid token structure')
+        }
+      } else {
+        const sessionFile = await readSessionTokenFile(this.config.sessionTokenFile!.trim())
+        if (!sessionFileMatchesAccount(
+          sessionFile,
+          this.config.username,
+          this.config.region,
+        )) {
+          throw new PublicToolError(
+            'Garmin session token file does not match the configured account or region',
+          )
+        }
+        tokens = sessionFile
+      }
       if (!isRecord(tokens) || !isRecord(tokens.oauth1) || !isRecord(tokens.oauth2)) {
         throw new Error('Invalid token structure')
       }
       this.gc.loadToken(tokens.oauth1 as any, tokens.oauth2 as any)
       return true
-    } catch {
+    } catch (error) {
       this.rejectConfiguredSessionToken()
       if (!this.config.password?.trim()) {
+        if (!inlineToken && error instanceof PublicToolError) throw error
         throw new PublicToolError(
           'Garmin session token is invalid; provide a valid token or password',
         )
       }
       return false
     }
+  }
+
+  private hasConfiguredSession(): boolean {
+    return Boolean(
+      this.config.sessionToken?.trim() || this.config.sessionTokenFile?.trim(),
+    )
   }
 
   private rejectConfiguredSessionToken(): void {
@@ -163,7 +200,7 @@ export class GarminClient {
         
         // Session expired -> auto-reconnect
         if (status === 401 || status === 403) {
-          if (this.config.sessionToken && !this.sessionTokenRejected) {
+          if (this.hasConfiguredSession() && !this.sessionTokenRejected) {
             // A configured token and password can belong to different Garmin
             // accounts. Never carry health data across that identity boundary.
             this.rejectConfiguredSessionToken()
@@ -267,6 +304,29 @@ export class GarminClient {
     return this.getCachedForCurrentAuth(key, () => this.gc.getActivities(start, limit))
   }
 
+  /** Download the original Garmin activity archive into a private caller-owned directory. */
+  async downloadOriginalActivityZip(
+    activityId: number,
+    destinationDir: string,
+  ): Promise<string> {
+    if (!Number.isSafeInteger(activityId) || activityId <= 0) {
+      throw new PublicToolError('Invalid activityId: expected a positive integer')
+    }
+    if (typeof destinationDir !== 'string' || !destinationDir.trim()) {
+      throw new PublicToolError('The activity download directory is invalid')
+    }
+
+    await this.withRetry(() => this.withRequestTimeout(
+      () => this.gc.downloadOriginalActivityData(
+        { activityId },
+        destinationDir,
+        'zip',
+      ),
+      `Garmin activity download timed out after ${this.requestTimeoutMs}ms`,
+    ))
+    return join(destinationDir, `${activityId}.zip`)
+  }
+
   /** Return step count data for a given date (YYYY-MM-DD). */
   async getSteps(date: string): Promise<unknown> {
     return this.getCachedForCurrentAuth(`steps:${date}`, async () => {
@@ -325,7 +385,7 @@ export class GarminClient {
     } catch (error) {
       const status = getHttpStatus(error)
       if (status === 401 || status === 403) {
-        if (this.config.sessionToken && !this.sessionTokenRejected) {
+        if (this.hasConfiguredSession() && !this.sessionTokenRejected) {
           this.rejectConfiguredSessionToken()
         } else {
           this.connected = false

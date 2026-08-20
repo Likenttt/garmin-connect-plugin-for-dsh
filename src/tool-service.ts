@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { chmod, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { exportFitFromZip, fitAccountOutputDirectory } from './fit-export'
 import type { ActivityDetail } from './utils/format'
 import { findSkills, formatSkillCard } from './knowledge/running-skills'
 import {
@@ -24,12 +28,15 @@ export interface GarminDataClient {
   getHeartRate(date: string): Promise<unknown>
   getWeight(date: string): Promise<unknown>
   getWorkouts(start?: number, limit?: number): Promise<unknown[]>
+  downloadOriginalActivityZip(activityId: number, destinationDir: string): Promise<string>
   addWorkout(workout: Record<string, unknown>): Promise<Record<string, unknown>>
   getUserProfile(): Promise<unknown>
 }
 
 export interface GarminToolServiceOptions {
   activityDetail: ActivityDetail
+  fitDownloadDir: string
+  accountUsername: string
 }
 
 export interface DateRangeArgs {
@@ -51,6 +58,18 @@ export interface PaginationArgs {
 export interface RunningAdviceArgs {
   query?: string
   includeRecentActivities?: boolean
+}
+
+export interface DownloadActivityFitArgs {
+  activityId: number
+}
+
+export interface DownloadActivityFitResult {
+  success: true
+  activityId: number
+  fileName: string
+  sizeBytes: number
+  sha256: string
 }
 
 export type CreateWorkoutArgs = WorkoutDef & {
@@ -82,6 +101,60 @@ export class GarminToolService {
     const activities = await this.client.getActivities(offset, limit)
     return (activities as Record<string, unknown>[])
       .map(activity => formatActivity(activity, detail))
+  }
+
+  async downloadActivityFit(
+    args: DownloadActivityFitArgs,
+  ): Promise<DownloadActivityFitResult> {
+    if (!Number.isSafeInteger(args.activityId) || args.activityId <= 0) {
+      throw new PublicToolError('Invalid activityId: expected a positive integer')
+    }
+    if (
+      typeof this.options.fitDownloadDir !== 'string'
+      || !this.options.fitDownloadDir.trim()
+    ) {
+      throw new PublicToolError(
+        'FIT download directory is not configured; set GARMIN_FIT_DOWNLOAD_DIR',
+      )
+    }
+    const accountOutputDirectory = fitAccountOutputDirectory(
+      this.options.fitDownloadDir,
+      this.options.accountUsername,
+    )
+
+    let temporaryDirectory: string | undefined
+    try {
+      temporaryDirectory = await mkdtemp(join(tmpdir(), 'garmin-connect-fit-'))
+      if (process.platform !== 'win32') await chmod(temporaryDirectory, 0o700)
+
+      await this.client.downloadOriginalActivityZip(
+        args.activityId,
+        temporaryDirectory,
+      )
+      const metadata = await exportFitFromZip({
+        activityId: args.activityId,
+        outputDir: accountOutputDirectory,
+        // Never trust an upstream-returned path; the SDK contract writes this
+        // fixed file name inside the private directory we just created.
+        zipPath: join(temporaryDirectory, `${args.activityId}.zip`),
+      })
+
+      return {
+        success: true,
+        activityId: args.activityId,
+        fileName: metadata.fileName,
+        sizeBytes: metadata.sizeBytes,
+        sha256: metadata.sha256,
+      }
+    } finally {
+      if (temporaryDirectory) {
+        // The FIT file is already committed with exclusive-create semantics.
+        // A rare best-effort temp cleanup failure must not turn that success
+        // into an error that encourages an unsafe duplicate retry.
+        await rm(temporaryDirectory, { recursive: true, force: true })
+          .catch(() => undefined)
+      }
+    }
   }
 
   async getSleep(args: DateRangeArgs = {}): Promise<unknown> {

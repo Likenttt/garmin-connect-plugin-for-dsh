@@ -11,6 +11,7 @@ import type {
   ActivityArgs,
   CreateWorkoutArgs,
   DateRangeArgs,
+  DownloadActivityFitArgs,
   PaginationArgs,
   RunningAdviceArgs,
 } from '../tool-service'
@@ -27,7 +28,11 @@ export { getDatesInRange, todayLocal } from '../tool-service'
  */
 export function registerTools(ctx: Context, client: GarminClient, config: Config): void {
   const tools = (ctx as any).tools
-  const service = new GarminToolService(client, { activityDetail: config.activityDetail })
+  const service = new GarminToolService(client, {
+    activityDetail: config.activityDetail,
+    fitDownloadDir: config.fitDownloadDir,
+    accountUsername: config.username,
+  })
 
   // ------------------------------------------------------------------
   // 1. get_garmin_activities
@@ -321,7 +326,41 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
     },
   })
 
-  ctx.logger.info('[garmin] Registered 9 tools.')
+  // ------------------------------------------------------------------
+  // 10. download_garmin_activity_fit
+  // ------------------------------------------------------------------
+  tools.register({
+    name: 'download_garmin_activity_fit',
+    description:
+      'Download one Garmin activity as a FIT file to the trusted local directory explicitly ' +
+      'configured with GARMIN_FIT_DOWNLOAD_DIR. This variable selects a parent directory; ' +
+      'files are isolated under GARMIN_FIT_<account-email>. Local configuration is required. ' +
+      'Returns non-sensitive file metadata without the local path or FIT binary. ' +
+      'Existing FIT files are never overwritten.',
+    parameters: {
+      type: 'object',
+      required: ['activityId'],
+      additionalProperties: false,
+      properties: {
+        activityId: {
+          type: 'integer',
+          minimum: 1,
+          maximum: Number.MAX_SAFE_INTEGER,
+          description: 'Positive Garmin activity ID returned by get_garmin_activities.',
+        },
+      },
+    },
+    output: flexibleOutput,
+    execute: async (args: DownloadActivityFitArgs) => {
+      try {
+        return await service.downloadActivityFit(args)
+      } catch (error) {
+        return toolError(error, 'Failed to download FIT activity file')
+      }
+    },
+  })
+
+  ctx.logger.info('[garmin] Registered 10 tools.')
 }
 
 // ---------------------------------------------------------------------------

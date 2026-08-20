@@ -231,6 +231,7 @@ describe('safe Garmin response interceptor', () => {
       requestTimeoutMs: 1_000,
       logLevel: 'error',
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-test',
     })
     const axiosClient = (client as any).gc.client.client
     let postCount = 0
@@ -275,6 +276,7 @@ describe('safe Garmin response interceptor', () => {
       requestTimeoutMs: 1_000,
       logLevel: 'error',
       activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-test',
     })
     await client.connect()
     const upstream = (client as any).gc.client
