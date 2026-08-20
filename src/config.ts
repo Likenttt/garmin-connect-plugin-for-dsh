@@ -22,9 +22,11 @@ export interface Config {
   region: GarminRegion
   /** In-memory cache TTL in seconds (0 = disabled) */
   cacheTtl: number
+  /** Garmin request timeout in milliseconds */
+  requestTimeoutMs?: number
   /** Logging verbosity */
   logLevel: 'debug' | 'info' | 'warn' | 'error'
-  /** Default detail level for get_garmin_activities: compact (curated, saves context) or full (all raw fields) */
+  /** Default activity detail: compact, or expanded full data with private fields filtered */
   activityDetail: 'compact' | 'full'
 }
 
@@ -33,40 +35,91 @@ export interface Config {
  *
  * Credential resolution priority:
  *   1. Values supplied directly in the Harness config file (plugin config)
- *   2. Environment variables (GARMIN_USERNAME, GARMIN_PASSWORD, …)
- *   3. Defaults defined below
+ *   2. Environment variables resolved by `resolveConfig()` at apply time
+ *   3. Empty schema defaults (credentials never enter schema metadata)
  *
  * Passwords and session tokens are NEVER logged, serialized, or written to
  * the Harness trajectory / tool-call history.
  */
 export const Config = z.object({
   username: z.string()
-    .default(process.env.GARMIN_USERNAME ?? '')
+    .role('secret')
+    .default('')
     .description('Garmin account email. Env: GARMIN_USERNAME'),
 
   password: z.string()
     .role('secret')
-    .default(process.env.GARMIN_PASSWORD || '')
+    .default('')
     .description('Garmin password (prefer session token). Env: GARMIN_PASSWORD'),
 
   sessionToken: z.string()
     .role('secret')
-    .default(process.env.GARMIN_SESSION_TOKEN || '')
+    .default('')
     .description('Pre-auth session token. Env: GARMIN_SESSION_TOKEN'),
 
   region: z.union(['global', 'cn'] as const)
-    .default((process.env.GARMIN_REGION as GarminRegion) ?? 'global')
+    .default(envChoice(process.env.GARMIN_REGION, ['global', 'cn'] as const, 'global'))
     .description('Server region: global | cn. Env: GARMIN_REGION'),
 
   cacheTtl: z.number()
-    .default(Number(process.env.GARMIN_CACHE_TTL) || 300)
+    .min(0)
+    .default(nonNegativeEnvNumber(process.env.GARMIN_CACHE_TTL, 300))
     .description('Cache TTL in seconds (0 to disable). Env: GARMIN_CACHE_TTL'),
 
+  requestTimeoutMs: z.number()
+    .min(1)
+    .default(positiveEnvNumber(process.env.GARMIN_REQUEST_TIMEOUT_MS, 15_000))
+    .description('Garmin request timeout in milliseconds. Env: GARMIN_REQUEST_TIMEOUT_MS'),
+
   logLevel: z.union(['debug', 'info', 'warn', 'error'] as const)
-    .default((process.env.GARMIN_LOG_LEVEL as Config['logLevel']) ?? 'info')
+    .default(envChoice(
+      process.env.GARMIN_LOG_LEVEL,
+      ['debug', 'info', 'warn', 'error'] as const,
+      'info',
+    ))
     .description('Log verbosity. Env: GARMIN_LOG_LEVEL'),
 
   activityDetail: z.union(['compact', 'full'] as const)
-    .default((process.env.GARMIN_ACTIVITY_DETAIL as Config['activityDetail']) ?? 'compact')
-    .description('Default detail for get_garmin_activities: compact (curated fields, saves context) or full (all raw fields). Env: GARMIN_ACTIVITY_DETAIL'),
+    .default(envChoice(
+      process.env.GARMIN_ACTIVITY_DETAIL,
+      ['compact', 'full'] as const,
+      'compact',
+    ))
+    .description('Activity detail: compact, or full with expanded fitness/location data and private fields filtered. Env: GARMIN_ACTIVITY_DETAIL'),
 })
+
+/** Resolve secrets at runtime so schema metadata never contains credentials. */
+export function resolveConfig(input: Config): Config {
+  return {
+    ...input,
+    username: preferNonEmpty(input.username, process.env.GARMIN_USERNAME),
+    password: preferNonEmpty(input.password, process.env.GARMIN_PASSWORD),
+    sessionToken: preferNonEmpty(input.sessionToken, process.env.GARMIN_SESSION_TOKEN),
+  }
+}
+
+function preferNonEmpty(primary: string | undefined, fallback: string | undefined): string {
+  if (primary?.trim()) return primary
+  return fallback?.trim() ? fallback : ''
+}
+
+function nonNegativeEnvNumber(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === '') return fallback
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
+function positiveEnvNumber(value: string | undefined, fallback: number): number {
+  const parsed = nonNegativeEnvNumber(value, fallback)
+  return parsed > 0 ? parsed : fallback
+}
+
+function envChoice<const T extends readonly string[]>(
+  value: string | undefined,
+  allowed: T,
+  fallback: T[number],
+): T[number] {
+  return value !== undefined && allowed.includes(value)
+    ? value as T[number]
+    : fallback
+}

@@ -1,18 +1,21 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { GarminClient } from '../client'
 import type { Config } from '../config'
+import { publicErrorMessage } from '../utils/errors'
 import {
-  formatActivity,
-  formatSleep,
-  formatSteps,
-  formatHeartRate,
-  formatWeight,
-  formatWorkout,
-} from '../utils/format'
-import type { ActivityDetail } from '../utils/format'
-import { findSkills, formatSkillCard } from '../knowledge/running-skills'
-import { buildGarminWorkout, validateWorkoutDef } from '../knowledge/workout-schema'
-import type { WorkoutDef } from '../knowledge/workout-schema'
+  GarminToolService,
+  getDatesInRange,
+  todayLocal,
+} from '../tool-service'
+import type {
+  ActivityArgs,
+  CreateWorkoutArgs,
+  DateRangeArgs,
+  PaginationArgs,
+  RunningAdviceArgs,
+} from '../tool-service'
+
+export { getDatesInRange, todayLocal } from '../tool-service'
 
 /**
  * Register all Garmin-related tools with the DeepSeek Harness tool registry.
@@ -24,6 +27,7 @@ import type { WorkoutDef } from '../knowledge/workout-schema'
  */
 export function registerTools(ctx: Context, client: GarminClient, config: Config): void {
   const tools = (ctx as any).tools
+  const service = new GarminToolService(client, { activityDetail: config.activityDetail })
 
   // ------------------------------------------------------------------
   // 1. get_garmin_activities
@@ -33,36 +37,37 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
     description:
       'Retrieve the user\'s recent Garmin fitness activities (runs, rides, swims, hikes, etc.). ' +
       'Returns activities with distance, duration, pace, heart rate, and calories by default. ' +
-      'Pass detail="full" when the user asks for complete data (all raw Garmin fields). ' +
+      'Pass detail="full" only when the user asks for expanded data; it can include ' +
+      'precise route/location fields but filters credentials and account/social identifiers. ' +
       'Example user query: "Show me my last 5 runs"',
     parameters: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         limit: {
           type: 'integer',
+          minimum: 1,
+          maximum: 100,
           description: 'Maximum number of activities to return (1–100).',
         },
         offset: {
           type: 'integer',
+          minimum: 0,
           description: 'Pagination offset. 0 = most recent.',
         },
         detail: {
           type: 'string',
           enum: ['compact', 'full'],
-          description: 'compact (default) returns curated fields to save context; full returns every raw Garmin field.',
+          description: 'compact (default) returns curated fields; full adds expanded fitness and precise location/route fields while filtering credentials and account/social identifiers.',
         },
       },
     },
     output: flexibleOutput,
-    execute: async (args: { limit?: number; offset?: number; detail?: string }) => {
+    execute: async (args: ActivityArgs) => {
       try {
-        const limit = Math.min(Math.max(args.limit ?? 5, 1), 100)
-        const offset = Math.max(args.offset ?? 0, 0)
-        const detail: ActivityDetail = (args.detail ?? config.activityDetail) === 'full' ? 'full' : 'compact'
-        const raw = await client.getActivities(offset, limit)
-        return (raw as Record<string, unknown>[]).map(a => formatActivity(a, detail))
-      } catch (err: any) {
-        return { error: true, message: err.message || 'Failed to fetch activities' }
+        return await service.getActivities(args)
+      } catch (error) {
+        return toolError(error, 'Failed to fetch activities')
       }
     },
   })
@@ -78,21 +83,11 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       'Example user query: "How did I sleep last night?" or "My sleep trend this week"',
     parameters: dateRangeParameters,
     output: flexibleOutput,
-    execute: async (args: { startDate?: string; endDate?: string }) => {
+    execute: async (args: DateRangeArgs) => {
       try {
-        const start = isValidDate(args.startDate) ? args.startDate! : todayLocal()
-        const end = isValidDate(args.endDate) ? args.endDate! : start
-
-        const dates = getDatesInRange(start, end)
-        const results = await Promise.all(
-          dates.map(async d => {
-            const raw = await client.getSleep(d)
-            return formatSleep(raw as Record<string, unknown>)
-          })
-        )
-        return results.length === 1 ? results[0] : results
-      } catch (err: any) {
-        return { error: true, message: err.message || 'Failed to fetch sleep data' }
+        return await service.getSleep(args)
+      } catch (error) {
+        return toolError(error, 'Failed to fetch sleep data')
       }
     },
   })
@@ -103,25 +98,16 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
   tools.register({
     name: 'get_garmin_steps',
     description:
-      'Get the user\'s step count, step goal, and walking distance for a specific date or range. ' +
+      'Get the user\'s step count for a specific date or range. Goal and walking distance are ' +
+      'included only when the upstream Garmin response provides them. ' +
       'Example user query: "How many steps did I take today?"',
     parameters: dateRangeParameters,
     output: flexibleOutput,
-    execute: async (args: { startDate?: string; endDate?: string }) => {
+    execute: async (args: DateRangeArgs) => {
       try {
-        const start = isValidDate(args.startDate) ? args.startDate! : todayLocal()
-        const end = isValidDate(args.endDate) ? args.endDate! : start
-
-        const dates = getDatesInRange(start, end)
-        const results = await Promise.all(
-          dates.map(async d => {
-            const raw = await client.getSteps(d)
-            return formatSteps(raw as Record<string, unknown>)
-          })
-        )
-        return results.length === 1 ? results[0] : results
-      } catch (err: any) {
-        return { error: true, message: err.message || 'Failed to fetch steps' }
+        return await service.getSteps(args)
+      } catch (error) {
+        return toolError(error, 'Failed to fetch steps')
       }
     },
   })
@@ -137,21 +123,11 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       'Example user query: "What is my resting heart rate?"',
     parameters: dateRangeParameters,
     output: flexibleOutput,
-    execute: async (args: { startDate?: string; endDate?: string }) => {
+    execute: async (args: DateRangeArgs) => {
       try {
-        const start = isValidDate(args.startDate) ? args.startDate! : todayLocal()
-        const end = isValidDate(args.endDate) ? args.endDate! : start
-
-        const dates = getDatesInRange(start, end)
-        const results = await Promise.all(
-          dates.map(async d => {
-            const raw = await client.getHeartRate(d)
-            return formatHeartRate(raw as Record<string, unknown>)
-          })
-        )
-        return results.length === 1 ? results[0] : results
-      } catch (err: any) {
-        return { error: true, message: err.message || 'Failed to fetch heart rate' }
+        return await service.getHeartRate(args)
+      } catch (error) {
+        return toolError(error, 'Failed to fetch heart rate')
       }
     },
   })
@@ -166,21 +142,11 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       'Example user query: "What was my weight today?"',
     parameters: dateRangeParameters,
     output: flexibleOutput,
-    execute: async (args: { startDate?: string; endDate?: string }) => {
+    execute: async (args: DateRangeArgs) => {
       try {
-        const start = isValidDate(args.startDate) ? args.startDate! : todayLocal()
-        const end = isValidDate(args.endDate) ? args.endDate! : start
-
-        const dates = getDatesInRange(start, end)
-        const results = await Promise.all(
-          dates.map(async d => {
-            const raw = await client.getWeight(d)
-            return formatWeight(raw as Record<string, unknown>)
-          })
-        )
-        return results.length === 1 ? results[0] : results
-      } catch (err: any) {
-        return { error: true, message: err.message || 'Failed to fetch weight data' }
+        return await service.getWeight(args)
+      } catch (error) {
+        return toolError(error, 'Failed to fetch weight data')
       }
     },
   })
@@ -191,30 +157,31 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
   tools.register({
     name: 'get_garmin_workouts',
     description:
-      'Get the user\'s planned Garmin workouts and calendar. ' +
-      'Example user query: "What workouts are on my Garmin calendar?"',
+      'Get reusable workout templates from the user\'s Garmin workout library. ' +
+      'Example user query: "What workouts are in my Garmin library?"',
     parameters: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         limit: {
           type: 'integer',
+          minimum: 1,
+          maximum: 100,
           description: 'Maximum number of workouts to return (1–100).',
         },
         offset: {
           type: 'integer',
+          minimum: 0,
           description: 'Pagination offset. 0 = most recent.',
         },
       },
     },
     output: flexibleOutput,
-    execute: async (args: { limit?: number; offset?: number }) => {
+    execute: async (args: PaginationArgs) => {
       try {
-        const limit = Math.min(Math.max(args.limit ?? 10, 1), 100)
-        const offset = Math.max(args.offset ?? 0, 0)
-        const raw = await client.getWorkouts(offset, limit)
-        return (raw as Record<string, unknown>[]).map(formatWorkout)
-      } catch (err: any) {
-        return { error: true, message: err.message || 'Failed to fetch workouts' }
+        return await service.getWorkouts(args)
+      } catch (error) {
+        return toolError(error, 'Failed to fetch workouts')
       }
     },
   })
@@ -228,49 +195,21 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       'Get the user\'s Garmin profile summary (display name, profile image URL, etc.).',
     parameters: {
       type: 'object',
+      additionalProperties: false,
       properties: {},
     },
     output: flexibleOutput,
     execute: async () => {
       try {
-        return await client.getUserProfile()
-      } catch (err: any) {
-        return { error: true, message: err.message || 'Failed to fetch profile' }
+        return await service.getProfile()
+      } catch (error) {
+        return toolError(error, 'Failed to fetch profile')
       }
     },
   })
 
   // ------------------------------------------------------------------
-  // 8. export_garmin_session
-  // ------------------------------------------------------------------
-  tools.register({
-    name: 'export_garmin_session',
-    description:
-      'Export the current Garmin session token. The user can store this token ' +
-      'in their environment as GARMIN_SESSION_TOKEN to avoid password-based login in the future. ' +
-      '⚠️ The token is sensitive — never share it publicly.',
-    parameters: {
-      type: 'object',
-      properties: {},
-    },
-    output: flexibleOutput,
-    execute: async () => {
-      try {
-        const token = await client.exportSession()
-        return {
-          sessionToken: token,
-          instruction:
-            'Store this token as the GARMIN_SESSION_TOKEN environment variable. ' +
-            'Do NOT display it to the user unless they explicitly ask.',
-        }
-      } catch (err: any) {
-        return { error: true, message: err.message || 'Failed to export session' }
-      }
-    },
-  })
-
-  // ------------------------------------------------------------------
-  // 9. get_running_skill_advice
+  // 8. get_running_skill_advice
   // ------------------------------------------------------------------
   tools.register({
     name: 'get_running_skill_advice',
@@ -287,9 +226,11 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       '"我该怎么练间歇跑？", "帮我制定一周跑步计划"',
     parameters: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         query: {
           type: 'string',
+          maxLength: 100,
           description:
             'Keyword to search for a specific skill. Examples: "threshold", "间歇", "hill", "马拉松". ' +
             'Pass "all" or omit to get all 8 skills.',
@@ -303,51 +244,26 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       },
     },
     output: flexibleOutput,
-    execute: async (args: { query?: string; includeRecentActivities?: boolean }) => {
+    execute: async (args: RunningAdviceArgs) => {
       try {
-        const skills = findSkills(args.query)
-        const cards = skills.map(formatSkillCard)
-
-        const result: Record<string, unknown> = {
-          matchedSkills: cards,
-          totalSkillsInKB: 8,
-          tip: 'Use these coaching cards to give the user specific, actionable running advice. ' +
-               'Cite heart-rate zones and practice methods. If recent activities are included, ' +
-               'cross-reference the user\'s actual pace/HR data with the recommended zones.',
-        }
-
-        if (args.includeRecentActivities) {
-          try {
-            const raw = await client.getActivities(0, 5)
-            const activities = (raw as Record<string, unknown>[])
-              .filter((a: any) => {
-                const type = String(a.activityType?.typeKey || a.activityType || '').toLowerCase()
-                return type.includes('run') || type.includes('trail')
-              })
-              .map(a => formatActivity(a, 'compact'))
-            result.recentRunningActivities = activities.length > 0 ? activities : 'No recent running activities found.'
-          } catch {
-            result.recentRunningActivities = 'Could not fetch activities (login may be required).'
-          }
-        }
-
-        return result
-      } catch (err: any) {
-        return { error: true, message: err.message || 'Failed to look up running skills' }
+        return await service.getRunningAdvice(args)
+      } catch (error) {
+        return toolError(error, 'Failed to look up running skills')
       }
     },
   })
 
   // ------------------------------------------------------------------
-  // 10. create_garmin_workout
+  // 9. create_garmin_workout
   // ------------------------------------------------------------------
   tools.register({
     name: 'create_garmin_workout',
     description:
-      'Create a structured workout in Garmin Connect that automatically syncs to the user\'s watch. ' +
+      'Preview or create a structured workout in the user\'s Garmin Connect workout library. ' +
       'Supports warmup, interval, recovery, cooldown, rest steps with pace/HR targets, and repeat groups. ' +
-      'After creation, the workout appears in the user\'s Garmin Connect workout library and syncs ' +
-      'to the watch via Bluetooth/Wi-Fi. ' +
+      'The first call returns a preview and confirmationId without writing. Only call again with ' +
+      'confirmed=true and that confirmationId after the user explicitly approves the preview. ' +
+      'Device sync behavior depends on Garmin Connect settings. ' +
       'IMPORTANT: Use this tool AFTER consulting get_running_skill_advice and/or recent activities ' +
       'to create a personalized, science-based training plan. ' +
       'Example: user says "帮我创建一个门槛跑训练" or "Create a 10K race-pace workout". ' +
@@ -359,113 +275,53 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
     parameters: {
       type: 'object',
       required: ['name', 'steps'],
+      additionalProperties: false,
       properties: {
         name: {
           type: 'string',
+          minLength: 1,
+          maxLength: 80,
           description: 'Workout name shown on the watch, e.g. "周二·轻松跑6km"',
         },
         description: {
           type: 'string',
+          maxLength: 1024,
           description: 'Coaching notes (shown in Garmin Connect app)',
         },
         sport: {
           type: 'string',
-          enum: ['running', 'cycling', 'swimming', 'strength', 'other'],
+          enum: ['running', 'cycling', 'swimming', 'strength'],
           description: 'Sport type (default: running)',
+        },
+        confirmed: {
+          type: 'boolean',
+          description: 'Set true only after the user explicitly approves the returned preview.',
+        },
+        confirmationId: {
+          type: 'string',
+          format: 'uuid',
+          description: 'One-time ID returned by the matching preview call.',
         },
         steps: {
           type: 'array',
+          minItems: 1,
+          maxItems: 100,
           description: 'Ordered workout steps',
-          items: {
-            type: 'object',
-            properties: {
-              type: {
-                type: 'string',
-                enum: ['warmup', 'interval', 'recovery', 'cooldown', 'rest', 'repeat'],
-                description: 'Step type. Use "repeat" for interval groups.',
-              },
-              description: {
-                type: 'string',
-                description: 'Short label shown on the watch (≤20 chars)',
-              },
-              endCondition: {
-                type: 'string',
-                enum: ['distance', 'time', 'lapButton'],
-                description: 'How this step ends',
-              },
-              endValue: {
-                type: 'number',
-                description: 'Meters for distance, seconds for time. Not needed for lapButton.',
-              },
-              target: {
-                type: 'string',
-                enum: ['open', 'pace', 'heartRate'],
-                description: 'Target type (default: open)',
-              },
-              paceFrom: {
-                type: 'string',
-                description: 'Faster pace "mm:ss" per km, e.g. "5:00". Required when target=pace.',
-              },
-              paceTo: {
-                type: 'string',
-                description: 'Slower pace "mm:ss" per km, e.g. "5:15". Required when target=pace.',
-              },
-              hrFrom: {
-                type: 'integer',
-                description: 'Lower HR bound in bpm. Required when target=heartRate.',
-              },
-              hrTo: {
-                type: 'integer',
-                description: 'Upper HR bound in bpm. Required when target=heartRate.',
-              },
-              iterations: {
-                type: 'integer',
-                description: 'Number of repetitions (only for type=repeat)',
-              },
-              steps: {
-                type: 'array',
-                description: 'Sub-steps to repeat (only for type=repeat)',
-                items: {
-                  type: 'object',
-                  additionalProperties: true,
-                },
-              },
-            },
-          },
+          items: workoutStepParameters,
         },
       },
     },
     output: flexibleOutput,
-    execute: async (args: WorkoutDef) => {
+    execute: async (args: CreateWorkoutArgs) => {
       try {
-        // Validate the workout definition
-        const error = validateWorkoutDef(args)
-        if (error) {
-          return { error: true, message: `Invalid workout definition: ${error}` }
-        }
-
-        // Convert to Garmin format
-        const garminWorkout = buildGarminWorkout(args)
-
-        // Create via API
-        const result = await client.addWorkout(garminWorkout)
-
-        return {
-          success: true,
-          workoutId: (result as any)?.workoutId ?? null,
-          workoutName: args.name,
-          message:
-            `Workout "${args.name}" created successfully in Garmin Connect. ` +
-            'It will sync to the watch automatically via the Garmin Connect app (Bluetooth/Wi-Fi). ' +
-            'The user can also find it in Garmin Connect → Training → Workouts.',
-        }
-      } catch (err: any) {
-        return { error: true, message: err.message || 'Failed to create workout' }
+        return await service.createWorkout(args)
+      } catch (error) {
+        return toolError(error, 'Failed to create workout')
       }
     },
   })
 
-  ctx.logger.info(`[garmin] Registered ${10} tools.`)
+  ctx.logger.info('[garmin] Registered 9 tools.')
 }
 
 // ---------------------------------------------------------------------------
@@ -475,16 +331,106 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
 /** Date range parameters shared by sleep / steps / heart rate / weight tools. */
 const dateRangeParameters = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     startDate: {
       type: 'string',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
       description: 'Start date in YYYY-MM-DD format. Defaults to today.',
     },
     endDate: {
       type: 'string',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
       description: 'End date in YYYY-MM-DD format. If omitted, queries only the startDate.',
     },
   },
+}
+
+const simpleWorkoutStepParameters = {
+  type: 'object',
+  required: ['type', 'endCondition'],
+  additionalProperties: false,
+  properties: {
+    type: {
+      type: 'string',
+      enum: ['warmup', 'interval', 'recovery', 'cooldown', 'rest'],
+      description: 'Simple step type.',
+    },
+    description: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 20,
+      description: 'Short label shown on the watch (≤20 chars)',
+    },
+    endCondition: {
+      type: 'string',
+      enum: ['distance', 'time', 'lapButton'],
+      description: 'How this step ends',
+    },
+    endValue: {
+      type: 'number',
+      exclusiveMinimum: 0,
+      maximum: 1_000_000,
+      description: 'Meters for distance, seconds for time. Omit for lapButton.',
+    },
+    target: {
+      type: 'string',
+      enum: ['open', 'pace', 'heartRate'],
+      description: 'Target type (default: open)',
+    },
+    paceFrom: {
+      type: 'string',
+      pattern: '^\\d+:[0-5]\\d$',
+      description: 'Faster pace "mm:ss" per km, e.g. "5:00". Required when target=pace.',
+    },
+    paceTo: {
+      type: 'string',
+      pattern: '^\\d+:[0-5]\\d$',
+      description: 'Slower pace "mm:ss" per km, e.g. "5:15". Required when target=pace.',
+    },
+    hrFrom: {
+      type: 'integer',
+      minimum: 30,
+      maximum: 250,
+      description: 'Lower HR bound in bpm. Required when target=heartRate.',
+    },
+    hrTo: {
+      type: 'integer',
+      minimum: 30,
+      maximum: 250,
+      description: 'Upper HR bound in bpm. Required when target=heartRate.',
+    },
+  },
+}
+
+const repeatWorkoutStepParameters = {
+  type: 'object',
+  required: ['type', 'iterations', 'steps'],
+  additionalProperties: false,
+  properties: {
+    type: {
+      type: 'string',
+      enum: ['repeat'],
+      description: 'Repeat a group of simple steps.',
+    },
+    iterations: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 99,
+      description: 'Number of repetitions.',
+    },
+    steps: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 100,
+      description: 'Simple sub-steps to repeat; nested repeat groups are not allowed.',
+      items: simpleWorkoutStepParameters,
+    },
+  },
+}
+
+const workoutStepParameters = {
+  oneOf: [simpleWorkoutStepParameters, repeatWorkoutStepParameters],
 }
 
 /**
@@ -513,42 +459,9 @@ const flexibleOutput = {
   ],
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function isValidDate(d?: string): boolean {
-  if (!d) return false
-  return !isNaN(new Date(d).getTime())
-}
-
-function localDateString(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-export function todayLocal(): string {
-  return localDateString(new Date())
-}
-
-/** Get up to 30 days of dates between start and end. */
-export function getDatesInRange(startStr: string, endStr: string): string[] {
-  const dates: string[] = []
-  // Parse as local time to avoid UTC shift
-  const curr = new Date(startStr + 'T00:00:00')
-  const endDate = new Date(endStr + 'T00:00:00')
-
-  if (isNaN(curr.getTime()) || isNaN(endDate.getTime()) || curr > endDate) {
-    return [startStr] // fallback to startStr if invalid range
+function toolError(error: unknown, fallback: string): { error: true; message: string } {
+  return {
+    error: true,
+    message: publicErrorMessage(error, fallback),
   }
-
-  let count = 0
-  while (curr <= endDate && count < 30) {
-    dates.push(localDateString(curr))
-    curr.setDate(curr.getDate() + 1)
-    count++
-  }
-  return dates
 }

@@ -1,276 +1,338 @@
 #!/usr/bin/env node
-/**
- * MCP (Model Context Protocol) server for Garmin Connect.
- *
- * This standalone server exposes the same Garmin tools as the dsh plugin,
- * but via the MCP protocol so that Claude Desktop, Codex CLI, Cursor,
- * Windsurf, and any other MCP-compatible client can use them.
- *
- * Usage:
- *   GARMIN_USERNAME=xxx GARMIN_PASSWORD=xxx node lib/mcp.js
- *
- * Claude Desktop config (~/.claude/claude_desktop_config.json):
- *   {
- *     "mcpServers": {
- *       "garmin-connect": {
- *         "command": "npx",
- *         "args": ["-y", "dsh-plugin-garmin-connect-mcp"],
- *         "env": {
- *           "GARMIN_USERNAME": "your@email.com",
- *           "GARMIN_PASSWORD": "yourpassword",
- *           "GARMIN_REGION": "global"
- *         }
- *       }
- *     }
- *   }
- */
 
-// @ts-ignore
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-// @ts-ignore
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { z } from 'zod'
-import { GarminConnect } from 'garmin-connect'
 import { config as loadEnv } from 'dotenv'
-import { findSkills, formatSkillCard } from './knowledge/running-skills.js'
+import { z } from 'zod'
+import { GarminClient } from './client'
+import { GarminToolService } from './tool-service'
+import type {
+  ActivityArgs,
+  CreateWorkoutArgs,
+  DateRangeArgs,
+  PaginationArgs,
+  RunningAdviceArgs,
+} from './tool-service'
+import type { Config } from './config'
 import {
-  buildGarminWorkout,
-  validateWorkoutDef,
-} from './knowledge/workout-schema.js'
-import type { WorkoutDef } from './knowledge/workout-schema.js'
-import {
-  formatActivity,
-  formatSleep,
-  formatSteps,
-  formatHeartRate,
-  formatWeight,
-  formatWorkout,
-} from './utils/format.js'
+  PublicToolError,
+  publicErrorMessage,
+  safeUpstreamLogLine,
+} from './utils/errors'
 
-// Load .env
-loadEnv()
+type ToolService = Pick<
+  GarminToolService,
+  | 'getActivities'
+  | 'getSleep'
+  | 'getSteps'
+  | 'getHeartRate'
+  | 'getWeight'
+  | 'getWorkouts'
+  | 'getProfile'
+  | 'getRunningAdvice'
+  | 'createWorkout'
+>
 
-// ---------------------------------------------------------------------------
-// Garmin client (standalone, no Cordis)
-// ---------------------------------------------------------------------------
+const dateRangeSchema = {
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+    .describe('Start date in YYYY-MM-DD format (default: today)'),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+    .describe('Inclusive end date in YYYY-MM-DD format (maximum 30 days)'),
+}
 
-let gc: GarminConnect
-let connected = false
+const simpleWorkoutStepSchema = z.object({
+  type: z.enum(['warmup', 'interval', 'recovery', 'cooldown', 'rest']),
+  description: z.string().min(1).max(20).optional(),
+  endCondition: z.enum(['distance', 'time', 'lapButton']),
+  endValue: z.number().finite().positive().max(1_000_000).optional(),
+  target: z.enum(['open', 'pace', 'heartRate']).optional(),
+  paceFrom: z.string().regex(/^\d+:[0-5]\d$/).optional(),
+  paceTo: z.string().regex(/^\d+:[0-5]\d$/).optional(),
+  hrFrom: z.number().int().min(30).max(250).optional(),
+  hrTo: z.number().int().min(30).max(250).optional(),
+}).strict()
 
-async function ensureConnected(): Promise<void> {
-  if (connected) return
-  const username = process.env.GARMIN_USERNAME
+const repeatWorkoutStepSchema = z.object({
+  type: z.literal('repeat'),
+  iterations: z.number().int().min(1).max(99),
+  steps: z.array(simpleWorkoutStepSchema).min(1).max(100),
+}).strict()
+
+const workoutStepSchema: z.ZodTypeAny = z.union([
+  simpleWorkoutStepSchema,
+  repeatWorkoutStepSchema,
+])
+
+const READ_ONLY_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+}
+
+const WRITE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: true,
+}
+
+/** Build an MCP adapter around the same service used by the DSH plugin. */
+export function createMcpServer(service: ToolService): McpServer {
+  const server = new McpServer({
+    name: 'garmin-connect',
+    version: '0.1.4',
+  })
+
+  // Casting at this boundary keeps the SDK's recursive Zod overloads from
+  // dominating TypeScript build time; every handler remains explicitly typed.
+  const register = (
+    name: string,
+    description: string,
+    schema: Record<string, z.ZodTypeAny> | undefined,
+    handler: (args: any) => Promise<ReturnType<typeof successResult>>,
+    annotations: Record<string, boolean> = READ_ONLY_ANNOTATIONS,
+    acceptOmittedArguments = true,
+  ): void => {
+    const inputSchema = schema === undefined
+      ? undefined
+      : acceptOmittedArguments
+        ? objectSchemaAcceptingOmittedArguments(schema)
+        : z.object(schema).strict()
+    ;(server as any).registerTool(name, {
+      description,
+      inputSchema,
+      annotations,
+    }, handler)
+  }
+
+  register(
+    'get_garmin_activities',
+    'Fetch recent Garmin activities with compact or full detail.',
+    {
+      limit: z.number().int().min(1).max(100).optional(),
+      offset: z.number().int().min(0).optional(),
+      detail: z.enum(['compact', 'full']).optional(),
+    },
+    (args: ActivityArgs) => invoke(() => service.getActivities(args)),
+  )
+
+  register(
+    'get_garmin_sleep',
+    'Get sleep data for one date or an inclusive date range.',
+    dateRangeSchema,
+    (args: DateRangeArgs) => invoke(() => service.getSleep(args)),
+  )
+
+  register(
+    'get_garmin_steps',
+    'Get step totals for one date or an inclusive date range; goal and distance may be unavailable.',
+    dateRangeSchema,
+    (args: DateRangeArgs) => invoke(() => service.getSteps(args)),
+  )
+
+  register(
+    'get_garmin_heart_rate',
+    'Get heart-rate data for one date or an inclusive date range.',
+    dateRangeSchema,
+    (args: DateRangeArgs) => invoke(() => service.getHeartRate(args)),
+  )
+
+  register(
+    'get_garmin_weight',
+    'Get body-composition data for one date or an inclusive date range.',
+    dateRangeSchema,
+    (args: DateRangeArgs) => invoke(() => service.getWeight(args)),
+  )
+
+  register(
+    'get_garmin_workouts',
+    'Get workouts from the Garmin workout library.',
+    {
+      limit: z.number().int().min(1).max(100).optional(),
+      offset: z.number().int().min(0).optional(),
+    },
+    (args: PaginationArgs) => invoke(() => service.getWorkouts(args)),
+  )
+
+  register(
+    'get_garmin_profile',
+    'Get an allow-listed Garmin profile summary.',
+    {},
+    () => invoke(() => service.getProfile()),
+  )
+
+  register(
+    'get_running_skill_advice',
+    'Look up running advice and optionally include recent running activities.',
+    {
+      query: z.string().max(100).optional(),
+      includeRecentActivities: z.boolean().optional(),
+    },
+    (args: RunningAdviceArgs) => invoke(() => service.getRunningAdvice(args)),
+  )
+
+  register(
+    'create_garmin_workout',
+    'Preview a workout first; create it only after explicit user confirmation.',
+    {
+      name: z.string().min(1).max(80),
+      description: z.string().max(1024).optional(),
+      sport: z.enum(['running', 'cycling', 'swimming', 'strength']).optional(),
+      steps: z.array(workoutStepSchema).min(1).max(100),
+      confirmed: z.boolean().optional().describe(
+        'Set true only after the user explicitly approves the preview.',
+      ),
+      confirmationId: z.string().uuid().optional().describe(
+        'One-time ID returned by the matching preview call.',
+      ),
+    },
+    (args: CreateWorkoutArgs) => invoke(() => service.createWorkout(args)),
+    WRITE_ANNOTATIONS,
+    false,
+  )
+
+  return server
+}
+
+/**
+ * MCP permits `arguments` to be omitted. Zod object schemas reject `undefined`,
+ * while wrapping one in `default({})` makes SDK 1.30 advertise an empty schema.
+ * Keep the object itself (and therefore its discoverable JSON Schema) intact,
+ * and normalize only the validation entry point used by the SDK.
+ */
+function objectSchemaAcceptingOmittedArguments(
+  shape: Record<string, z.ZodTypeAny>,
+): z.ZodObject<any> {
+  const schema = z.object(shape).strict()
+  const safeParseAsync = schema.safeParseAsync.bind(schema)
+  schema.safeParseAsync = ((value: unknown, params?: unknown) => (
+    safeParseAsync(value === undefined ? {} : value, params as any)
+  )) as typeof schema.safeParseAsync
+  return schema
+}
+
+function successResult(value: unknown) {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
+  }
+}
+
+async function invoke(action: () => Promise<unknown>): Promise<ReturnType<typeof successResult>> {
+  try {
+    return successResult(await action())
+  } catch (error) {
+    return {
+      isError: true,
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          error: true,
+          message: publicErrorMessage(error, 'Garmin request failed'),
+        }),
+      }],
+    } as ReturnType<typeof successResult>
+  }
+}
+
+export function standaloneConfig(): Config {
+  const username = process.env.GARMIN_USERNAME?.trim() ?? ''
   const password = process.env.GARMIN_PASSWORD
   const sessionToken = process.env.GARMIN_SESSION_TOKEN
-  if (!username) throw new Error('GARMIN_USERNAME is required')
-
-  gc = new GarminConnect({ username, password: password || '' })
-
-  if (sessionToken) {
-    const tokens = JSON.parse(sessionToken)
-    gc.loadToken(tokens.oauth1, tokens.oauth2)
-  } else {
-    await gc.login()
+  if (!username) throw new PublicToolError('GARMIN_USERNAME is required')
+  if (!password && !sessionToken) {
+    throw new PublicToolError('GARMIN_PASSWORD or GARMIN_SESSION_TOKEN is required')
   }
-  connected = true
+
+  const region = process.env.GARMIN_REGION === 'cn' ? 'cn' : 'global'
+  const activityDetail = process.env.GARMIN_ACTIVITY_DETAIL === 'full' ? 'full' : 'compact'
+  return {
+    username,
+    password,
+    sessionToken,
+    region,
+    activityDetail,
+    cacheTtl: envNumber('GARMIN_CACHE_TTL', 300, true),
+    requestTimeoutMs: envNumber('GARMIN_REQUEST_TIMEOUT_MS', 15_000, false),
+    logLevel: envChoice(
+      process.env.GARMIN_LOG_LEVEL,
+      ['debug', 'info', 'warn', 'error'] as const,
+      'info',
+    ),
+  }
 }
 
-function todayLocal(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+function envNumber(name: string, fallback: number, allowZero: boolean): number {
+  const value = process.env[name]
+  if (value === undefined || value.trim() === '') return fallback
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0 || (!allowZero && parsed === 0)) return fallback
+  return parsed
 }
 
-// ---------------------------------------------------------------------------
-// MCP Server
-// ---------------------------------------------------------------------------
+function envChoice<const T extends readonly string[]>(
+  value: string | undefined,
+  allowed: T,
+  fallback: T[number],
+): T[number] {
+  return value !== undefined && allowed.includes(value)
+    ? value as T[number]
+    : fallback
+}
 
-const server = new McpServer({
-  name: 'garmin-connect',
-  version: '0.1.0',
-})
-
-// 1. get_garmin_activities
-// @ts-ignore
-server.tool(
-  'get_garmin_activities',
-  'Fetch recent Garmin activities (runs, rides, swims…) with pace, HR, calories',
-  {
-    limit: z.number().optional().describe('Max activities to return (1-100, default 5)'),
-    offset: z.number().optional().describe('Pagination offset (default 0)'),
-  },
-  async ({ limit, offset }) => {
-    await ensureConnected()
-    const l = Math.min(Math.max(limit ?? 5, 1), 100)
-    const o = Math.max(offset ?? 0, 0)
-    const raw = await gc.getActivities(o, l)
-    const data = (raw as any[]).map(a => formatActivity(a, 'compact'))
-    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+function stderrContext(): any {
+  const write = (level: string) => (message: unknown) => {
+    console.error(`[${level}] ${String(message)}`)
   }
-)
-
-// 2. get_garmin_sleep
-// @ts-ignore
-server.tool(
-  'get_garmin_sleep',
-  'Get sleep data (score, duration, stage breakdown) for a date',
-  {
-    date: z.string().optional().describe('Date in YYYY-MM-DD format (default: today)'),
-  },
-  async ({ date }) => {
-    await ensureConnected()
-    const d = date || todayLocal()
-    const raw = await gc.getSleepData(new Date(d))
-    const data = formatSleep(raw as any)
-    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+  return {
+    logger: {
+      debug: write('debug'),
+      info: write('info'),
+      warn: write('warn'),
+      error: write('error'),
+    },
   }
-)
+}
 
-// 3. get_garmin_steps
-// @ts-ignore
-server.tool(
-  'get_garmin_steps',
-  'Get step count, goal, and walking distance for a date',
-  {
-    date: z.string().optional().describe('Date in YYYY-MM-DD format (default: today)'),
-  },
-  async ({ date }) => {
-    await ensureConnected()
-    const d = date || todayLocal()
-    const raw = await gc.getSteps(new Date(d))
-    const data = formatSteps(raw as any)
-    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+async function main(): Promise<void> {
+  // Install the stdio guard before dotenv or any other third-party startup
+  // work; stdout is reserved exclusively for JSON-RPC from the first byte.
+  const writeStderr = console.error.bind(console)
+  let logSecrets: ReadonlyArray<string | undefined> = [process.env.DOTENV_KEY]
+  console.log = (...args: unknown[]) => {
+    writeStderr('[garmin-connect upstream]', safeUpstreamLogLine(args, logSecrets))
   }
-)
-
-// 4. get_garmin_heart_rate
-// @ts-ignore
-server.tool(
-  'get_garmin_heart_rate',
-  'Get heart rate summary (resting, max, min) for a date',
-  {
-    date: z.string().optional().describe('Date in YYYY-MM-DD format (default: today)'),
-  },
-  async ({ date }) => {
-    await ensureConnected()
-    const d = date || todayLocal()
-    const raw = await gc.getHeartRate(new Date(d))
-    const data = formatHeartRate(raw as any)
-    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+  console.error = (...args: unknown[]) => {
+    writeStderr('[garmin-connect stderr]', safeUpstreamLogLine(args, logSecrets))
   }
-)
 
-// 5. get_garmin_weight
-// @ts-ignore
-server.tool(
-  'get_garmin_weight',
-  'Get body composition (weight, BMI, body fat) for a date',
-  {
-    date: z.string().optional().describe('Date in YYYY-MM-DD format (default: today)'),
-  },
-  async ({ date }) => {
-    await ensureConnected()
-    const d = date || todayLocal()
-    const raw = await gc.getDailyWeightData(new Date(d))
-    const data = formatWeight(raw as any)
-    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
-  }
-)
+  loadEnv()
 
-// 6. get_garmin_workouts
-// @ts-ignore
-server.tool(
-  'get_garmin_workouts',
-  'Get planned workouts from Garmin calendar',
-  {
-    limit: z.number().optional().describe('Max workouts to return (default 10)'),
-  },
-  async ({ limit }) => {
-    await ensureConnected()
-    const l = Math.min(Math.max(limit ?? 10, 1), 100)
-    const raw = await gc.getWorkouts(0, l)
-    const data = (raw as any[]).map(formatWorkout)
-    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
-  }
-)
-
-// 7. get_garmin_profile
-// @ts-ignore
-server.tool(
-  'get_garmin_profile',
-  'Get Garmin user profile summary',
-  {},
-  async () => {
-    await ensureConnected()
-    const data = await gc.getUserProfile()
-    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
-  }
-)
-
-// 8. get_running_skill_advice
-// @ts-ignore
-server.tool(
-  'get_running_skill_advice',
-  'Look up expert running training advice from an 8-skill coaching knowledge base',
-  {
-    query: z.string().optional().describe('Keyword to search, e.g. "threshold", "间歇", "hill". Omit for all 8 skills.'),
-  },
-  async ({ query }) => {
-    const skills = findSkills(query)
-    const cards = skills.map(formatSkillCard)
-    return { content: [{ type: 'text', text: JSON.stringify(cards, null, 2) }] }
-  }
-)
-
-// 9. create_garmin_workout
-// @ts-ignore
-server.tool(
-  'create_garmin_workout',
-  'Create a structured workout in Garmin Connect (syncs to watch). ' +
-  'Steps: warmup|interval|recovery|cooldown|rest|repeat. ' +
-  'endCondition: distance (meters), time (seconds), lapButton. ' +
-  'target: open, pace (paceFrom/paceTo "mm:ss"/km), heartRate (hrFrom/hrTo bpm).',
-  {
-    name: z.string().describe('Workout name'),
-    description: z.string().optional().describe('Coaching notes'),
-    sport: z.enum(['running', 'cycling', 'swimming', 'strength', 'other']).optional(),
-    steps: z.array(z.any()).describe('Workout steps array'),
-  },
-  async (args) => {
-    await ensureConnected()
-    const def = args as unknown as WorkoutDef
-    const validationError = validateWorkoutDef(def)
-    if (validationError) {
-      return { content: [{ type: 'text', text: JSON.stringify({ error: true, message: validationError }) }] }
-    }
-
-    const garminWorkout = buildGarminWorkout(def)
-    const result = await (gc as any).addWorkout(garminWorkout)
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          success: true,
-          workoutId: result?.workoutId ?? null,
-          workoutName: args.name,
-          message: `Workout "${args.name}" created. It will sync to the watch via Garmin Connect app.`,
-        }, null, 2),
-      }],
-    }
-  }
-)
-
-// ---------------------------------------------------------------------------
-// Start
-// ---------------------------------------------------------------------------
-
-async function main() {
-  const transport = new StdioServerTransport()
-  await server.connect(transport)
+  const config = standaloneConfig()
+  // MCP stdio reserves stdout for JSON-RPC. The upstream Garmin library uses
+  // console.log in a few auth paths and may pass AxiosError objects containing
+  // request headers, so retain only redacted scalar text on stderr.
+  logSecrets = [
+    config.username,
+    config.password,
+    config.sessionToken,
+    process.env.DOTENV_KEY,
+  ]
+  const client = new GarminClient(stderrContext(), config)
+  const service = new GarminToolService(client, {
+    activityDetail: config.activityDetail,
+  })
+  const server = createMcpServer(service)
+  await server.connect(new StdioServerTransport())
   console.error('[garmin-connect-mcp] Server started (stdio transport)')
 }
 
-main().catch(err => {
-  console.error('[garmin-connect-mcp] Fatal error:', err)
-  process.exit(1)
-})
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(
+      '[garmin-connect-mcp] Fatal error:',
+      publicErrorMessage(error, 'MCP server failed to start'),
+    )
+    process.exitCode = 1
+  })
+}

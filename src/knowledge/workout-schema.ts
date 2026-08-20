@@ -20,7 +20,7 @@ export interface WorkoutDef {
   /** Coaching notes shown in Garmin Connect */
   description?: string
   /** Sport type (default: "running") */
-  sport?: 'running' | 'cycling' | 'swimming' | 'strength' | 'other'
+  sport?: 'running' | 'cycling' | 'swimming' | 'strength'
   /** Ordered list of workout steps */
   steps: StepDef[]
 }
@@ -73,9 +73,8 @@ export interface RepeatStepDef {
 const SPORT_TYPES: Record<string, { sportTypeId: number; sportTypeKey: string }> = {
   running:  { sportTypeId: 1, sportTypeKey: 'running' },
   cycling:  { sportTypeId: 2, sportTypeKey: 'cycling' },
-  swimming: { sportTypeId: 5, sportTypeKey: 'lap_swimming' },
-  strength: { sportTypeId: 4, sportTypeKey: 'strength_training' },
-  other:    { sportTypeId: 1, sportTypeKey: 'running' }, // fallback
+  swimming: { sportTypeId: 4, sportTypeKey: 'swimming' },
+  strength: { sportTypeId: 5, sportTypeKey: 'strength_training' },
 }
 
 const STEP_TYPES: Record<string, { stepTypeId: number; stepTypeKey: string; displayOrder: number }> = {
@@ -100,6 +99,28 @@ const TARGET_TYPES = {
   pace:      { workoutTargetTypeId: 6, workoutTargetTypeKey: 'pace.zone',        displayOrder: 6 },
 }
 
+const MAX_DISTANCE_METERS = 1_000_000
+const MAX_DURATION_SECONDS = 86_400
+const MAX_REPEAT_ITERATIONS = 99
+const MAX_WORKOUT_STEPS = 100
+const MAX_WORKOUT_NAME_LENGTH = 80
+const MAX_WORKOUT_DESCRIPTION_LENGTH = 1024
+const MAX_STEP_DESCRIPTION_LENGTH = 20
+
+const WORKOUT_FIELDS = new Set(['name', 'description', 'sport', 'steps'])
+const SIMPLE_STEP_FIELDS = new Set([
+  'type',
+  'description',
+  'endCondition',
+  'endValue',
+  'target',
+  'paceFrom',
+  'paceTo',
+  'hrFrom',
+  'hrTo',
+])
+const REPEAT_STEP_FIELDS = new Set(['type', 'iterations', 'steps'])
+
 // ---------------------------------------------------------------------------
 // Conversion utilities
 // ---------------------------------------------------------------------------
@@ -109,12 +130,22 @@ const TARGET_TYPES = {
  * e.g. "5:00" per km → 1000 / 300 = 3.3333 m/s
  */
 export function paceToMps(pace: string): number {
-  const parts = pace.split(':')
-  const mm = parseInt(parts[0], 10)
-  const ss = parseInt(parts[1] || '0', 10)
-  const totalSeconds = mm * 60 + ss
-  if (totalSeconds <= 0) return 0
-  return Math.round((1000 / totalSeconds) * 10000) / 10000
+  const match = /^(\d+):([0-5]\d)$/.exec(pace)
+  if (!match) {
+    throw new RangeError('Pace must use mm:ss format with seconds below 60')
+  }
+
+  const totalSeconds = Number(match[1]) * 60 + Number(match[2])
+  if (!Number.isSafeInteger(totalSeconds) || totalSeconds <= 0) {
+    throw new RangeError('Pace must use mm:ss format with a positive duration')
+  }
+
+  const metersPerSecond = Math.round((1000 / totalSeconds) * 10000) / 10000
+  if (!Number.isFinite(metersPerSecond) || metersPerSecond <= 0) {
+    throw new RangeError('Pace must produce a positive finite speed')
+  }
+
+  return metersPerSecond
 }
 
 /**
@@ -189,9 +220,14 @@ function buildExecutableStep(step: SimpleStepDef, order: number, childStepId: nu
 /**
  * Build a RepeatGroupDTO from a repeat step definition.
  */
-function buildRepeatGroup(step: RepeatStepDef, order: number): Record<string, unknown> {
-  const subSteps = step.steps.map((s, i) =>
-    buildExecutableStep(s, i + 1, 1)
+function buildRepeatGroup(
+  step: RepeatStepDef,
+  counters: { nextStepOrder: number; nextChildStepId: number },
+): Record<string, unknown> {
+  const order = counters.nextStepOrder++
+  const childStepId = counters.nextChildStepId++
+  const subSteps = step.steps.map((s) =>
+    buildExecutableStep(s, counters.nextStepOrder++, childStepId)
   )
 
   return {
@@ -199,7 +235,7 @@ function buildRepeatGroup(step: RepeatStepDef, order: number): Record<string, un
     stepId: null,
     stepOrder: order,
     stepType: STEP_TYPES.repeat,
-    childStepId: 1,
+    childStepId,
     numberOfIterations: step.iterations,
     workoutSteps: subSteps,
     endConditionValue: step.iterations,
@@ -223,13 +259,22 @@ function buildRepeatGroup(step: RepeatStepDef, order: number): Record<string, un
  * Convert a simplified WorkoutDef into the full Garmin Connect workout JSON.
  */
 export function buildGarminWorkout(def: WorkoutDef): Record<string, unknown> {
+  const validationError = validateWorkoutDef(def)
+  if (validationError) {
+    throw new TypeError(`Invalid workout definition: ${validationError}`)
+  }
+
   const sport = SPORT_TYPES[def.sport || 'running'] || SPORT_TYPES.running
 
-  const workoutSteps = def.steps.map((step, i) => {
+  // Garmin numbers the repeat group, its children, and following top-level
+  // steps in one global sequence. childStepId links children to a repeat and
+  // must be distinct when a workout contains more than one repeat group.
+  const counters = { nextStepOrder: 1, nextChildStepId: 1 }
+  const workoutSteps = def.steps.map((step) => {
     if (step.type === 'repeat') {
-      return buildRepeatGroup(step as RepeatStepDef, i + 1)
+      return buildRepeatGroup(step as RepeatStepDef, counters)
     }
-    return buildExecutableStep(step as SimpleStepDef, i + 1)
+    return buildExecutableStep(step as SimpleStepDef, counters.nextStepOrder++)
   })
 
   return {
@@ -258,48 +303,162 @@ export function buildGarminWorkout(def: WorkoutDef): Record<string, unknown> {
  * Validate a WorkoutDef, returning an error message or null if valid.
  */
 export function validateWorkoutDef(def: WorkoutDef): string | null {
+  if (!isRecord(def)) {
+    return 'Workout definition must be an object'
+  }
+  const unknownField = findUnknownField(def, WORKOUT_FIELDS)
+  if (unknownField) {
+    return `Workout: unknown field "${unknownField}"`
+  }
   if (!def.name || typeof def.name !== 'string') {
     return 'Workout name is required'
+  }
+  const nameLength = Array.from(def.name.trim()).length
+  if (nameLength === 0 || nameLength > MAX_WORKOUT_NAME_LENGTH) {
+    return `Workout name must contain between 1 and ${MAX_WORKOUT_NAME_LENGTH} characters`
+  }
+  if (def.description !== undefined && (
+    typeof def.description !== 'string'
+    || Array.from(def.description).length > MAX_WORKOUT_DESCRIPTION_LENGTH
+  )) {
+    return `Workout description must be a string no longer than ${MAX_WORKOUT_DESCRIPTION_LENGTH} characters`
+  }
+  if (def.sport !== undefined && !['running', 'cycling', 'swimming', 'strength'].includes(def.sport)) {
+    return `Unknown sport "${def.sport}"`
   }
   if (!Array.isArray(def.steps) || def.steps.length === 0) {
     return 'At least one step is required'
   }
+  if (def.steps.length > MAX_WORKOUT_STEPS) {
+    return `Workout must contain between 1 and ${MAX_WORKOUT_STEPS} top-level steps`
+  }
 
+  let totalStepCount = def.steps.length
   for (let i = 0; i < def.steps.length; i++) {
     const step = def.steps[i]
     const prefix = `Step ${i + 1}`
 
+    if (!isRecord(step)) {
+      return `${prefix}: step must be an object`
+    }
     if (step.type === 'repeat') {
       const r = step as RepeatStepDef
-      if (!r.iterations || r.iterations < 1) {
-        return `${prefix}: repeat iterations must be ≥ 1`
+      const unknownField = findUnknownField(r, REPEAT_STEP_FIELDS)
+      if (unknownField) {
+        return `${prefix}: unknown field "${unknownField}"`
+      }
+      if (!Number.isInteger(r.iterations) || r.iterations < 1 || r.iterations > MAX_REPEAT_ITERATIONS) {
+        return `${prefix}: repeat iterations must be an integer between 1 and ${MAX_REPEAT_ITERATIONS}`
       }
       if (!Array.isArray(r.steps) || r.steps.length === 0) {
         return `${prefix}: repeat group must contain at least one sub-step`
       }
+      if (r.steps.length > MAX_WORKOUT_STEPS) {
+        return `${prefix}: repeat group must contain between 1 and ${MAX_WORKOUT_STEPS} sub-steps`
+      }
+      totalStepCount += r.steps.length
+      if (totalStepCount > MAX_WORKOUT_STEPS) {
+        return `Workout must contain at most ${MAX_WORKOUT_STEPS} total steps including repeat sub-steps`
+      }
+      for (let j = 0; j < r.steps.length; j++) {
+        const error = validateSimpleStep(r.steps[j], `${prefix}, sub-step ${j + 1}`)
+        if (error) return error
+      }
     } else {
-      const s = step as SimpleStepDef
-      if (!['warmup', 'interval', 'recovery', 'cooldown', 'rest'].includes(s.type)) {
-        return `${prefix}: unknown step type "${s.type}"`
-      }
-      if (!s.endCondition) {
-        return `${prefix}: endCondition is required`
-      }
-      if (s.endCondition !== 'lapButton' && (!s.endValue || s.endValue <= 0)) {
-        return `${prefix}: endValue is required for ${s.endCondition} condition`
-      }
-      if (s.target === 'pace') {
-        if (!s.paceFrom || !s.paceTo) {
-          return `${prefix}: paceFrom and paceTo are required for pace target (format "mm:ss")`
-        }
-      }
-      if (s.target === 'heartRate') {
-        if (s.hrFrom == null || s.hrTo == null) {
-          return `${prefix}: hrFrom and hrTo are required for heartRate target`
-        }
-      }
+      const error = validateSimpleStep(step as SimpleStepDef, prefix)
+      if (error) return error
     }
   }
 
+  return null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function findUnknownField(value: object, allowedFields: ReadonlySet<string>): string | null {
+  return Object.keys(value).find(field => !allowedFields.has(field)) ?? null
+}
+
+function validateSimpleStep(value: unknown, prefix: string): string | null {
+  if (!isRecord(value)) {
+    return `${prefix}: step must be an object`
+  }
+  const step = value as unknown as SimpleStepDef
+  const unknownField = findUnknownField(step, SIMPLE_STEP_FIELDS)
+  if (unknownField) {
+    return `${prefix}: unknown field "${unknownField}"`
+  }
+  if (!['warmup', 'interval', 'recovery', 'cooldown', 'rest'].includes(step.type)) {
+    return `${prefix}: unknown step type "${step.type}"`
+  }
+  if (step.description !== undefined && (
+    typeof step.description !== 'string'
+    || Array.from(step.description.trim()).length === 0
+    || Array.from(step.description).length > MAX_STEP_DESCRIPTION_LENGTH
+  )) {
+    return `${prefix}: description must contain between 1 and ${MAX_STEP_DESCRIPTION_LENGTH} characters`
+  }
+  if (!step.endCondition) {
+    return `${prefix}: endCondition is required`
+  }
+  if (!['distance', 'time', 'lapButton'].includes(step.endCondition)) {
+    return `${prefix}: unknown endCondition "${step.endCondition}"`
+  }
+  if (step.endCondition === 'lapButton' && step.endValue !== undefined) {
+    return `${prefix}: endValue is not allowed for lapButton condition`
+  }
+  if (step.endCondition === 'distance' && (
+    typeof step.endValue !== 'number'
+    || !Number.isFinite(step.endValue)
+    || step.endValue <= 0
+    || step.endValue > MAX_DISTANCE_METERS
+  )) {
+    return `${prefix}: distance endValue must be a finite number between 0 and ${MAX_DISTANCE_METERS} meters`
+  }
+  if (step.endCondition === 'time' && (
+    typeof step.endValue !== 'number'
+    || !Number.isFinite(step.endValue)
+    || step.endValue <= 0
+    || step.endValue > MAX_DURATION_SECONDS
+  )) {
+    return `${prefix}: time endValue must be a finite number between 0 and ${MAX_DURATION_SECONDS} seconds`
+  }
+  if (step.target !== undefined && !['open', 'pace', 'heartRate'].includes(step.target)) {
+    return `${prefix}: unknown target "${step.target}"`
+  }
+  if (step.target === 'pace') {
+    if (!step.paceFrom || !step.paceTo) {
+      return `${prefix}: paceFrom and paceTo are required for pace target (format "mm:ss")`
+    }
+    for (const [field, value] of [['paceFrom', step.paceFrom], ['paceTo', step.paceTo]] as const) {
+      try {
+        paceToMps(value)
+      } catch {
+        return `${prefix}: ${field} must use mm:ss format with seconds below 60 and a positive duration`
+      }
+    }
+    if (paceToMps(step.paceFrom) < paceToMps(step.paceTo)) {
+      return `${prefix}: paceFrom must be faster than or equal to paceTo`
+    }
+  } else if (step.paceFrom !== undefined || step.paceTo !== undefined) {
+    return `${prefix}: paceFrom and paceTo are only allowed for pace targets`
+  }
+  if (step.target === 'heartRate') {
+    if (step.hrFrom == null || step.hrTo == null) {
+      return `${prefix}: hrFrom and hrTo are required for heartRate target`
+    }
+    for (const [field, value] of [['hrFrom', step.hrFrom], ['hrTo', step.hrTo]] as const) {
+      if (!Number.isInteger(value) || value < 30 || value > 250) {
+        return `${prefix}: ${field} must be an integer between 30 and 250 bpm`
+      }
+    }
+    if (step.hrFrom > step.hrTo) {
+      return `${prefix}: hrFrom must be less than or equal to hrTo`
+    }
+  } else if (step.hrFrom !== undefined || step.hrTo !== undefined) {
+    return `${prefix}: hrFrom and hrTo are only allowed for heartRate targets`
+  }
   return null
 }

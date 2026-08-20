@@ -41,9 +41,10 @@ export type ActivityDetail = 'compact' | 'full'
  * Format an activity.
  *
  * `compact` (default) returns a curated subset of the most useful metrics to
- * save context tokens. `full` returns every raw Garmin field with the
- * normalized convenience fields layered on top — request it explicitly when
- * the user needs the complete dataset.
+ * save context tokens. `full` returns expanded fitness/location fields with
+ * normalized conveniences, while filtering credentials and unrelated
+ * account/social identifiers. Request it explicitly because routes can reveal
+ * precise locations.
  */
 export function formatActivity(
   raw: Record<string, unknown>,
@@ -75,15 +76,17 @@ function compactActivity(raw: Record<string, unknown>): FormattedActivity {
   }
 }
 
-/** Full detail — no filtering; every raw field plus normalized conveniences. */
+/** Expanded detail with credential/account/social fields removed recursively. */
 function fullActivity(raw: Record<string, unknown>): FormattedActivity {
   const distance = Number(raw.distance) || 0
   const duration = Number(raw.duration) || 0
   const maxSpeed = Number(raw.maxSpeed) || 0
+  const safeRaw = sanitizeActivityValue(raw) as Record<string, unknown>
 
   return {
-    // Keep every raw field — no filtering.
-    ...raw,
+    // Preserve expanded fitness/location data, but never pass credentials or
+    // unrelated account/social identifiers into the model trajectory.
+    ...safeRaw,
     id: (raw.activityId as number | string) ?? '',
     name: (raw.activityName as string) ?? 'Unnamed',
     type: (raw.activityType as Record<string, unknown>)?.typeKey as string ?? 'unknown',
@@ -146,17 +149,30 @@ export function formatSleep(raw: Record<string, unknown>): FormattedSleep {
 export interface FormattedSteps {
   date: string
   totalSteps: number
-  goal: number
-  distanceMeters: number
+  goal: number | null
+  distanceMeters: number | null
   highlyActiveSeconds: number | null
 }
 
-export function formatSteps(raw: Record<string, unknown>): FormattedSteps {
+export function formatSteps(
+  raw: number | Record<string, unknown>,
+  date = '',
+): FormattedSteps {
+  if (typeof raw === 'number') {
+    return {
+      date,
+      totalSteps: Number.isFinite(raw) ? raw : 0,
+      goal: null,
+      distanceMeters: null,
+      highlyActiveSeconds: null,
+    }
+  }
+
   return {
     date: (raw.calendarDate as string) ?? '',
     totalSteps: (raw.totalSteps as number) ?? 0,
-    goal: (raw.stepGoal as number) ?? 0,
-    distanceMeters: (raw.totalDistance as number) ?? 0,
+    goal: numOrNull(raw.stepGoal),
+    distanceMeters: numOrNull(raw.totalDistance),
     highlyActiveSeconds: (raw.highlyActiveSeconds as number) ?? null,
   }
 }
@@ -192,29 +208,51 @@ export interface FormattedWeight {
 }
 
 export function formatWeight(raw: Record<string, unknown>): FormattedWeight {
-  // raw.date contains the timestamp in ms, raw.weight contains the weight in grams
-  const kg = (raw.weight as number) ? (raw.weight as number) / 1000 : null
-  const muscleMassKg = (raw.muscleMass as number) ? (raw.muscleMass as number) / 1000 : null
-  const boneMassKg = (raw.boneMass as number) ? (raw.boneMass as number) / 1000 : null
-
-  // Garmin usually provides date as timestamp or calendarDate
-  const d = new Date(raw.date as number)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
+  const measurements = Array.isArray(raw.dateWeightList)
+    ? raw.dateWeightList as Record<string, unknown>[]
+    : []
+  const average = isRecord(raw.totalAverage) ? raw.totalAverage : undefined
+  const measurement = measurements[0]
+  const metric = (key: string): unknown =>
+    measurement?.[key] ?? average?.[key] ?? raw[key]
+  const kg = gramsToKg(metric('weight'))
+  const muscleMassKg = gramsToKg(metric('muscleMass'))
+  const boneMassKg = gramsToKg(metric('boneMass'))
 
   return {
-    date: `${y}-${m}-${day}`,
-    weightKg: kg ? Math.round(kg * 100) / 100 : null,
-    bmi: (raw.bmi as number) ?? null,
-    bodyFatPercentage: (raw.bodyFat as number) ?? null,
-    muscleMassKg: muscleMassKg ? Math.round(muscleMassKg * 100) / 100 : null,
-    waterPercentage: (raw.bodyWater as number) ?? null,
-    boneMassKg: boneMassKg ? Math.round(boneMassKg * 100) / 100 : null,
+    date: weightDate(raw, measurements[0]),
+    weightKg: kg === null ? null : round2(kg),
+    bmi: numOrNull(metric('bmi')),
+    bodyFatPercentage: numOrNull(metric('bodyFat')),
+    muscleMassKg: muscleMassKg === null ? null : round2(muscleMassKg),
+    waterPercentage: numOrNull(metric('bodyWater')),
+    boneMassKg: boneMassKg === null ? null : round2(boneMassKg),
   }
 }
 
-// ---- Workouts (Calendar) ----
+// ---- Profile ----
+
+export interface FormattedProfile {
+  displayName: string
+  fullName: string
+  profileImageUrl: string | null
+  primaryActivity: string | null
+}
+
+/** Return the small, non-sensitive profile subset suitable for AI tool output. */
+export function formatProfile(raw: Record<string, unknown>): FormattedProfile {
+  return {
+    displayName: stringOrNull(raw.displayName) ?? '',
+    fullName: stringOrNull(raw.fullName) ?? stringOrNull(raw.userProfileFullName) ?? '',
+    profileImageUrl:
+      stringOrNull(raw.profileImageUrlMedium) ??
+      stringOrNull(raw.profileImageUrlSmall) ??
+      stringOrNull(raw.profileImageUrlLarge),
+    primaryActivity: stringOrNull(raw.primaryActivity),
+  }
+}
+
+// ---- Workout library templates ----
 
 export interface FormattedWorkout {
   id: number | string
@@ -255,4 +293,88 @@ function numOrNull(v: unknown): number | null {
 /** Round to two decimal places. */
 function round2(n: number): number {
   return Math.round(n * 100) / 100
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function gramsToKg(value: unknown): number | null {
+  const grams = numOrNull(value)
+  return grams === null ? null : grams / 1000
+}
+
+function weightDate(
+  envelope: Record<string, unknown>,
+  firstMeasurement?: Record<string, unknown>,
+): string {
+  const calendarDate = firstMeasurement?.calendarDate ?? envelope.calendarDate ?? envelope.startDate
+  if (typeof calendarDate === 'string') return calendarDate
+
+  const timestamp = numOrNull(firstMeasurement?.date ?? envelope.date)
+  if (timestamp === null) return ''
+
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const PRIVATE_ACTIVITY_KEYS = new Set([
+  'authorization',
+  'proxyauthorization',
+  'cookie',
+  'setcookie',
+  'password',
+  'passwd',
+  'accesstoken',
+  'refreshtoken',
+  'sessiontoken',
+  'oauthtoken',
+  'oauthtokensecret',
+  'oauthsignature',
+  'oauth1',
+  'oauth2',
+  'csrftoken',
+  'clientsecret',
+  'consumersecret',
+  'ownerid',
+  'ownerdisplayname',
+  'ownerfullname',
+  'conversationuuid',
+  'conversationpk',
+  'activitylikedisplaynames',
+  'activitylikefullnames',
+  'activitylikeprofileimageurls',
+  'activitylikeauthors',
+  'requestorrelationship',
+  'userroles',
+  'deviceid',
+  'calendareventid',
+  'calendareventuuid',
+  'privacy',
+])
+
+function sanitizeActivityValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeActivityValue)
+  if (!isRecord(value)) return value
+
+  const sanitized: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(value)) {
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (
+      PRIVATE_ACTIVITY_KEYS.has(normalizedKey)
+      || normalizedKey.startsWith('ownerprofileimageurl')
+    ) {
+      continue
+    }
+    sanitized[key] = sanitizeActivityValue(child)
+  }
+  return sanitized
 }

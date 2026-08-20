@@ -3,7 +3,8 @@
  *
  * Built against the exact workout JSON schema observed in the user's own
  * workout library (ExecutableStepDTO / RepeatGroupDTO / pace.zone targets
- * in m/s). Creates 4 workouts:
+ * in m/s). Previews 4 workouts by default and creates them only with
+ * --confirm-create:
  *   周二 轻松跑 6km
  *   周四 门槛巡航 3×8分钟
  *   周五 轻松跑 5km
@@ -66,6 +67,19 @@ const paceZone = (fastMps, slowMps) => ({ id: 6, key: 'pace.zone', one: fastMps,
 
 // pace conversion: mm:ss per km -> m/s
 const p = (mm, ss) => Math.round((1000 / (mm * 60 + ss)) * 10000) / 10000
+
+async function getAllWorkouts(gc) {
+  const pageSize = 100
+  const maximum = 10_000
+  const workouts = []
+  for (let offset = 0; offset < maximum; offset += pageSize) {
+    const page = await gc.getWorkouts(offset, pageSize)
+    if (!Array.isArray(page)) throw new Error('Garmin workout list was not an array')
+    workouts.push(...page)
+    if (page.length < pageSize) return workouts
+  }
+  throw new Error(`Workout library exceeds the ${maximum}-item safety limit`)
+}
 
 const repeatGroup = (order, iterations, steps) => ({
   type: 'RepeatGroupDTO',
@@ -145,17 +159,43 @@ const sat = workout(
 )
 
 async function main() {
-  const gc = new GarminConnect({ username: process.env.GARMIN_USERNAME, password: process.env.GARMIN_PASSWORD })
+  const planned = [tue, thu, fri, sat]
+  if (!process.argv.includes('--confirm-create')) {
+    console.log('DRY RUN — no Garmin login or write was attempted.')
+    console.log('Planned workout names:')
+    for (const item of planned) console.log(`- ${item.workoutName}`)
+    console.log('After reviewing, rerun with --confirm-create to create missing workouts.')
+    return
+  }
+
+  const username = process.env.GARMIN_USERNAME
+  const password = process.env.GARMIN_PASSWORD
+  if (!username || !password) {
+    throw new Error('GARMIN_USERNAME and GARMIN_PASSWORD are required')
+  }
+  const domain = process.env.GARMIN_REGION === 'cn' ? 'garmin.cn' : 'garmin.com'
+  const { hardenGarminHttpClient } = require('../lib/client')
+  const gc = new GarminConnect({ username, password }, domain)
+  hardenGarminHttpClient(gc.client)
+  gc.client.client.defaults.timeout = 15_000
   await gc.login()
   console.log('Login OK')
 
-  for (const w of [tue, thu, fri, sat]) {
+  const existing = await getAllWorkouts(gc)
+  const existingNames = new Set(existing.map(item => item.workoutName))
+  let failures = 0
+  for (const w of planned) {
+    if (existingNames.has(w.workoutName)) {
+      console.log(`⏭️ 已存在，跳过: ${w.workoutName}`)
+      continue
+    }
     try {
       const res = await gc.addWorkout(w)
       console.log(`✅ 创建成功: ${w.workoutName}  (id=${res?.workoutId ?? '?'})`)
     } catch (e) {
-      console.log(`❌ 创建失败: ${w.workoutName} -> ${e.message}`)
-      if (e.response) console.log('   status:', e.response.status, JSON.stringify(e.response.data || {}).slice(0, 300))
+      failures += 1
+      const status = e && typeof e.status === 'number' ? ` (HTTP ${e.status})` : ''
+      console.log(`❌ 创建失败: ${w.workoutName}${status}`)
     }
     await sleep(800)
   }
@@ -166,6 +206,10 @@ async function main() {
   for (const w of list.slice(0, 10)) {
     console.log(`- ${w.workoutName} (id=${w.workoutId}, 预估 ${w.estimatedDurationMins} 分钟)`)
   }
+  if (failures > 0) process.exitCode = 1
 }
 
-main().catch(e => { console.error('FAILED:', e.message); process.exit(1) })
+main().catch(() => {
+  console.error('FAILED: workout creation script did not complete')
+  process.exitCode = 1
+})

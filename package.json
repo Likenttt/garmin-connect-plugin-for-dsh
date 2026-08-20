@@ -14,6 +14,7 @@
   },
   "files": [
     "lib",
+    ".env.example",
     "README.md",
     "README.zh-CN.md",
     "cordis.patch.yml"
@@ -27,9 +28,11 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "jest",
-    "test:integration": "npx tsx scripts/integration-test.ts",
+    "test:coverage": "jest --coverage --runInBand",
+    "test:integration": "tsx scripts/integration-test.ts",
+    "pack:smoke": "npm pack --dry-run",
     "prepublishOnly": "npm run build",
-    "prepare": "npx --yes --package typescript@5.9.3 tsc -p tsconfig.json"
+    "prepare": "npm run build"
   },
   "keywords": [
     "deepseek",
@@ -53,12 +56,10 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "dotenv": "^16.4.0",
-    "garmin-connect": "^1.6.0"
-  },
-  "optionalDependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "zod": "^3.24.0"
+    "garmin-connect": "1.6.2",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -67,9 +68,10 @@
     "@types/node": "^22.0.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.0",
+    "tsx": "4.23.12",
     "typescript": "^5.6.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }

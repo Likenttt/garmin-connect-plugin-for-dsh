@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Shared tool-service behavior for the dsh plugin and standalone MCP server, so both interfaces expose the same 9 tools and argument semantics.
+- Explicit workout preview/confirmation flow: writes require `confirmed: true` plus a matching, one-time `confirmationId` issued for the unchanged preview.
+- Read-only integration-test authentication via either password or `GARMIN_SESSION_TOKEN`; failures are accumulated and produce a non-zero exit status.
+- Conservative coverage checks, a package dry-run smoke test, and a finite CI timeout.
+
+### Changed
+- Moved the MCP SDK and Zod from optional to required runtime dependencies; pinned the tested MCP SDK and local `tsx` versions.
+- Raised the supported Node.js baseline to 20 to match the MCP runtime dependency tree.
+- Changed `prepare` to use the project's local TypeScript compiler instead of downloading one through `npx`.
+- Package contents now include `.env.example`.
+- Corrected workout-listing terminology: `get_garmin_workouts` returns workout-library templates, not calendar scheduling.
+- Updated MCP setup examples, including the Codex CLI command and `~/.codex/config.toml` format.
+- Documented that npm `0.1.4` predates the MCP entry point and uses a local checkout until an MCP-capable version is published.
+- Made the standalone workout maintenance script dry-run by default and skip already-existing workout names.
+
+### Fixed
+- Adapted step and body-composition formatting to the real `garmin-connect` response shapes.
+- Preserved local calendar dates when querying Garmin and honored the configured global/China region.
+- Added bounded request deadlines, account-wide date-query concurrency, blocking cache refreshes, and status-preserving retries for idempotent reads.
+- Strengthened recursive workout validation and aligned repeat ordering, child IDs, and swimming/strength sport IDs with Garmin workout payloads.
+- Kept step goals and walking distance nullable when the installed Garmin client only returns a numeric step total.
+
+### Security
+- Removed AI-callable session-token export and documented that session tokens must be handled as secrets through trusted local workflows.
+- Redacted sensitive authentication details from logged errors.
+- Replaced the upstream SDK's global refresh interceptor with per-client, quiet refresh handling; non-idempotent workout writes are never replayed automatically.
+- Isolated cached/in-flight data across session-token to password identity changes and filtered credential/account/social fields from expanded activity output.
+- Added one-time, expiring, definition-bound workout confirmation IDs and marked MCP write/read semantics with tool annotations.
+- Prevented the upstream Garmin SDK from logging raw HTTP response bodies.
+- Made integration-test output hide account identifiers and health/activity details by default; detailed output now requires `GARMIN_INTEGRATION_VERBOSE=true`.
+
 ## [0.1.4] - 2026-08-19
 
 ### Added

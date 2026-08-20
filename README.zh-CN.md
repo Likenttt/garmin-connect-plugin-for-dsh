@@ -1,9 +1,9 @@
 # dsh-plugin-garmin-connect
 
-> [DeepSeek Harness](https://github.com/deepseek-ai/dsh) 的 Garmin Connect 插件 — 让 AI 代理直接读取你的运动和健康数据。
+> [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Garmin Connect 插件 — 让 AI 代理直接读取你的运动和健康数据。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 
 **[English](README.md)** | 中文
 
@@ -34,22 +34,32 @@
 
 ### 注册的工具
 
+插件共注册 **9 个工具**。其中 8 个只读；`create_garmin_workout`
+会修改用户的 Garmin 训练库。
+
 | 工具名 | 用途 | 参数示例 |
 |---|---|---|
-| `get_garmin_activities` | 获取近期运动记录（跑步、骑行、游泳等），含配速、心率、卡路里 | |
-| `get_garmin_sleep` | 获取睡眠数据：睡眠评分、总时长、深睡/浅睡/REM 分段 | |
-| `get_garmin_steps` | 获取每日步数、目标完成度、步行距离 | |
-| `get_garmin_heart_rate` | 查询心率（静息心率、最高心率、最低心率） | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
-| `get_garmin_weight`     | 查询身体成分（体重、BMI、体脂率、骨骼肌等） | `{"startDate": "2023-10-01"}` |
-| `get_garmin_workouts`   | 查询近期日历计划中的训练课表 | `{"limit": 10, "offset": 0}` |
-| `get_garmin_profile`    | 获取个人的基础统计和勋章汇总 | `null` |
-| `export_garmin_session` | 导出用于 `.env` 鉴权的持久化 Token | `null` |
+| `get_garmin_activities` | 获取近期运动记录，可选择精简或完整详情 | `{"limit": 5, "detail": "compact"}` |
+| `get_garmin_sleep` | 获取指定日期或日期范围的睡眠评分、时长与阶段分布 | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
+| `get_garmin_steps` | 获取指定日期或日期范围的步数；仅当 Garmin 上游提供时才包含目标与步行距离 | `{"startDate": "2023-10-01"}` |
+| `get_garmin_heart_rate` | 查询指定日期或日期范围的静息、最高与最低心率 | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
+| `get_garmin_weight`     | 查询指定日期或日期范围的身体成分（体重、BMI、体脂率、骨骼肌等） | `{"startDate": "2023-10-01"}` |
+| `get_garmin_workouts`   | 查询 Garmin 训练库中的可复用训练模板（不是日历排期） | `{"limit": 10, "offset": 0}` |
+| `get_garmin_profile`    | 获取经过字段白名单过滤的个人资料摘要 | `{}` 或省略 |
 | `get_running_skill_advice` | 跑步训练专家：8 大核心技能（心率区间、练法、避坑指南） | `{"query": "门槛", "includeRecentActivities": true}` |
-| `create_garmin_workout` | 创建结构化训练计划（热身/间歇/重复组/放松，支持配速和心率目标），自动同步到手表 | `{"name": "门槛巡航3×8分钟", "steps": [...]}` |
+| `create_garmin_workout` | 预览结构化训练；仅在显式确认后创建 | `{"name": "门槛巡航3×8分钟", "steps": [...]}` |
+
+创建训练采用两次调用流程。首次调用只返回预览和一次性
+`confirmationId`；用户确认未更改的预览后，再使用相同训练定义、
+`confirmed: true` 及该 `confirmationId` 调用。确认 ID 10 分钟后失效，且不可复用。
 
 ---
 
 ## 快速开始
+
+> **测试当前未发布源码：** `Unreleased` 中的加固改动尚未发布，也没有提升版本号。
+> 如需测试这些改动，请使用下方“本地源码调试”方式；registry 命令安装的仍是已发布的
+> `0.1.4`。
 
 ### 1. 安装本插件 — 从 npm registry(推荐)
 
@@ -75,7 +85,7 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh --profile web --dump-config | grep
 
 ```bash
 # 本地源码调试
-cd dsh-plugin-garmin-connect && npm install
+cd garmin-connect-plugin-for-dsh && npm install
 npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .
 
 # GitHub 源码安装
@@ -92,16 +102,18 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh web
 
 ### 3. 配置凭据
 
-本插件**绝不**将密码写入配置文件或日志。凭据通过环境变量加载。
+插件自身不会持久化凭据。请使用环境变量（或启动器提供的密钥存储），并确保
+`.env` 不进入版本控制。
 
 ```bash
-# 复制模板
+# 仅源码目录：复制随仓库提供的模板
 cp .env.example .env
 
 # 编辑 .env，填入你的 Garmin 账号信息
 ```
 
-请把 `.env` 放在你运行 `dsh` 的目录(工作区根目录),插件启动时会自动加载。
+如果使用 registry 安装，请直接在运行 `dsh` 的目录（工作区根目录）新建 `.env`，
+再按下表填写变量；包内模板不会出现在当前工作目录。插件启动时会自动加载该文件。
 
 | 环境变量 | 必填 | 说明 |
 |---|---|---|
@@ -110,8 +122,9 @@ cp .env.example .env
 | `GARMIN_SESSION_TOKEN` | ✅* | 预认证令牌（可替代密码） |
 | `GARMIN_REGION` | ❌ | `global`（默认，国际版）或 `cn`（佳明中国） |
 | `GARMIN_CACHE_TTL` | ❌ | 缓存有效期，单位秒（默认 `300`） |
+| `GARMIN_REQUEST_TIMEOUT_MS` | ❌ | Garmin 请求超时，单位毫秒（默认 `15000`） |
 | `GARMIN_LOG_LEVEL` | ❌ | 日志级别：`debug` \| `info` \| `warn` \| `error` |
-| `GARMIN_ACTIVITY_DETAIL` | ❌ | `get_garmin_activities` 的默认详情级别：`compact`（默认，精选字段，节省上下文）或 `full`（全部原始字段） |
+| `GARMIN_ACTIVITY_DETAIL` | ❌ | `compact`（默认）或 `full`（扩展运动数据，可能包含精确路线/位置；凭据及账号/社交标识会被过滤） |
 
 > \* `GARMIN_PASSWORD` 和 `GARMIN_SESSION_TOKEN` 二选一即可。
 >
@@ -119,6 +132,10 @@ cp .env.example .env
 > ```
 > GARMIN_PASSWORD="my#secret!pass"
 > ```
+>
+> 支持 `GARMIN_SESSION_TOKEN`，但它与密码同样敏感。Token 导出不会作为
+> AI 可调用工具提供。在专用本地 CLI / 安全存储流程完成之前，只应使用现有、
+> 可信的本地流程获得 Token，且绝不要把 Token 粘贴进 AI 对话。
 
 ### 4. 启动
 
@@ -128,13 +145,20 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh web
 
 打开 `http://127.0.0.1:3080`。当 **设置 → 插件 → 插件列表** 中显示 `plugin-garmin-connect` 为 *已挂载、已启用* 时,说明插件已成功加载。然后直接对话:*"我昨晚睡得怎么样?"* 或 *"帮我看一下最近 5 次跑步。"*
 
-### 5. 集成测试（可选）
+### 5. 集成测试（可选，仅限源码目录）
 
-在 `.env` 配置好凭据后，可以运行集成测试脚本一键验证所有 API 连通性：
+集成测试脚本仅用于开发，不包含在 npm 包中。在已安装开发依赖的源码目录里配置好
+`.env` 后，可以运行它验证 API 连通性：
 
 ```bash
 npm run test:integration
 ```
+
+脚本只检查读取接口；任一检查失败都会以非零状态退出。它不会创建、更新或删除
+训练及其他 Garmin 数据。
+
+默认会隐藏账号标识，并只输出数量/状态，不显示活动或健康数值。只有在明确希望把
+规范化详情输出到本地终端时，才设置 `GARMIN_INTEGRATION_VERBOSE=true`。
 
 <details>
 <summary>📋 点击展开完整示例输出</summary>
@@ -142,67 +166,36 @@ npm run test:integration
 ```
 🔌 Garmin Connect Integration Test
    Domain : garmin.com
-   User   : your-email@example.com
+   User   : configured (identifier hidden)
    Date   : 2026-08-18
+   Scope  : read-only (workout creation/update/deletion is not tested)
 
-── 1. Login ──
-  ✅ Login successful
+── 1. Authentication ──
+  ✅ Password login successful
 
 ── 2. Activities ──
   ✅ Got 3 activities
-{
-  "id": 23998327113,
-  "name": "Wuhan Running",
-  "type": "running",
-  "startTime": "2026-08-16 19:33:05",
-  "distanceMeters": 10017.73,
-  "durationSeconds": 3965,
-  "averageHeartRate": 145,
-  "maxHeartRate": 180,
-  "averagePaceMinPerKm": 6.6,
-  "calories": 656,
-  "elevationGainMeters": 4,
-  "averageCadence": 141.78
-}
 
 ── 3. Sleep ──
-  ✅ Sleep score: 82, duration: 7.5h
+  ✅ Sleep data loaded
 
 ── 4. Steps ──
-  ✅ Steps: {
-  "date": "2026-08-18",
-  "totalSteps": 8523,
-  "goal": 10000,
-  "distanceMeters": 6120,
-  "highlyActiveSeconds": 1800
-}
+  ✅ Step data loaded
 
 ── 5. Heart Rate ──
-  ✅ Resting HR: 42, Max: 98
+  ✅ Heart-rate data loaded
 
 ── 6. Weight / Body Composition ──
-  ✅ Weight: 70.5 kg, BMI: 22.3, Body Fat: 15.2%
+  ✅ Body-composition data loaded
 
-── 7. Workouts / Calendar ──
-  ✅ Got 5 planned workouts
-{
-  "id": 1422905279,
-  "name": "跃升之阶",
-  "description": "",
-  "sportType": "running",
-  "createdDate": "2025-12-28T19:28:56.0",
-  "estimatedDurationMins": 94,
-  "estimatedDistanceMeters": null
-}
+── 7. Workout Library ──
+  ✅ Got 5 workout templates
 
 ── 8. User Profile ──
-  ✅ Profile: loaded
+  ✅ Profile loaded
 
-── 9. Export Session Token ──
-  ✅ Token exported (oauth1 key: ********…)
-   💡 To use token-based auth, save the full JSON to GARMIN_SESSION_TOKEN in .env
-
-🏁 Integration test complete.
+🏁 Integration test complete: 8 passed, 0 failed.
+   Write operations were intentionally not tested.
 ```
 
 </details>
@@ -211,7 +204,7 @@ npm run test:integration
 
 ## 🔐 安全设计
 
-> **你的凭据绝不会离开你的本机。**
+> **凭据只在本地用于直接登录 Garmin Connect，且绝不会由 AI 工具返回。**
 
 ### 凭据解析优先级
 
@@ -227,30 +220,18 @@ npm run test:integration
 
 | 措施 | 状态 |
 |---|---|
-| 密码仅从 `process.env` 读取，不写入任何文件 | ✅ |
+| 支持环境变量及标记为 secret 的配置 | ✅ |
 | `.env` 已加入 `.gitignore`，不会被提交到 Git | ✅ |
-| 密码字段标记为 `role('secret')`，自动排除在 Harness 轨迹日志之外 | ✅ |
-| 支持 Session Token 登录 — 完全避免存储密码 | ✅ |
+| 账号标识与凭据字段均标记为 `role('secret')` | ✅ |
+| 支持 Session Token 登录 — 无需存储 Garmin 账号密码 | ✅ |
 | 工具返回值中不包含任何原始凭据 | ✅ |
 | 内存缓存减少 API 调用次数，防止触发 Garmin 限流 | ✅ |
 
-### 推荐做法：使用 Session Token
+### Session Token
 
-为了最大安全性，建议只用密码登录一次，然后导出 Session Token，后续只使用 Token：
-
-```
-你（对 DeepSeek 代理说）："导出我的 Garmin 会话令牌"
-
-# 代理调用: export_garmin_session
-# → 返回一个 token 字符串
-
-# 写入 .env：
-GARMIN_SESSION_TOKEN=<导出的令牌>
-# 删除密码行：
-# GARMIN_PASSWORD=
-```
-
-这样即使 `.env` 文件意外泄露，攻击者拿到的也只是一个可以随时失效的临时令牌，而非你的明文密码。
+仍然支持 Session Token 登录，但 Token 本身就是凭据，不能出现在代理输出或轨迹日志中。
+因此，本插件不会把 Token 导出暴露为 AI 可调用工具。专用本地 CLI / 安全存储流程
+尚在规划中；在其可用前，请使用账号密码，或仅通过现有、可信的本地流程提供 Token。
 
 ---
 
@@ -258,16 +239,31 @@ GARMIN_SESSION_TOKEN=<导出的令牌>
 
 本插件同时提供了一个独立的 **MCP (Model Context Protocol) 服务器**，让你可以在 Claude Desktop、Codex CLI、Cursor、Windsurf 等任何支持 MCP 的客户端中使用相同的 Garmin 工具 — **无需安装 DeepSeek Harness**。
 
+> **当前可用性：** npm `0.1.4` 早于 MCP 入口加入。新的 MCP 版本发布前，
+> 请使用本地源码；下文 registry `npx` 命令明确仅供未来发布后使用。
+
+先构建本地服务器：
+
+```bash
+git clone https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
+cd garmin-connect-plugin-for-dsh
+npm install
+npm run build
+```
+
+请把示例中的 `/absolute/path/to/garmin-connect-plugin-for-dsh` 替换为本地源码目录的
+真实绝对路径。
+
 ### Claude Desktop
 
-编辑 `~/.claude/claude_desktop_config.json`（Mac）或 `%APPDATA%\Claude\claude_desktop_config.json`（Windows）：
+编辑 `~/Library/Application Support/Claude/claude_desktop_config.json`（macOS）或 `%APPDATA%\Claude\claude_desktop_config.json`（Windows）：
 
 ```json
 {
   "mcpServers": {
     "garmin-connect": {
-      "command": "npx",
-      "args": ["-y", "dsh-plugin-garmin-connect", "garmin-connect-mcp"],
+      "command": "node",
+      "args": ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],
       "env": {
         "GARMIN_USERNAME": "你的佳明邮箱",
         "GARMIN_PASSWORD": "你的密码",
@@ -278,47 +274,64 @@ GARMIN_SESSION_TOKEN=<导出的令牌>
 }
 ```
 
-重启 Claude Desktop 后，你会看到 🔌 图标表示工具已加载。试试说：*"帮我看下最近 5 次跑步记录"* 或 *"帮我创建一个门槛跑训练并同步到手表"*。
+重启 Claude Desktop 后，你会看到 🔌 图标表示工具已加载。试试说：*"帮我看下最近 5 次跑步记录"* 或 *"帮我预览一个门槛跑训练"*。
 
-### Cursor / Windsurf
+### Cursor
 
-1. 打开 **设置 → MCP Servers → 添加服务器**
-2. 名称：`garmin-connect`
-3. 类型：**stdio**
-4. 命令：`npx -y dsh-plugin-garmin-connect garmin-connect-mcp`
-5. 添加环境变量：`GARMIN_USERNAME`、`GARMIN_PASSWORD`、`GARMIN_REGION`
+把上方相同的 `mcpServers.garmin-connect` 对象写入工作区
+`.cursor/mcp.json`，并使用 `lib/mcp.js` 的绝对路径。
+
+### Windsurf
+
+打开 **Windsurf Settings → Cascade → MCP Servers**，或编辑
+`~/.codeium/windsurf/mcp_config.json`，加入上方相同的
+`mcpServers.garmin-connect` 对象。
 
 ### OpenAI Codex CLI
 
-在 `.codex/config.json` 中添加：
-
-```json
-{
-  "mcpServers": {
-    "garmin-connect": {
-      "command": "npx",
-      "args": ["-y", "dsh-plugin-garmin-connect", "garmin-connect-mcp"],
-      "env": {
-        "GARMIN_USERNAME": "你的佳明邮箱",
-        "GARMIN_PASSWORD": "你的密码"
-      }
-    }
-  }
-}
-```
-
-### 本地开发 / 手动运行
+使用 Codex CLI 注册服务器：
 
 ```bash
-# 克隆并构建
-git clone https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
-cd dsh-plugin-garmin-connect && npm install && npm run build
+codex mcp add garmin-connect \
+  --env GARMIN_USERNAME=你的佳明邮箱 \
+  --env GARMIN_PASSWORD=你的密码 \
+  --env GARMIN_REGION=cn \
+  -- node /absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js
+```
 
+等价的 `~/.codex/config.toml` 配置如下：
+
+```toml
+[mcp_servers.garmin-connect]
+command = "node"
+args = ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"]
+
+[mcp_servers.garmin-connect.env]
+GARMIN_USERNAME = "你的佳明邮箱"
+GARMIN_PASSWORD = "你的密码"
+GARMIN_REGION = "cn"
+```
+
+以上示例会把凭据保存在 MCP 客户端配置中。请限制配置文件权限，或改用客户端支持的
+密钥注入机制。
+
+等包含 MCP 可执行入口的版本发布到 npm 后，可以把本地的 `node …/lib/mcp.js`
+替换为：
+
+```bash
+npx -y --package dsh-plugin-garmin-connect garmin-connect-mcp
+```
+
+### 手动运行
+
+```bash
 # 运行 MCP 服务器（标准输入输出）
 GARMIN_USERNAME=xxx GARMIN_PASSWORD=xxx node lib/mcp.js
 ```
 
-MCP 服务器暴露全部 10 个工具（运动记录、睡眠、步数、心率、体重、训练计划、个人资料、Token 导出、跑步技能、创建训练），通过标准 MCP 协议通信。
+MCP 服务器通过标准协议暴露与 dsh 插件**相同的 9 个工具及参数语义**：运动记录、
+睡眠、步数、心率、体重、训练库模板、个人资料、跑步技能，以及训练预览/创建。
+两个 AI 接口均不会提供 Session Token 导出。
 
 ---
 
@@ -337,7 +350,7 @@ MCP 服务器暴露全部 10 个工具（运动记录、睡眠、步数、心率
 │  │  └─────────┘    └──────┬──────┘  │  │
 │  │                        │         │  │
 │  │  ┌─────────────────────▼───────┐ │  │
-│  │  │      工具注册中心 (10)     │ │  │
+│  │  │      工具注册中心 (9)      │ │  │
 │  │  │  • get_garmin_activities    │ │  │
 │  │  │  • get_garmin_sleep         │ │  │
 │  │  │  • get_garmin_steps         │ │  │
@@ -345,7 +358,6 @@ MCP 服务器暴露全部 10 个工具（运动记录、睡眠、步数、心率
 │  │  │  • get_garmin_weight        │ │  │
 │  │  │  • get_garmin_workouts      │ │  │
 │  │  │  • get_garmin_profile       │ │  │
-│  │  │  • export_garmin_session    │ │  │
 │  │  │  • get_running_skill_advice │ │  │
 │  │  │  • create_garmin_workout    │ │  │
 │  │  └─────────────────────────────┘ │  │
@@ -366,8 +378,8 @@ connect.garmin.cn     → Claude / Codex /
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-org/dsh-plugin-garmin-connect.git
-cd dsh-plugin-garmin-connect
+git clone https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
+cd garmin-connect-plugin-for-dsh
 npm install
 
 # 编译
@@ -387,14 +399,17 @@ src/
 ├── index.ts          # 插件入口（Cordis apply 函数）
 ├── config.ts         # 配置 Schema（schemastery），支持环境变量自动解析
 ├── client.ts         # Garmin API 封装，含缓存层
-├── mcp.ts            # 独立的 MCP 服务器（用于 Claude/Codex/Cursor）
+├── tool-service.ts   # dsh 与 MCP 共用的工具行为
+├── mcp.ts            # 独立 MCP 适配器（用于 Claude/Codex/Cursor）
 ├── knowledge/
 │   ├── running-skills.ts  # 8 大跑步核心技能知识库
 │   └── workout-schema.ts  # 训练定义 → Garmin JSON 构建器
 ├── tools/
-│   └── index.ts      # 工具定义与注册（10 个工具）
+│   └── index.ts      # 工具定义与注册（9 个工具）
 └── utils/
-    ├── cache.ts       # 内存 TTL 缓存（含 SWR）
+    ├── errors.ts      # 安全错误输出与上游日志脱敏
+    ├── cache.ts       # 内存 TTL/LRU 缓存与 single-flight 刷新
+    ├── date.ts        # 本地日历日期解析
     └── format.ts      # 原始数据 → LLM 友好格式转换器
 ```
 
@@ -402,7 +417,7 @@ src/
 
 ## 发布与分发
 
-本包是一个标准的 dsh bundle:`package.json` 声明了 `dsh.bundle.patch` → `cordis.patch.yml`,`files` 会带上编译后的 `lib/`、中英 README 和 patch 文件。
+本包是一个标准的 dsh bundle:`package.json` 声明了 `dsh.bundle.patch` → `cordis.patch.yml`,`files` 会带上编译后的 `lib/`、`.env.example`、中英 README 和 patch 文件。
 
 ```bash
 npm run build   # prepublishOnly 也会自动执行
@@ -419,7 +434,7 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugi
 
 - **npm registry(推荐)** — 包内自带编译好的 `lib/`,安装时无需任何构建授权。
 - **本地源码** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .` 会链接源码目录,先执行 `npm install`。
-- **GitHub 安装** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>` 拉取源码并执行包的 `prepare` 脚本构建(脚本通过 `npx` 自包含地固定 TypeScript 版本);pnpm ≥ 10 默认拒绝执行构建脚本,`dsh` 会打印需要在 profile 的 `pnpm-workspace.yaml` 中填写的 `allowBuilds` 键。
+- **GitHub 安装** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>` 拉取源码并执行包的 `prepare` 脚本，使用本地安装的 TypeScript 编译器构建；pnpm ≥ 10 默认拒绝执行构建脚本，`dsh` 会打印需要在 profile 的 `pnpm-workspace.yaml` 中填写的 `allowBuilds` 键。
 - 给 GitHub 仓库加上 `dsh-plugin` topic,方便用户发现。
 
 ---
@@ -427,8 +442,8 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugi
 ## 路线图
 
 - [x] **身体成分** — 体重、BMI、体脂率
-- [x] **Garmin 日历** — 计划中的训练课表
-- [x] **创建训练** — 创建结构化训练计划并自动同步到手表
+- [x] **训练库** — 查询可复用的 Garmin 训练模板
+- [x] **创建训练** — 安全预览并创建训练库条目
 - [x] **MCP 服务器** — 支持 Claude Desktop、Codex CLI、Cursor、Windsurf
 - [x] **跑步教练** — 8 大核心跑步训练技能知识库
 - [ ] **训练状态** — VO2 Max、训练负荷、恢复时间
@@ -451,6 +466,6 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugi
 
 ## 致谢
 
-- [DeepSeek Harness](https://github.com/deepseek-ai/dsh) — AI 代理编码运行时
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — AI 代理编码运行时
 - [Cordis](https://github.com/cordiverse/cordis) — 插件生命周期框架
 - [garmin-connect](https://www.npmjs.com/package/garmin-connect) — 非官方 Garmin Connect Node.js 客户端

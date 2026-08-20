@@ -1,9 +1,9 @@
 # dsh-plugin-garmin-connect
 
-> A [DeepSeek Harness](https://github.com/deepseek-ai/dsh) plugin that brings your Garmin fitness & health data into the AI agent loop.
+> A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that brings your Garmin fitness & health data into the AI agent loop.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 
 ---
 
@@ -22,26 +22,38 @@
 
 ## What It Does
 
-This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/dsh) to [Garmin Connect](https://connect.garmin.com/), exposing your wearable data as **AI-callable tools**. Once installed, the DeepSeek agent can automatically query your activities, sleep, steps, and heart rate to provide personalized fitness insights — all through natural language.
+This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) to [Garmin Connect](https://connect.garmin.com/), exposing your wearable data as **AI-callable tools**. Once installed, the DeepSeek agent can automatically query your activities, sleep, steps, and heart rate to provide personalized fitness insights — all through natural language.
 
 ### Registered Tools
 
+The plugin registers **9 tools**. Eight are read-only; `create_garmin_workout`
+changes the user's Garmin workout library.
+
 | Tool | Description | Example Args |
 |---|---|---|
-| `get_garmin_activities` | Fetch recent activities (runs, rides, swims…) with pace, HR, calories | |
-| `get_garmin_sleep` | Sleep score, duration, and stage breakdown (deep / light / REM) | |
-| `get_garmin_steps` | Daily step count, goal progress, and walking distance | |
-| `get_garmin_heart_rate` | Resting, max, and min heart rate for a given day | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
-| `get_garmin_weight` | Body composition (weight, BMI, body fat %, muscle mass, etc.) | `{"startDate": "2023-10-01"}` |
-| `get_garmin_workouts` | Planned workouts from your Garmin calendar | `{"limit": 10, "offset": 0}` |
-| `get_garmin_profile` | User profile summary | `null` |
-| `export_garmin_session` | Export a session token for password-free future logins | `null` |
+| `get_garmin_activities` | Fetch recent activities (runs, rides, swims…) with compact or full detail | `{"limit": 5, "detail": "compact"}` |
+| `get_garmin_sleep` | Sleep score, duration, and stage breakdown for a date or range | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
+| `get_garmin_steps` | Step totals for a date or range; goal/distance appear only when Garmin supplies them | `{"startDate": "2023-10-01"}` |
+| `get_garmin_heart_rate` | Resting, max, and min heart rate for a date or range | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
+| `get_garmin_weight` | Body composition (weight, BMI, body fat %, muscle mass, etc.) for a date or range | `{"startDate": "2023-10-01"}` |
+| `get_garmin_workouts` | Workout templates from your Garmin workout library (not calendar scheduling) | `{"limit": 10, "offset": 0}` |
+| `get_garmin_profile` | User profile summary | `{}` or omit |
 | `get_running_skill_advice` | Expert running coaching: 8 core training skills with HR zones, practice methods & common mistakes | `{"query": "threshold", "includeRecentActivities": true}` |
-| `create_garmin_workout` | Create a structured workout (warmup/interval/repeat/cooldown with pace & HR targets) that syncs to the watch | `{"name": "Threshold 3×8min", "steps": [...]}` |
+| `create_garmin_workout` | Preview a structured workout; create it only after explicit confirmation | `{"name": "Threshold 3×8min", "steps": [...]}` |
+
+Workout creation is a two-call flow. The preview response includes a one-time
+`confirmationId`; after the user approves the unchanged preview, call the tool
+again with the same definition, `confirmed: true`, and that `confirmationId`.
+An ID expires after 10 minutes and cannot be reused.
 
 ---
 
 ## Quick Start
+
+> **Testing this unreleased checkout:** the hardening changes in `Unreleased`
+> have intentionally not been published or version-bumped. Use the local
+> checkout install below to test them; the registry command installs the
+> currently published `0.1.4` package.
 
 ### 1. Install this plugin — from the npm registry (recommended)
 
@@ -67,7 +79,7 @@ Other install sources:
 
 ```bash
 # Local checkout (development)
-cd dsh-plugin-garmin-connect && npm install
+cd garmin-connect-plugin-for-dsh && npm install
 npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .
 
 # GitHub source install
@@ -84,16 +96,20 @@ The web UI starts at `http://127.0.0.1:3080` by default. If you launch Harness v
 
 ### 3. Configure Credentials
 
-This plugin **never** stores passwords in config files or logs. Credentials are resolved through environment variables.
+The plugin does not persist credentials itself. Use environment variables (or a
+secret store provided by your launcher) and keep `.env` out of version control.
 
 ```bash
-# Copy the template
+# Source checkout only: copy the bundled template
 cp .env.example .env
 
 # Edit .env and fill in your Garmin credentials
 ```
 
-Put the `.env` file in the directory you run `dsh` from (your workspace root) — the plugin loads it automatically.
+For a registry installation, create `.env` directly in the directory where you
+run `dsh` (your workspace root), then add the variables from the table below;
+the package's template is inside the installed dependency rather than your
+current directory. The plugin loads the workspace `.env` automatically.
 
 | Variable | Required | Description |
 |---|---|---|
@@ -102,8 +118,9 @@ Put the `.env` file in the directory you run `dsh` from (your workspace root) �
 | `GARMIN_SESSION_TOKEN` | ✅* | Pre-authenticated token (alternative to password) |
 | `GARMIN_REGION` | ❌ | `global` (default) or `cn` for Garmin China |
 | `GARMIN_CACHE_TTL` | ❌ | Cache duration in seconds (default: `300`) |
+| `GARMIN_REQUEST_TIMEOUT_MS` | ❌ | Garmin request timeout in milliseconds (default: `15000`) |
 | `GARMIN_LOG_LEVEL` | ❌ | `debug` \| `info` \| `warn` \| `error` |
-| `GARMIN_ACTIVITY_DETAIL` | ❌ | Default detail for `get_garmin_activities`: `compact` (default, curated fields, saves context) or `full` (all raw Garmin fields) |
+| `GARMIN_ACTIVITY_DETAIL` | ❌ | `compact` (default) or `full` (expanded fitness plus precise route/location fields; credentials and account/social identifiers are filtered) |
 
 > \* You need **either** `GARMIN_PASSWORD` or `GARMIN_SESSION_TOKEN`, not both.
 >
@@ -111,6 +128,11 @@ Put the `.env` file in the directory you run `dsh` from (your workspace root) �
 > ```
 > GARMIN_PASSWORD="my#secret!pass"
 > ```
+>
+> `GARMIN_SESSION_TOKEN` is supported, but it is just as sensitive as a
+> password. Token export is intentionally not AI-callable. Until a dedicated
+> local CLI / secure-store flow is available, use only a token obtained through
+> an existing trusted local workflow and never paste it into an AI conversation.
 
 ### 4. Run
 
@@ -120,13 +142,22 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh web
 
 Open `http://127.0.0.1:3080`. The plugin is loaded when **Settings → Plugins → Plugin list** shows `plugin-garmin-connect` as *mounted & enabled*. Then try: *"How was my sleep last night?"* or *"Show me my last 5 runs."*
 
-### 5. Integration Test (optional)
+### 5. Integration Test (optional, source checkout only)
 
-After configuring `.env`, you can run the integration test to verify all API connections:
+The integration script is a development aid and is not included in the npm
+tarball. From a source checkout with development dependencies installed, you
+can run it after configuring `.env`:
 
 ```bash
 npm run test:integration
 ```
+
+The script checks read-only APIs and exits non-zero if any check fails. It does
+not create, update, or delete workouts or other Garmin data.
+
+By default it hides the account identifier and prints only counts/status, not
+activity or health values. Set `GARMIN_INTEGRATION_VERBOSE=true` only when you
+explicitly want normalized details in your local terminal output.
 
 <details>
 <summary>📋 Click to expand sample output</summary>
@@ -134,67 +165,36 @@ npm run test:integration
 ```
 🔌 Garmin Connect Integration Test
    Domain : garmin.com
-   User   : your-email@example.com
+   User   : configured (identifier hidden)
    Date   : 2026-08-18
+   Scope  : read-only (workout creation/update/deletion is not tested)
 
-── 1. Login ──
-  ✅ Login successful
+── 1. Authentication ──
+  ✅ Password login successful
 
 ── 2. Activities ──
   ✅ Got 3 activities
-{
-  "id": 23998327113,
-  "name": "Wuhan Running",
-  "type": "running",
-  "startTime": "2026-08-16 19:33:05",
-  "distanceMeters": 10017.73,
-  "durationSeconds": 3965,
-  "averageHeartRate": 145,
-  "maxHeartRate": 180,
-  "averagePaceMinPerKm": 6.6,
-  "calories": 656,
-  "elevationGainMeters": 4,
-  "averageCadence": 141.78
-}
 
 ── 3. Sleep ──
-  ✅ Sleep score: 82, duration: 7.5h
+  ✅ Sleep data loaded
 
 ── 4. Steps ──
-  ✅ Steps: {
-  "date": "2026-08-18",
-  "totalSteps": 8523,
-  "goal": 10000,
-  "distanceMeters": 6120,
-  "highlyActiveSeconds": 1800
-}
+  ✅ Step data loaded
 
 ── 5. Heart Rate ──
-  ✅ Resting HR: 42, Max: 98
+  ✅ Heart-rate data loaded
 
 ── 6. Weight / Body Composition ──
-  ✅ Weight: 70.5 kg, BMI: 22.3, Body Fat: 15.2%
+  ✅ Body-composition data loaded
 
-── 7. Workouts / Calendar ──
-  ✅ Got 5 planned workouts
-{
-  "id": 1422905279,
-  "name": "跃升之阶",
-  "description": "",
-  "sportType": "running",
-  "createdDate": "2025-12-28T19:28:56.0",
-  "estimatedDurationMins": 94,
-  "estimatedDistanceMeters": null
-}
+── 7. Workout Library ──
+  ✅ Got 5 workout templates
 
 ── 8. User Profile ──
-  ✅ Profile: loaded
+  ✅ Profile loaded
 
-── 9. Export Session Token ──
-  ✅ Token exported (oauth1 key: ********…)
-   💡 To use token-based auth, save the full JSON to GARMIN_SESSION_TOKEN in .env
-
-🏁 Integration test complete.
+🏁 Integration test complete: 8 passed, 0 failed.
+   Write operations were intentionally not tested.
 ```
 
 </details>
@@ -203,7 +203,8 @@ npm run test:integration
 
 ## Security
 
-> **Your credentials never leave your machine.**
+> **Credentials are used locally to authenticate directly with Garmin Connect
+> and are never returned by an AI tool.**
 
 ### Credential Resolution Order
 
@@ -219,28 +220,20 @@ npm run test:integration
 
 | Practice | Status |
 |---|---|
-| Passwords loaded exclusively from `process.env` | ✅ |
+| Environment-variable and secret-marked configuration are supported | ✅ |
 | `.env` is in `.gitignore` | ✅ |
-| Secrets marked with `role('secret')` in Cordis schema — excluded from trajectory logs | ✅ |
-| Session token support — avoids storing password entirely | ✅ |
+| Account identifier and credentials marked with `role('secret')` in Cordis schema | ✅ |
+| Session token support — avoids storing the Garmin account password | ✅ |
 | Tool outputs never include raw credentials | ✅ |
 | In-memory cache reduces API calls (rate-limit protection) | ✅ |
 
-### Recommended: Use Session Tokens
+### Session Tokens
 
-For maximum security, log in once with a password, then export and store only the session token:
-
-```
-You (to DeepSeek agent): "Export my Garmin session token"
-
-# Agent calls: export_garmin_session
-# → Returns a token string
-
-# Add to .env:
-GARMIN_SESSION_TOKEN=<the-token>
-# Remove the password:
-# GARMIN_PASSWORD=
-```
+Session-token authentication remains supported, but tokens are credentials and
+must not appear in agent output or trajectory logs. For that reason this plugin
+does not expose token export as an AI-callable tool. A dedicated local CLI /
+secure-store workflow is planned. Until it is available, use username/password
+or provide a token only through an existing trusted local workflow.
 
 ---
 
@@ -248,16 +241,32 @@ GARMIN_SESSION_TOKEN=<the-token>
 
 This plugin also ships as a standalone **MCP (Model Context Protocol) server**, so you can use the same Garmin tools with Claude Desktop, Codex CLI, Cursor, Windsurf, and any other MCP-compatible client — no DeepSeek Harness required.
 
+> **Current availability:** npm `0.1.4` predates the MCP entry point. Until a
+> newer MCP-capable version is published, use a local checkout; the registry
+> `npx` command shown below is intentionally marked as future use.
+
+Build the local server first:
+
+```bash
+git clone https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
+cd garmin-connect-plugin-for-dsh
+npm install
+npm run build
+```
+
+Replace `/absolute/path/to/garmin-connect-plugin-for-dsh` in the examples with
+the checkout's actual absolute path.
+
 ### Claude Desktop
 
-Edit `~/.claude/claude_desktop_config.json` (Mac) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
   "mcpServers": {
     "garmin-connect": {
-      "command": "npx",
-      "args": ["-y", "dsh-plugin-garmin-connect", "garmin-connect-mcp"],
+      "command": "node",
+      "args": ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],
       "env": {
         "GARMIN_USERNAME": "your@email.com",
         "GARMIN_PASSWORD": "yourpassword",
@@ -268,47 +277,65 @@ Edit `~/.claude/claude_desktop_config.json` (Mac) or `%APPDATA%\Claude\claude_de
 }
 ```
 
-Restart Claude Desktop. You'll see a 🔌 icon indicating the tools are loaded. Try: *"Show my last 5 runs"* or *"Create a threshold workout and sync to my watch"*.
+Restart Claude Desktop. You'll see a 🔌 icon indicating the tools are loaded. Try: *"Show my last 5 runs"* or *"Preview a threshold workout"*.
 
-### Cursor / Windsurf
+### Cursor
 
-1. Open **Settings → MCP Servers → Add Server**
-2. Name: `garmin-connect`
-3. Type: **stdio**
-4. Command: `npx -y dsh-plugin-garmin-connect garmin-connect-mcp`
-5. Add environment variables: `GARMIN_USERNAME`, `GARMIN_PASSWORD`, `GARMIN_REGION`
+Add the same `mcpServers.garmin-connect` object shown above to the workspace's
+`.cursor/mcp.json`, using the absolute `lib/mcp.js` path.
+
+### Windsurf
+
+Open **Windsurf Settings → Cascade → MCP Servers**, or edit
+`~/.codeium/windsurf/mcp_config.json`, and add the same
+`mcpServers.garmin-connect` object shown above.
 
 ### OpenAI Codex CLI
 
-Add to your `.codex/config.json`:
-
-```json
-{
-  "mcpServers": {
-    "garmin-connect": {
-      "command": "npx",
-      "args": ["-y", "dsh-plugin-garmin-connect", "garmin-connect-mcp"],
-      "env": {
-        "GARMIN_USERNAME": "your@email.com",
-        "GARMIN_PASSWORD": "yourpassword"
-      }
-    }
-  }
-}
-```
-
-### Local Development / Manual Run
+Register the server with the Codex CLI:
 
 ```bash
-# Clone and build
-git clone https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
-cd dsh-plugin-garmin-connect && npm install && npm run build
+codex mcp add garmin-connect \
+  --env GARMIN_USERNAME=your@email.com \
+  --env GARMIN_PASSWORD=yourpassword \
+  --env GARMIN_REGION=global \
+  -- node /absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js
+```
 
+The equivalent entry in `~/.codex/config.toml` is:
+
+```toml
+[mcp_servers.garmin-connect]
+command = "node"
+args = ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"]
+
+[mcp_servers.garmin-connect.env]
+GARMIN_USERNAME = "your@email.com"
+GARMIN_PASSWORD = "yourpassword"
+GARMIN_REGION = "global"
+```
+
+These examples store a credential in the MCP client configuration. Restrict the
+file's permissions, or use your client's supported secret-injection mechanism.
+
+After a version containing the MCP executable is published to npm, the local
+`node …/lib/mcp.js` command can be replaced with:
+
+```bash
+npx -y --package dsh-plugin-garmin-connect garmin-connect-mcp
+```
+
+### Manual Run
+
+```bash
 # Run the MCP server (stdin/stdout)
 GARMIN_USERNAME=xxx GARMIN_PASSWORD=xxx node lib/mcp.js
 ```
 
-The MCP server exposes all 10 tools (activities, sleep, steps, heart rate, weight, workouts, profile, session export, running skills, and workout creation) through standard MCP protocol.
+The MCP server exposes the same **9 tools and argument semantics** as the dsh
+plugin: activities, sleep, steps, heart rate, weight, workout-library templates,
+profile, running skills, and workout preview/creation. Session-token export is
+intentionally unavailable through either AI interface.
 
 ---
 
@@ -327,7 +354,7 @@ The MCP server exposes all 10 tools (activities, sleep, steps, heart rate, weigh
 │  │  └─────────┘    └──────┬──────┘  │  │
 │  │                        │         │  │
 │  │  ┌─────────────────────▼───────┐ │  │
-│  │  │      Tool Registry (10)     │ │  │
+│  │  │      Tool Registry (9)      │ │  │
 │  │  │  • get_garmin_activities    │ │  │
 │  │  │  • get_garmin_sleep         │ │  │
 │  │  │  • get_garmin_steps         │ │  │
@@ -335,7 +362,6 @@ The MCP server exposes all 10 tools (activities, sleep, steps, heart rate, weigh
 │  │  │  • get_garmin_weight        │ │  │
 │  │  │  • get_garmin_workouts      │ │  │
 │  │  │  • get_garmin_profile       │ │  │
-│  │  │  • export_garmin_session    │ │  │
 │  │  │  • get_running_skill_advice │ │  │
 │  │  │  • create_garmin_workout    │ │  │
 │  │  └─────────────────────────────┘ │  │
@@ -357,7 +383,7 @@ connect.garmin.cn     → Claude / Codex /
 ```bash
 # Clone & install
 git clone https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
-cd dsh-plugin-garmin-connect
+cd garmin-connect-plugin-for-dsh
 npm install
 
 # Build
@@ -377,14 +403,17 @@ src/
 ├── index.ts          # Plugin entry point (Cordis apply function)
 ├── config.ts         # Configuration schema with env-var resolution
 ├── client.ts         # Garmin API wrapper with caching
-├── mcp.ts            # Standalone MCP server for Claude/Codex/Cursor
+├── tool-service.ts   # Shared tool behavior for dsh and MCP
+├── mcp.ts            # Standalone MCP adapter for Claude/Codex/Cursor
 ├── knowledge/
 │   ├── running-skills.ts  # 8-skill running coaching knowledge base
 │   └── workout-schema.ts  # Workout definition → Garmin JSON builder
 ├── tools/
-│   └── index.ts      # Tool definitions & registration (10 tools)
+│   └── index.ts      # Tool definitions & registration (9 tools)
 └── utils/
-    ├── cache.ts       # In-memory TTL cache with SWR
+    ├── errors.ts      # Safe public errors and upstream-log redaction
+    ├── cache.ts       # In-memory TTL/LRU cache with single-flight refresh
+    ├── date.ts        # Local calendar-date parsing
     └── format.ts      # Raw-data → LLM-friendly formatters
 ```
 
@@ -392,7 +421,7 @@ src/
 
 ## Publishing & Distribution
 
-The package is a standard dsh bundle: `package.json` declares `dsh.bundle.patch` → `cordis.patch.yml`, and `files` ships the compiled `lib/`, both READMEs, and the patch file.
+The package is a standard dsh bundle: `package.json` declares `dsh.bundle.patch` → `cordis.patch.yml`, and `files` ships the compiled `lib/`, `.env.example`, both READMEs, and the patch file.
 
 ```bash
 npm run build   # prepublishOnly also runs this automatically
@@ -409,7 +438,7 @@ Distribution notes:
 
 - **npm registry (recommended)** — the tarball ships prebuilt `lib/`, so no build permission is needed at install time.
 - **Local checkout** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .` links the source directory; run `npm install` first.
-- **GitHub installs** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>` fetches sources and runs the package's `prepare` script to build them (self-contained, pinned TypeScript via `npx`); pnpm ≥ 10 refuses to run the script until you allow it — `dsh` prints the exact `allowBuilds` key for the profile's `pnpm-workspace.yaml`.
+- **GitHub installs** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>` fetches sources and runs the package's `prepare` script with the locally installed TypeScript compiler; pnpm ≥ 10 refuses to run the script until you allow it — `dsh` prints the exact `allowBuilds` key for the profile's `pnpm-workspace.yaml`.
 - Add the `dsh-plugin` topic to your GitHub repository for discoverability.
 
 ---
@@ -417,8 +446,8 @@ Distribution notes:
 ## Roadmap
 
 - [x] **Body Composition** — weight, BMI, body fat %
-- [x] **Garmin Calendar** — planned workouts
-- [x] **Workout Creation** — create structured workouts that sync to the watch
+- [x] **Workout Library** — list reusable Garmin workout templates
+- [x] **Workout Creation** — safely preview and create structured workout-library entries
 - [x] **MCP Server** — use with Claude Desktop, Codex CLI, Cursor, Windsurf
 - [x] **Running Coach** — 8-skill training knowledge base
 - [ ] **Training Status** — VO2 Max, training load, recovery time
@@ -441,6 +470,6 @@ Distribution notes:
 
 ## Acknowledgements
 
-- [DeepSeek Harness](https://github.com/deepseek-ai/dsh) — the agentic coding runtime
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — the agentic coding runtime
 - [Cordis](https://github.com/cordiverse/cordis) — the plugin lifecycle framework
 - [garmin-connect](https://www.npmjs.com/package/garmin-connect) — unofficial Garmin Connect client for Node.js

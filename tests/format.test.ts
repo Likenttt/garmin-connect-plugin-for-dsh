@@ -1,4 +1,4 @@
-import { formatActivity, formatSleep, formatSteps, formatHeartRate, formatWeight, formatWorkout } from '../src/utils/format'
+import { formatActivity, formatSleep, formatSteps, formatHeartRate, formatWeight, formatWorkout, formatProfile } from '../src/utils/format'
 
 describe('Format Utils', () => {
   describe('formatActivity', () => {
@@ -39,7 +39,7 @@ describe('Format Utils', () => {
       expect(formatted.eventType).toBeUndefined()
     })
 
-    it('should return every raw field with detail="full"', () => {
+    it('should return expanded raw fitness fields with detail="full"', () => {
       const raw = {
         activityId: 123,
         activityName: 'Morning Run',
@@ -85,10 +85,33 @@ describe('Format Utils', () => {
         steps: 4321,
         locationName: 'Riverside'
       })
-      // no field is filtered — raw keys survive alongside normalized ones
+      // Non-sensitive raw keys survive alongside normalized ones.
       expect(formatted.distance).toBe(5000.123)
       expect(formatted.averageHR).toBe(150)
       expect(formatted.activityName).toBe('Morning Run')
+    })
+
+    it('removes credential and social-account fields from full activity output', () => {
+      const formatted = formatActivity({
+        activityId: 123,
+        startLatitude: 31.23,
+        locationName: 'Riverside',
+        ownerId: 42,
+        ownerFullName: 'Private Runner',
+        activityLikeAuthors: [{ displayName: 'Friend' }],
+        nested: {
+          access_token: 'SECRET',
+          trainingMetric: 7,
+        },
+      }, 'full')
+
+      expect(formatted.startLatitude).toBe(31.23)
+      expect(formatted.locationName).toBe('Riverside')
+      expect(formatted.ownerId).toBeUndefined()
+      expect(formatted.ownerFullName).toBeUndefined()
+      expect(formatted.activityLikeAuthors).toBeUndefined()
+      expect(formatted.nested).toEqual({ trainingMetric: 7 })
+      expect(JSON.stringify(formatted)).not.toContain('SECRET')
     })
 
     it('should handle null/missing data', () => {
@@ -125,7 +148,50 @@ describe('Format Utils', () => {
     })
   })
 
+  describe('formatSteps', () => {
+    it('normalizes the numeric total returned by garmin-connect 1.6.x', () => {
+      expect(formatSteps(12_345, '2026-08-20')).toEqual({
+        date: '2026-08-20',
+        totalSteps: 12_345,
+        goal: null,
+        distanceMeters: null,
+        highlyActiveSeconds: null,
+      })
+    })
+  })
+
   describe('formatWeight', () => {
+    it('formats the daily envelope returned by garmin-connect 1.6.x', () => {
+      const formatted = formatWeight({
+        startDate: '2026-08-20',
+        endDate: '2026-08-20',
+        dateWeightList: [
+          {
+            calendarDate: '2026-08-20',
+            weight: 70_500,
+            bmi: 22.7,
+            bodyFat: 15.5,
+            muscleMass: 35_200,
+            bodyWater: 60.1,
+            boneMass: 3_100,
+          },
+        ],
+        totalAverage: {
+          weight: 70_250,
+        },
+      })
+
+      expect(formatted).toEqual({
+        date: '2026-08-20',
+        weightKg: 70.5,
+        bmi: 22.7,
+        bodyFatPercentage: 15.5,
+        muscleMassKg: 35.2,
+        waterPercentage: 60.1,
+        boneMassKg: 3.1,
+      })
+    })
+
     it('should format weight data correctly', () => {
       const raw = {
         date: 1696118400000, // 2023-10-01 (approx)
@@ -144,6 +210,27 @@ describe('Format Utils', () => {
       expect(formatted.waterPercentage).toBe(60.5)
       expect(formatted.boneMassKg).toBe(3)
       expect(formatted.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    })
+  })
+
+  describe('formatProfile', () => {
+    it('returns only the profile fields safe for tool output', () => {
+      expect(formatProfile({
+        displayName: 'runner42',
+        fullName: 'Ada Runner',
+        profileImageUrlMedium: 'https://example.test/avatar-medium.png',
+        profileImageUrlLarge: 'https://example.test/avatar-large.png',
+        primaryActivity: 'running',
+        location: 'Private Home',
+        facebookUrl: 'https://social.example/private',
+        profileVisibility: 'private',
+        garminGUID: 'secret-guid',
+      })).toEqual({
+        displayName: 'runner42',
+        fullName: 'Ada Runner',
+        profileImageUrl: 'https://example.test/avatar-medium.png',
+        primaryActivity: 'running',
+      })
     })
   })
 

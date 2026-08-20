@@ -1,12 +1,17 @@
 /**
- * An in-memory cache with TTL, LRU eviction, and Stale-While-Revalidate (SWR) support.
+ * An in-memory cache with TTL, LRU eviction, and single-flight refreshes.
  *
  * Purpose: Garmin's unofficial API is aggressive with rate-limiting and can be slow.
  * This cache prevents the AI agent from hammering the API when it retries,
- * and uses SWR to return stale data immediately while fetching fresh data in the background.
+ * Expired entries block on one shared refresh so callers never receive unmarked stale data.
  */
+interface CacheEntry {
+  value: unknown
+  expiresAt: number
+}
+
 export class MemoryCache {
-  private store = new Map<string, { value: unknown; expiresAt: number }>()
+  private store = new Map<string, CacheEntry>()
   private pending = new Map<string, Promise<unknown>>()
   private ttlMs: number
   private maxSize: number
@@ -18,7 +23,7 @@ export class MemoryCache {
 
   /** Return a cached value, or call `factory`, cache & return the result. */
   async getOrSet<T>(key: string, factory: () => Promise<T>): Promise<T> {
-    if (this.ttlMs <= 0) {
+    if (this.ttlMs <= 0 || this.maxSize <= 0) {
       // Cache disabled
       return factory()
     }
@@ -35,42 +40,42 @@ export class MemoryCache {
     // 2. Data is stale or absent. We need to fetch.
     // Ensure only one background fetch per key.
     if (!this.pending.has(key)) {
-      const fetchPromise = factory()
+      let fetchPromise: Promise<T>
+      fetchPromise = factory()
         .then((value) => {
-          this.set(key, value)
+          // Invalidating a key detaches its old request. Only the currently
+          // registered request may populate the cache.
+          if (this.pending.get(key) === fetchPromise) this.set(key, value)
           return value
         })
         .finally(() => {
-          this.pending.delete(key)
+          if (this.pending.get(key) === fetchPromise) this.pending.delete(key)
         })
       this.pending.set(key, fetchPromise)
     }
 
-    if (entry) {
-      // 3. Stale-While-Revalidate: Return stale immediately while fetching in background
-      this.refreshLRU(key, entry)
-      // Note: we swallow background fetch errors here to avoid unhandled rejections if the
-      // stale return is already resolved. The user just gets stale data until next time.
-      this.pending.get(key)?.catch(() => {})
-      return entry.value as T
-    }
-
-    // 4. No stale data, must block and wait for the fetch
+    // Expired and missing entries both wait for the shared refresh.
     return this.pending.get(key) as Promise<T>
   }
 
   private set(key: string, value: unknown): void {
-    if (this.store.size >= this.maxSize && !this.store.has(key)) {
+    // A refreshed existing key is the most-recently used entry too.
+    this.store.delete(key)
+    if (this.store.size >= this.maxSize) {
       // Evict oldest (Map iterates in insertion order)
       const oldestKey = this.store.keys().next().value
       if (oldestKey !== undefined) {
         this.store.delete(oldestKey)
       }
     }
-    this.store.set(key, { value, expiresAt: Date.now() + this.ttlMs })
+    const now = Date.now()
+    this.store.set(key, {
+      value,
+      expiresAt: now + this.ttlMs,
+    })
   }
 
-  private refreshLRU(key: string, entry: { value: unknown; expiresAt: number }): void {
+  private refreshLRU(key: string, entry: CacheEntry): void {
     // Delete and re-insert to move to end of iteration order (most recently used)
     this.store.delete(key)
     this.store.set(key, entry)

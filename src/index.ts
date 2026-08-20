@@ -1,14 +1,15 @@
 import { Context } from '@deepseek-ai/cordis'
-import { Config } from './config'
+import { Config, resolveConfig } from './config'
 import { GarminClient } from './client'
 import { registerTools } from './tools'
 
 export const name = 'garmin-connect'
-export { Config }
+export { Config, resolveConfig }
 export const inject = ['tools']
 
 export function apply(ctx: Context, config: Config) {
-  const client = new GarminClient(ctx, config)
+  const resolvedConfig = resolveConfig(config)
+  const client = new GarminClient(ctx, resolvedConfig)
 
   // Kick off the Garmin login in the background. Tool calls auto-connect on
   // first use, so a slow or temporarily failing login never blocks plugin
@@ -16,5 +17,5 @@ export function apply(ctx: Context, config: Config) {
   void client.connect().catch(() => {})
 
   // Register all AI-callable tools
-  registerTools(ctx, client, config)
+  registerTools(ctx, client, resolvedConfig)
 }
