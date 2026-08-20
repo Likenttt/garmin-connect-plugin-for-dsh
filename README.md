@@ -8,6 +8,8 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+English | **[简体中文](README.zh-CN.md)**
+
 ---
 
 ## More Apps
@@ -42,7 +44,7 @@ The plugin registers **10 tools**. Eight return Garmin data without writing;
 | `get_garmin_weight` | Body composition (weight, BMI, body fat %, muscle mass, etc.) for a date or range | `{"startDate": "2023-10-01"}` |
 | `get_garmin_workouts` | Workout templates from your Garmin workout library (not calendar scheduling) | `{"limit": 10, "offset": 0}` |
 | `get_garmin_profile` | User profile summary | `{}` or omit |
-| `get_running_skill_advice` | Expert running coaching: 8 core training skills with HR zones, practice methods & common mistakes | `{"query": "threshold", "includeRecentActivities": true}` |
+| `get_running_skill_advice` | Explain 8 workout types and 4 training philosophies, or collect the mandatory intake for personalized coaching | `{"mode": "explain", "query": "Daniels", "language": "en"}` |
 | `download_garmin_activity_fit` | Download an activity's original archive and safely extract its single FIT file to the account directory under the configured host parent | `{"activityId": 123456789}` |
 | `create_garmin_workout` | Preview a structured workout; create it only after explicit confirmation | `{"name": "Threshold 3×8min", "steps": [...]}` |
 
@@ -50,6 +52,52 @@ Workout creation is a two-call flow. The preview response includes a one-time
 `confirmationId`; after the user approves the unchanged preview, call the tool
 again with the same definition, `confirmed: true`, and that `confirmationId`.
 An ID expires after 10 minutes and cannot be reused.
+
+### Personalized running coaching
+
+`get_running_skill_advice` deliberately separates explanation from planning:
+
+- `mode: "explain"` explains a workout type or training philosophy. It does not
+  invent an athlete-specific schedule.
+- `mode: "personalized"` is required for any recommendation or plan. Before it
+  returns planning material, the tool requires answers for all six intake areas
+  below. Missing answers are returned as focused questions; Garmin activity data
+  is not fetched and a schedule must not be generated yet.
+
+| Intake field | What the assistant must ask |
+|---|---|
+| `goal` | Target distance/event, future ISO `YYYY-MM-DD` date, and completion or ideal/minimum time goal |
+| `currentPerformance` + `performanceBasis` | A representative race/time trial from the past two years, result, non-future date, effort/conditions, or an explicit `no_recent_benchmark` |
+| `trainingBackground` | Running history and recent 4–8 week volume, frequency, long run, quality work, and interruptions |
+| `availability` | Available days/time, fixed rest and long-run days, terrain/facility limits, strength-training time, and whether double days are possible |
+| `healthConstraints` + `hasWarningSymptoms` | Current/past-year injury, pain, relevant disease/medication, sleep and recovery, plus an explicit warning-symptom boolean |
+| `trainingPreference` + preference details | `steady`, `hard_easy`, or `mixed`, plus `maxQualitySessionsPerWeek` (0–7) and `intensityGuidancePreference` (`pace`, `heart_rate`, `rpe`, or `mixed`) |
+
+If `hasWarningSymptoms` is true—for example current chest discomfort,
+unusual breathlessness with mild activity, fainting/dizziness, or abnormal
+palpitations—the tool returns a safety stop without workout material or Garmin
+activity access. It advises medical clearance and does not diagnose. If
+`performanceBasis` is `no_recent_benchmark`, planning material instructs the
+assistant to begin with easy base work or a low-risk benchmark instead of
+inventing precise threshold or interval paces.
+
+The compact philosophy layer contains:
+
+- **Hansons** — frequent, more evenly distributed mileage, pace discipline, and
+  cumulative fatigue; its 16-mile long run is not a standalone prescription.
+- **Jack Daniels** — derive VDOT and E/M/T/I/R intensity from current, recent
+  performance, never from the goal time.
+- **Norwegian threshold** — borrow controlled, non-exhaustive threshold work and
+  hard/easy separation; double-threshold days are not prescribed by default.
+- **Polarized training** — keep most work genuinely easy and a small amount
+  clearly hard; 80/20 is a direction rather than an exact quota.
+
+Recent Garmin runs may supplement this intake but never replace the athlete's
+answers. The method notes and evidence boundaries are summarized in
+[the training-method research note](docs/research/running-training-methods.md).
+Each philosophy and workout-card output labels its statements as
+`system_principle`, `research_evidence`, or `application_inference` so a method
+definition or coaching inference is not misrepresented as comparative proof.
 
 ---
 
@@ -693,7 +741,7 @@ src/
 ├── tool-service.ts   # Shared tool behavior for dsh and MCP
 ├── mcp.ts            # Standalone MCP adapter for Codex/Claude Code/other clients
 ├── knowledge/
-│   ├── running-skills.ts  # 8-skill running coaching knowledge base
+│   ├── running-skills.ts  # 8 workout types + 4 compact training philosophies
 │   └── workout-schema.ts  # Workout definition → Garmin JSON builder
 ├── tools/
 │   └── index.ts      # Tool definitions & registration (10 tools)
@@ -737,7 +785,7 @@ Distribution notes:
 - [x] **Workout Library** — list reusable Garmin workout templates
 - [x] **Workout Creation** — safely preview and create structured workout-library entries
 - [x] **MCP Server** — use with Codex, Claude Code/Desktop, Cursor, Windsurf, WorkBuddy, ZCode
-- [x] **Running Coach** — 8-skill training knowledge base
+- [x] **Running Coach** — 8 workout types, 4 training philosophies, and mandatory personalized intake
 - [x] **Local MFA Bootstrap (experimental)** — hidden TTY input and private OAuth session file (`0600` on POSIX); real MFA end-to-end verification still required
 - [x] **Process-isolated Accounts** — one session file and one dsh profile/MCP process per account
 - [x] **FIT Download** — safely extract one FIT from the original archive into an automatic normalized-email subdirectory under a user-selected parent

@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Shared tool-service behavior for the dsh plugin and standalone MCP server, so both interfaces expose the same 10 tools and argument semantics.
+- Four compact running-training philosophy cards covering Hansons, Jack Daniels, Norwegian controlled threshold/double-threshold boundaries, and polarized training.
+- Evidence classifications on philosophy material distinguish system principles, research evidence, and application inferences.
+- A mandatory six-part coaching intake for personalized running advice: goal, current performance/basis, training background, availability, health/recovery constraints plus an explicit warning-symptom flag, and preferred steady vs hard/easy vs mixed load pattern plus quality-session/intensity-guidance preferences. Missing answers produce questions instead of a plan or Garmin activity fetch; warning symptoms produce a safety stop.
 - Experimental local `auth:setup` flow for Garmin two-step verification: password and MFA code are entered with echo disabled in a trusted local TTY, never through CLI flags, environment variables, MCP tools, or model input; only a private OAuth session file is persisted (`0600` on POSIX; Windows ACL validation remains a limitation).
 - `GARMIN_SESSION_TOKEN_FILE` runtime authentication, allowing dsh/MCP to restart without storing the Garmin password.
 - Account-bound session files: new auth CLI output stores a one-way SHA-256 digest of the trimmed, NFKC-normalized, lower-cased username plus region and rejects mismatched runtime configuration before loading OAuth tokens. Legacy files with only `oauth1` and `oauth2` remain readable for compatibility.
@@ -20,6 +23,7 @@ All notable changes to this project will be documented in this file.
 - Conservative coverage checks, a package dry-run smoke test, and a finite CI timeout.
 
 ### Changed
+- Split running advice into explicit `explain` and `personalized` modes; personalized intensity must be anchored to current performance, and double-threshold training is never the default.
 - Moved the MCP SDK and Zod from optional to required runtime dependencies; pinned the tested MCP SDK and local `tsx` versions.
 - Raised the supported Node.js baseline to 20 to match the MCP runtime dependency tree.
 - Changed `prepare` to use the project's local TypeScript compiler instead of downloading one through `npx`.

@@ -50,13 +50,54 @@
 | `get_garmin_weight`     | 查询指定日期或日期范围的身体成分（体重、BMI、体脂率、骨骼肌等） | `{"startDate": "2023-10-01"}` |
 | `get_garmin_workouts`   | 查询 Garmin 训练库中的可复用训练模板（不是日历排期） | `{"limit": 10, "offset": 0}` |
 | `get_garmin_profile`    | 获取经过字段白名单过滤的个人资料摘要 | `{}` 或省略 |
-| `get_running_skill_advice` | 跑步训练专家：8 大核心技能（心率区间、练法、避坑指南） | `{"query": "门槛", "includeRecentActivities": true}` |
+| `get_running_skill_advice` | 讲解 8 种课型与 4 套训练理念，或先完成必问信息再提供个性化建议 | `{"mode": "explain", "query": "丹尼尔斯", "language": "zh-CN"}` |
 | `download_garmin_activity_fit` | 下载活动的原始归档，并把其中唯一的 FIT 文件安全提取到所配置父目录下的账号目录 | `{"activityId": 123456789}` |
 | `create_garmin_workout` | 预览结构化训练；仅在显式确认后创建 | `{"name": "门槛巡航3×8分钟", "steps": [...]}` |
 
 创建训练采用两次调用流程。首次调用只返回预览和一次性
 `confirmationId`；用户确认未更改的预览后，再使用相同训练定义、
 `confirmed: true` 及该 `confirmationId` 调用。确认 ID 10 分钟后失效，且不可复用。
+
+### 个性化跑步训练问询
+
+`get_running_skill_advice` 明确区分“知识讲解”和“个性化规划”：
+
+- `mode: "explain"` 只讲解课型或训练理念，不生成针对某位跑者的日程。
+- 任何针对个人的建议或计划都必须使用 `mode: "personalized"`。下列六组信息
+  必须全部回答；如果缺失，工具只返回需要追问的问题，不读取 Garmin 活动，也不得
+  先猜测训练量、强度或生成逐日/逐周计划。
+
+| 问询字段 | 助手必须询问的内容 |
+|---|---|
+| `goal` | 目标距离/赛事、未来的 ISO `YYYY-MM-DD` 日期，以及完赛目标或理想/最低可接受成绩 |
+| `currentPerformance` + `performanceBasis` | 过去两年内代表性比赛/计时测试的距离、成绩、不晚于今天的日期、努力程度与条件，或明确填写 `no_recent_benchmark` |
+| `trainingBackground` | 跑龄、最近 4–8 周跑量/时长、频率、最长跑、质量课和中断情况 |
+| `availability` | 每周可训练天数和时长、固定休息/长跑日、场地限制、力量训练时间，以及是否具备双练条件 |
+| `healthConstraints` + `hasWarningSymptoms` | 当前/过去一年伤病、疼痛、相关疾病/用药、睡眠和恢复，并明确回答是否存在健康警示症状 |
+| `trainingPreference` + 偏好细节 | `steady`、`hard_easy` 或 `mixed`，并填写 `maxQualitySessionsPerWeek`（0–7）与 `intensityGuidancePreference`（`pace`、`heart_rate`、`rpe` 或 `mixed`） |
+
+如果 `hasWarningSymptoms` 为 `true`（例如当前胸部不适、轻微活动异常气短、
+晕厥/眩晕或异常心悸），工具会直接返回安全停止结果，不返回课型素材，也不读取
+Garmin 活动；它只建议先取得医疗专业人员许可，不自行诊断。如果
+`performanceBasis` 为 `no_recent_benchmark`，则只建议先建立轻松跑基础或完成
+低风险基准测试，不能凭空给出精确门槛/间歇配速。
+
+精简的训练理念层包括：
+
+- **汉森法**：高频、较均匀的周跑量，强调配速纪律和累积疲劳；不能脱离整套
+  训练量单独照抄“16 英里长跑”。
+- **丹尼尔斯法**：用近期真实成绩估计当前 VDOT，再组合 E/M/T/I/R 强度；
+  不能用目标成绩反推训练配速。
+- **挪威阈值法**：可借鉴受控、非力竭的阈值训练和难易日分离；默认不安排
+  双阈值，也不照搬精英跑量或固定乳酸值。
+- **极化训练**：大部分训练真正轻松，少量训练明确艰苦；80/20 是方向，
+  不是必须精确凑出的比例。
+
+近期 Garmin 跑步数据只能补充上述问询，不能代替用户回答。方法来源、证据边界和
+适用限制见[训练方法研究说明](docs/research/running-training-methods.md)。
+每条训练理念和课型卡还会把相应内容标成 `system_principle`（体系理念）、
+`research_evidence`（研究证据）或 `application_inference`（应用推断），避免把
+方法定义误写成优越性证据。
 
 ---
 
@@ -641,7 +682,7 @@ src/
 ├── tool-service.ts   # dsh 与 MCP 共用的工具行为
 ├── mcp.ts            # 独立 MCP 适配器（用于 Codex/Claude Code 等客户端）
 ├── knowledge/
-│   ├── running-skills.ts  # 8 大跑步核心技能知识库
+│   ├── running-skills.ts  # 8 种课型 + 4 套精简训练理念
 │   └── workout-schema.ts  # 训练定义 → Garmin JSON 构建器
 ├── tools/
 │   └── index.ts      # 工具定义与注册（10 个工具）
@@ -685,7 +726,7 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugi
 - [x] **训练库** — 查询可复用的 Garmin 训练模板
 - [x] **创建训练** — 安全预览并创建训练库条目
 - [x] **MCP 服务器** — 支持 Codex、Claude Code/Desktop、Cursor、Windsurf、WorkBuddy、ZCode
-- [x] **跑步教练** — 8 大核心跑步训练技能知识库
+- [x] **跑步教练** — 8 种课型、4 套训练理念与强制个性化问询
 - [x] **本地 MFA 初始化（实验性）** — TTY 隐藏输入与私有 OAuth session（POSIX 为 `0600`）；仍需真实 MFA 端到端验证
 - [x] **进程隔离多账号** — 每个账号使用一个 session 文件及一个 dsh profile/MCP 进程
 - [x] **FIT 下载** — 从原始归档安全提取一个 FIT 到用户所选父目录下自动生成的规范化邮箱子目录
