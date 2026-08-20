@@ -29,6 +29,8 @@ describe('MCP adapter', () => {
         'download_garmin_activity_fit',
       ])
       const createWorkout = result.tools.find(tool => tool.name === 'create_garmin_workout')!
+      expect(createWorkout.description).toContain('does not generate a training plan')
+      expect(createWorkout.description).toContain('mode=personalized')
       expect(createWorkout.inputSchema).toMatchObject({
         type: 'object',
         properties: expect.objectContaining({
@@ -63,6 +65,59 @@ describe('MCP adapter', () => {
         destructiveHint: false,
         idempotentHint: false,
         openWorldHint: true,
+      })
+
+      const runningAdvice = result.tools.find(
+        tool => tool.name === 'get_running_skill_advice',
+      )!
+      expect(runningAdvice.description).toContain('personalized')
+      expect(runningAdvice.description).toContain('Hansons')
+      expect(runningAdvice.description).toContain('Jack Daniels')
+      expect(runningAdvice.description).toContain('Norwegian')
+      expect(runningAdvice.description).toContain('polarized')
+      expect(runningAdvice.inputSchema).toMatchObject({
+        type: 'object',
+        required: ['mode'],
+        additionalProperties: false,
+        properties: expect.objectContaining({
+          mode: expect.objectContaining({
+            type: 'string',
+            enum: ['explain', 'personalized'],
+          }),
+          language: expect.objectContaining({ type: 'string', enum: ['zh-CN', 'en'] }),
+          goal: expect.objectContaining({
+            type: 'string',
+            minLength: 4,
+            maxLength: 500,
+            description: expect.stringContaining('event'),
+          }),
+          currentPerformance: expect.objectContaining({ type: 'string', minLength: 4, maxLength: 500 }),
+          performanceBasis: expect.objectContaining({
+            type: 'string',
+            enum: ['recent_race', 'time_trial', 'no_recent_benchmark'],
+          }),
+          trainingBackground: expect.objectContaining({ type: 'string', minLength: 8, maxLength: 1000 }),
+          availability: expect.objectContaining({ type: 'string', minLength: 4, maxLength: 750 }),
+          healthConstraints: expect.objectContaining({ type: 'string', minLength: 2, maxLength: 750 }),
+          hasWarningSymptoms: expect.objectContaining({
+            type: 'boolean',
+            description: expect.stringContaining('stops'),
+          }),
+          trainingPreference: expect.objectContaining({
+            type: 'string',
+            enum: ['steady', 'hard_easy', 'mixed'],
+          }),
+          maxQualitySessionsPerWeek: expect.objectContaining({
+            type: 'integer',
+            minimum: 0,
+            maximum: 7,
+          }),
+          intensityGuidancePreference: expect.objectContaining({
+            type: 'string',
+            enum: ['pace', 'heart_rate', 'rpe', 'mixed'],
+            description: expect.stringContaining('intensity'),
+          }),
+        }),
       })
       expect(result.tools
         .filter(tool => ![
@@ -206,6 +261,36 @@ describe('MCP adapter', () => {
       expect(activities.isError).not.toBe(true)
       expect(service.getProfile).toHaveBeenCalled()
       expect(service.getActivities).toHaveBeenCalledWith({})
+    } finally {
+      await client.close()
+      await server.close()
+    }
+  })
+
+  it('requires an explicit running-advice mode before invoking the service', async () => {
+    const service = serviceStub()
+    const server = createMcpServer(service as any)
+    const client = new Client({ name: 'test-client', version: '1.0.0' })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
+
+    try {
+      const missingMode = await client.callTool({
+        name: 'get_running_skill_advice',
+        arguments: { query: 'threshold' },
+      })
+      expect(missingMode.isError).toBe(true)
+      expect(service.getRunningAdvice).not.toHaveBeenCalled()
+
+      const valid = await client.callTool({
+        name: 'get_running_skill_advice',
+        arguments: { mode: 'personalized', language: 'zh-CN' },
+      })
+      expect(valid.isError).not.toBe(true)
+      expect(service.getRunningAdvice).toHaveBeenCalledWith({
+        mode: 'personalized',
+        language: 'zh-CN',
+      })
     } finally {
       await client.close()
       await server.close()

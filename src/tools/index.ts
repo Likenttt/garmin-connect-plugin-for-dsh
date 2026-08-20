@@ -4,6 +4,11 @@ import type { Config } from '../config'
 import { publicErrorMessage } from '../utils/errors'
 import {
   GarminToolService,
+  INTENSITY_GUIDANCE_PREFERENCES,
+  PERFORMANCE_BASES,
+  RUNNING_ADVICE_MODES,
+  RUNNING_INTAKE_MIN_LENGTHS,
+  TRAINING_LOAD_PREFERENCES,
   getDatesInRange,
   todayLocal,
 } from '../tool-service'
@@ -219,32 +224,96 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
   tools.register({
     name: 'get_running_skill_advice',
     description:
-      'Look up expert running training advice from an 8-skill coaching knowledge base. ' +
-      'Covers: Easy Run, Marathon Pace, Lactate Threshold, VO₂max Intervals, ' +
-      'Strides & Repetitions, Fartlek, Hill Repeats, and Marathon-Specific Endurance. ' +
-      'Each skill includes heart-rate zones, how to practice, and common mistakes. ' +
-      'Use this tool when the user asks about running training methods, workout planning, ' +
-      'race preparation, or wants to improve their running performance. ' +
-      'Returns bilingual (Chinese + English) coaching cards. ' +
-      'Can be combined with actual Garmin activity data to give personalized advice. ' +
-      'Example queries: "How should I train for a marathon?", "What is threshold running?", ' +
-      '"我该怎么练间歇跑？", "帮我制定一周跑步计划"',
+      'Explain 8 running workout types plus the Hansons, Jack Daniels, Norwegian threshold, ' +
+      'and polarized training philosophies. Use mode="explain" only for concepts. ' +
+      'For any athlete-specific recommendation or plan, use mode="personalized" and ask for ' +
+      'every missing intake field returned by the tool before planning: goal, current performance, ' +
+      'training background, availability, health/recovery constraints, and preferred load pattern ' +
+      '(steady, clearly separated hard/easy, or mixed), including quality-session and intensity-guidance preferences. ' +
+      'If warning symptoms are reported, stop planning and follow the tool\'s medical-clearance guidance. Never guess missing answers. ' +
+      'Recent Garmin running activities can supplement but never replace the intake.',
     parameters: {
       type: 'object',
+      required: ['mode'],
       additionalProperties: false,
       properties: {
+        mode: {
+          type: 'string',
+          enum: RUNNING_ADVICE_MODES,
+          description:
+            'explain = concepts only; personalized = athlete-specific recommendations or planning with mandatory intake.',
+        },
         query: {
           type: 'string',
           maxLength: 100,
           description:
-            'Keyword to search for a specific skill. Examples: "threshold", "间歇", "hill", "马拉松". ' +
-            'Pass "all" or omit to get all 8 skills.',
+            'Optional workout type or philosophy keyword, such as "threshold", "Daniels", "挪威", or "polarized". Pass "all" or omit for the full compact set.',
         },
         includeRecentActivities: {
           type: 'boolean',
           description:
             'If true, also fetches the user\'s 5 most recent Garmin running activities ' +
-            'so the advice can reference actual training data (pace, heart rate, distance).',
+            'after personalized intake is complete. Activity data does not replace the required answers.',
+        },
+        language: {
+          type: 'string',
+          enum: ['zh-CN', 'en'],
+          description: 'Language for questions and compact personalized planning material.',
+        },
+        goal: {
+          type: 'string',
+          minLength: RUNNING_INTAKE_MIN_LENGTHS.goal,
+          maxLength: 500,
+          description: 'Target event/distance, future ISO YYYY-MM-DD date, and completion or ideal/minimum time goal.',
+        },
+        currentPerformance: {
+          type: 'string',
+          minLength: RUNNING_INTAKE_MIN_LENGTHS.currentPerformance,
+          maxLength: 500,
+          description: 'Representative race or time trial from the past two years, result, non-future ISO YYYY-MM-DD date, effort, and material conditions; explicitly state no benchmark when applicable.',
+        },
+        performanceBasis: {
+          type: 'string',
+          enum: PERFORMANCE_BASES,
+          description: 'Whether current performance comes from a recent race, time trial, or no trustworthy recent benchmark.',
+        },
+        trainingBackground: {
+          type: 'string',
+          minLength: RUNNING_INTAKE_MIN_LENGTHS.trainingBackground,
+          maxLength: 1000,
+          description: 'Running history and recent 4–8 week volume, frequency, long run, quality work, and interruptions.',
+        },
+        availability: {
+          type: 'string',
+          minLength: RUNNING_INTAKE_MIN_LENGTHS.availability,
+          maxLength: 750,
+          description: 'Available days/time, fixed rest or long-run days, terrain/facility limits, strength-training time, and whether double days are possible.',
+        },
+        healthConstraints: {
+          type: 'string',
+          minLength: RUNNING_INTAKE_MIN_LENGTHS.healthConstraints,
+          maxLength: 750,
+          description: 'Current/past-year injury, pain, relevant disease or medication, sleep, stress, and recovery constraints; explicitly state none when applicable.',
+        },
+        hasWarningSymptoms: {
+          type: 'boolean',
+          description: 'True for current chest discomfort, abnormal breathlessness with mild activity, fainting/dizziness, or abnormal palpitations. True stops hard-training planning.',
+        },
+        trainingPreference: {
+          type: 'string',
+          enum: TRAINING_LOAD_PREFERENCES,
+          description: 'Preferred load pattern: steady/even, distinct hard/easy days, or mixed/no preference.',
+        },
+        maxQualitySessionsPerWeek: {
+          type: 'integer',
+          minimum: 0,
+          maximum: 7,
+          description: 'User\'s maximum acceptable quality sessions per week; a ceiling, not a prescription.',
+        },
+        intensityGuidancePreference: {
+          type: 'string',
+          enum: INTENSITY_GUIDANCE_PREFERENCES,
+          description: 'How the user prefers training intensity to be communicated and executed.',
         },
       },
     },
@@ -269,8 +338,10 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       'The first call returns a preview and confirmationId without writing. Only call again with ' +
       'confirmed=true and that confirmationId after the user explicitly approves the preview. ' +
       'Device sync behavior depends on Garmin Connect settings. ' +
-      'IMPORTANT: Use this tool AFTER consulting get_running_skill_advice and/or recent activities ' +
-      'to create a personalized, science-based training plan. ' +
+      'This execution tool does not generate a training plan: it may encode a workout the user ' +
+      'already specified, or one derived after completed coaching intake. ' +
+      'IMPORTANT: for a personalized workout, first complete the mandatory intake through ' +
+      'get_running_skill_advice with mode="personalized"; recent activities cannot replace it. ' +
       'Example: user says "帮我创建一个门槛跑训练" or "Create a 10K race-pace workout". ' +
       'Step format guide: ' +
       'type: warmup|interval|recovery|cooldown|rest|repeat. ' +

@@ -6,7 +6,14 @@ import { config as loadEnv } from 'dotenv'
 import { z } from 'zod'
 import { GarminClient } from './client'
 import type { Config } from './config'
-import { GarminToolService } from './tool-service'
+import {
+  GarminToolService,
+  INTENSITY_GUIDANCE_PREFERENCES,
+  PERFORMANCE_BASES,
+  RUNNING_ADVICE_MODES,
+  RUNNING_INTAKE_MIN_LENGTHS,
+  TRAINING_LOAD_PREFERENCES,
+} from './tool-service'
 import type {
   ActivityArgs,
   CreateWorkoutArgs,
@@ -167,17 +174,63 @@ export function createMcpServer(service: ToolService): McpServer {
 
   register(
     'get_running_skill_advice',
-    'Look up running advice and optionally include recent running activities.',
+    'Explain 8 running workout types and the Hansons, Jack Daniels, Norwegian threshold, ' +
+      'and polarized training philosophies. Set mode=personalized for any athlete-specific ' +
+      'recommendation or plan. Personalized mode must collect goal, current performance and its ' +
+      'basis, training background, availability, health/recovery constraints and warning-symptom ' +
+      'status, plus load, quality-session, and intensity-guidance preferences before returning ' +
+      'planning material; missing fields become questions and warning symptoms stop planning.',
     {
-      query: z.string().max(100).optional(),
-      includeRecentActivities: z.boolean().optional(),
+      mode: z.enum(RUNNING_ADVICE_MODES).describe(
+        'Use explain for concepts only. Use personalized for any athlete-specific recommendation or plan.',
+      ),
+      query: z.string().max(100).optional().describe(
+        'Optional workout type or philosophy keyword; omit for the full compact set.',
+      ),
+      includeRecentActivities: z.boolean().optional().describe(
+        'Fetch five recent runs only after personalized intake is complete; never a substitute for answers.',
+      ),
+      language: z.enum(['zh-CN', 'en']).optional().describe(
+        'Language for intake questions and coaching material.',
+      ),
+      goal: z.string().min(RUNNING_INTAKE_MIN_LENGTHS.goal).max(500).optional()
+        .describe('Target distance or event, future ISO YYYY-MM-DD date, and completion or ideal/minimum time goal.'),
+      currentPerformance: z.string()
+        .min(RUNNING_INTAKE_MIN_LENGTHS.currentPerformance).max(500).optional()
+        .describe('Representative result from the past two years, non-future ISO YYYY-MM-DD date, effort, and material conditions; explicitly state when none exists.'),
+      performanceBasis: z.enum(PERFORMANCE_BASES).optional().describe(
+        'Whether current ability comes from a recent race, time trial, or no recent benchmark.',
+      ),
+      trainingBackground: z.string()
+        .min(RUNNING_INTAKE_MIN_LENGTHS.trainingBackground).max(1000).optional()
+        .describe('Running history, recent average/peak volume, frequency, long run, quality work, and interruptions.'),
+      availability: z.string()
+        .min(RUNNING_INTAKE_MIN_LENGTHS.availability).max(750).optional()
+        .describe('Available days/time, rest and long-run days, terrain/facility limits, strength-training time, and whether double days are possible.'),
+      healthConstraints: z.string()
+        .min(RUNNING_INTAKE_MIN_LENGTHS.healthConstraints).max(750).optional()
+        .describe('Current/past-year injury, relevant disease or medication, sleep, stress, and recovery; state none explicitly.'),
+      hasWarningSymptoms: z.boolean().optional().describe(
+        'True for current chest discomfort, abnormal breathlessness with mild activity, fainting/dizziness, or abnormal palpitations; true stops planning.',
+      ),
+      trainingPreference: z.enum(TRAINING_LOAD_PREFERENCES).optional().describe(
+        'Preferred load pattern: steady/even, distinct hard/easy days, or mixed/no preference.',
+      ),
+      maxQualitySessionsPerWeek: z.number().int().min(0).max(7).optional().describe(
+        'Maximum acceptable quality sessions per week; a ceiling, not a prescription.',
+      ),
+      intensityGuidancePreference: z.enum(INTENSITY_GUIDANCE_PREFERENCES).optional()
+        .describe('Preferred intensity guidance: pace, heart rate, perceived effort, or mixed.'),
     },
     (args: RunningAdviceArgs) => invoke(() => service.getRunningAdvice(args)),
   )
 
   register(
     'create_garmin_workout',
-    'Preview a workout first; create it only after explicit user confirmation.',
+    'Preview a user-specified structured workout first and create it only after explicit user ' +
+      'confirmation. This execution tool does not generate a training plan. If the assistant ' +
+      'derives a personalized workout, it must first complete get_running_skill_advice with ' +
+      'mode=personalized; a directly specified workout may be encoded without coaching intake.',
     {
       name: z.string().min(1).max(80),
       description: z.string().max(1024).optional(),

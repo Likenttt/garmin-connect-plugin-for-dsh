@@ -14,6 +14,14 @@ const actualRm = jest.requireActual<typeof import('node:fs/promises')>(
   'node:fs/promises',
 ).rm
 const mockedRm = rm as jest.MockedFunction<typeof rm>
+const COMPLETE_PERFORMANCE_EN = '5 km in 23:30 on 2026-08-01; all-out effort on a flat course in cool weather'
+const COMPLETE_TRAINING_BACKGROUND_EN = 'Running for 2 years; over the last 8 weeks average 30 km and peak 36 km per week, four days per week, longest run 12 km, one threshold quality session, and no interruption or abrupt load change in the last three months'
+const COMPLETE_AVAILABILITY_EN = 'Four days per week, 60 minutes each; Monday rest day and Sunday long-run day; roads available; 30 minutes of strength training; double days unavailable'
+const COMPLETE_HEALTH_EN = 'No current pain or injury; no injury in the past year; no relevant disease or medication; sleep, stress, and recovery are stable'
+const COMPLETE_PERFORMANCE_ZH = '2026-08-01 参加 5 公里计时跑，成绩 23:30；全力完成，天气凉爽且赛道平坦'
+const COMPLETE_TRAINING_BACKGROUND_ZH = '跑龄 2 年；近 8 周平均每周 35 公里、最高 40 公里，每周跑 4 天，最长 14 公里，每周 1 次门槛质量课，近三个月无中断或负荷突变'
+const COMPLETE_AVAILABILITY_ZH = '每周可跑 4 天、每次 60 分钟；周一休息日、周日长跑日；可用道路；每周力量训练 30 分钟；不安排双练'
+const COMPLETE_HEALTH_ZH = '目前无疼痛或伤病，过去一年无主要跑伤，无相关疾病或用药；睡眠、压力和恢复稳定'
 
 function clientWith(overrides: Partial<GarminDataClient> = {}): GarminDataClient {
   return {
@@ -557,13 +565,719 @@ describe('GarminToolService', () => {
       accountUsername: 'runner@example.com',
     })
 
-    const result = await service.getRunningAdvice({ query: 'threshold' })
+    const result = await service.getRunningAdvice({
+      mode: 'explain',
+      query: 'threshold',
+      language: 'en',
+    })
 
     expect(result).toEqual(expect.objectContaining({
+      requiresUserInput: false,
       matchedSkills: [expect.objectContaining({ id: 'threshold' })],
+      trainingPhilosophies: [expect.objectContaining({ id: 'norwegian_threshold' })],
       totalSkillsInKB: 8,
     }))
     expect(getActivities).not.toHaveBeenCalled()
+  })
+
+  it('requires callers to explicitly choose explanation or personalized mode', async () => {
+    const getActivities = jest.fn()
+    const service = new GarminToolService(clientWith({ getActivities }), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    await expect(service.getRunningAdvice({} as any)).rejects.toThrow(
+      'mode must be explain or personalized',
+    )
+    expect(getActivities).not.toHaveBeenCalled()
+  })
+
+  it('asks for every required athlete input before personalized advice', async () => {
+    const getActivities = jest.fn()
+    const service = new GarminToolService(clientWith({ getActivities }), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      language: 'zh-CN',
+      includeRecentActivities: true,
+    })
+
+    expect(result).toEqual({
+      requiresUserInput: true,
+      missingFields: [
+        'goal',
+        'currentPerformance',
+        'performanceBasis',
+        'trainingBackground',
+        'availability',
+        'healthConstraints',
+        'hasWarningSymptoms',
+        'trainingPreference',
+        'maxQualitySessionsPerWeek',
+        'intensityGuidancePreference',
+      ],
+      questions: expect.arrayContaining([
+        expect.objectContaining({ field: 'goal', question: expect.stringContaining('目标') }),
+        expect.objectContaining({
+          field: 'currentPerformance',
+          question: expect.stringContaining('近期'),
+        }),
+        expect.objectContaining({
+          field: 'trainingPreference',
+          question: expect.stringContaining('均匀稳定'),
+        }),
+        expect.objectContaining({
+          field: 'hasWarningSymptoms',
+          question: expect.stringContaining('胸部不适'),
+        }),
+        expect.objectContaining({
+          field: 'availability',
+          question: expect.stringContaining('力量训练'),
+        }),
+        expect.objectContaining({
+          field: 'intensityGuidancePreference',
+          question: expect.stringContaining('配速'),
+        }),
+      ]),
+      instruction: expect.stringContaining('不要生成'),
+    })
+    expect(getActivities).not.toHaveBeenCalled()
+  })
+
+  it('asks only for personalized fields the user has not answered', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      language: 'en',
+      goal: '10 km race on 2099-11-01, ideal target 45:00 and minimum acceptable 47:00',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      trainingPreference: 'hard_easy',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual([
+      'performanceBasis',
+      'trainingBackground',
+      'availability',
+      'healthConstraints',
+      'hasWarningSymptoms',
+      'maxQualitySessionsPerWeek',
+      'intensityGuidancePreference',
+    ])
+    expect(result.questions).toHaveLength(7)
+  })
+
+  it('does not accept an unknown load preference as completed intake', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a half marathon on 2099-11-01',
+      currentPerformance: '10 km in 48:00 on 2026-08-01; all-out effort on a flat course in cool weather',
+      performanceBasis: 'recent_race',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'all-out-every-day' as any,
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual(['trainingPreference'])
+  })
+
+  it('does not treat one-character placeholder blobs as completed intake', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'x',
+      currentPerformance: 'x',
+      performanceBasis: 'recent_race',
+      trainingBackground: 'x',
+      availability: 'x',
+      healthConstraints: 'x',
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual([
+      'goal',
+      'currentPerformance',
+      'performanceBasis',
+      'trainingBackground',
+      'availability',
+      'healthConstraints',
+    ])
+  })
+
+  it('rejects contradictory or fact-free intake placeholders', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: '10K?',
+      currentPerformance: 'none',
+      performanceBasis: 'recent_race',
+      trainingBackground: 'unknown?',
+      availability: 'TBD!',
+      healthConstraints: 'ok',
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual([
+      'goal',
+      'currentPerformance',
+      'performanceBasis',
+      'trainingBackground',
+      'availability',
+      'healthConstraints',
+    ])
+  })
+
+  it('keeps each intake group open until its required details are answered', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Finish a 10 km race in 45:00 on 2099-11-01',
+      currentPerformance: '5 km in 23:30 on 2026-08-01; full effort; weather',
+      performanceBasis: 'time_trial',
+      trainingBackground: 'Running for 2 years; average and peak vary, four days per week, longest run varies, quality work varies, stable load',
+      availability: 'Four days per week, 45 minutes each; Monday rest, Sunday long run; road available; strength possible; no doubles',
+      healthConstraints: 'No current pain; no injury last year; no relevant disease; sleep stable',
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual([
+      'goal',
+      'currentPerformance',
+      'performanceBasis',
+      'trainingBackground',
+      'availability',
+      'healthConstraints',
+    ])
+  })
+
+  it('does not accept unresolved placeholders inside otherwise detailed answers', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: '10 km race on 2099-11-01, ideal 45:00 and minimum TBD',
+      currentPerformance: '5 km in 23:30 on 2026-08-01; effort unknown and conditions unknown',
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual([
+      'goal',
+      'currentPerformance',
+      'performanceBasis',
+    ])
+  })
+
+  it('requires a concrete goal and a timed or paced performance benchmark', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: '2099-11-01',
+      currentPerformance: '5K on 2026-08-01',
+      performanceBasis: 'recent_race',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual([
+      'goal',
+      'currentPerformance',
+      'performanceBasis',
+    ])
+  })
+
+  it('rejects impossible dates while accepting an explicit absence of health constraints', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10K race on 2026-99-99',
+      currentPerformance: '5K in 23:30 on 2026-02-30',
+      performanceBasis: 'recent_race',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: 'none',
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual([
+      'goal',
+      'currentPerformance',
+      'performanceBasis',
+    ])
+  })
+
+  it('rejects a field when an invalid date is hidden beside a valid date', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10 km race on 2099-02-30; registration opens 2099-01-01',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual(['goal'])
+  })
+
+  it('rejects zero-distance goals and zero-time performance results', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Target 0:00 for a 0 km race on 2099-11-01',
+      currentPerformance: '0 km in 0:00 on 2026-08-01',
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: 'none',
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual([
+      'goal',
+      'currentPerformance',
+      'performanceBasis',
+    ])
+  })
+
+  it('rejects past goal dates, future benchmarks, and negative measurements', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: '10 km race on 2020-11-01, ideal -45:00 and minimum -47:00',
+      currentPerformance: '-5 km in -23:30 on 2099-08-01; all-out effort on a flat course in cool weather',
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: 'none',
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual([
+      'goal',
+      'currentPerformance',
+      'performanceBasis',
+    ])
+  })
+
+  it('accepts common concise equivalents for complete training constraints', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      performanceBasis: 'time_trial',
+      trainingBackground: 'Started running 2 years ago; last 8 weeks avg 30 km and max 36 km, 4x/week, longest run 12 km, one tempo session, stable load with no breaks',
+      availability: '4x/week, 45 min each; Monday off, Sunday long run; road available; 30 min strength; no doubles',
+      healthConstraints: 'No current pain; no injury in the last 12 months; no relevant condition or meds; sleep, stress, and recovery stable',
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      requiresUserInput: false,
+      mode: 'personalized',
+    }))
+  })
+
+  it('does not let values from one intake subfield satisfy another', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      performanceBasis: 'time_trial',
+      trainingBackground: 'Running history; average 30 km and peak 36 km per week, four days per week, longest run 12 km, one tempo session, stable load with no breaks',
+      availability: 'Four days per week; Monday rest, Sunday long run; road available; 30 minutes strength; no doubles',
+      healthConstraints: 'Currently taking pain medication; no injury in the past year; no relevant disease or medication; sleep, stress, and recovery stable',
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual([
+      'trainingBackground',
+      'availability',
+      'healthConstraints',
+    ])
+  })
+
+  it('rejects negative availability and a stale performance as current ability', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: '5 km in 23:30 on 2010-08-01; all-out effort on a flat course in cool weather',
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: '-4 days per week, -45 minutes each; Monday rest day and Sunday long-run day; roads available; no strength; no doubles',
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual([
+      'currentPerformance',
+      'performanceBasis',
+      'availability',
+    ])
+  })
+
+  it.each([
+    'Running for 2 years; over the last 8 weeks average -30 km and peak 36 km per week, four days per week, longest run 12 km, one threshold session, and stable load with no breaks',
+    'Running for 2 years; over the last 8 weeks average 30 km and peak -36 km per week, four days per week, longest run 12 km, one threshold session, and stable load with no breaks',
+  ])('does not borrow an adjacent positive load for a negative labeled load', async (trainingBackground) => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      performanceBasis: 'time_trial',
+      trainingBackground,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual(['trainingBackground'])
+  })
+
+  it('rejects negative strength time instead of treating it as availability', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: 'Four days per week, 45 minutes each; Monday rest, Sunday long run; road available; -30 minutes strength; no doubles',
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual(['availability'])
+  })
+
+  it.each([
+    'Strength training four days per week, 60 minutes each; Monday rest day and Sunday long-run day; roads available; no additional strength time; no doubles',
+    'Cycling four days per week, 60 minutes each; Monday rest day and Sunday long-run day; roads available; no strength; no doubles',
+    'Swimming four days per week, 60 minutes each; Monday rest day and Sunday long-run day; roads available; no strength; no doubles',
+  ])('does not mistake other training frequency and duration for running availability', async (availability) => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability,
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual(['availability'])
+  })
+
+  it('accepts equivalent complete intake phrasing without borrowing facts', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: '5 km in 23:30 on 2026-08-01; all-out effort on a flat course in cool weather; an older PB was on 2010-08-01',
+      performanceBasis: 'time_trial',
+      trainingBackground: 'Running history: 2 years; average 30 km and peak 36 km per week, four runs a week, longest run 12 km, one tempo session, stable load with no breaks',
+      availability: 'Four runs a week; Monday 45 min, Wednesday 60 min, Friday 45 min, Sunday 120 min; Tuesday rest day and Sunday long-run day; road available; 30 minutes strength; no doubles',
+      healthConstraints: 'No current injuries; no injury in the past year; no relevant disease or medication; sleep, stress, and recovery stable',
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      requiresUserInput: false,
+      mode: 'personalized',
+    }))
+  })
+
+  it('does not use an unrelated recent date to freshen an old result', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: '5 km in 23:30 on 2010-08-01, resumed easy running on 2026-08-01, all-out effort on a flat course in cool weather',
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    if (!result.requiresUserInput) throw new Error('expected an intake response')
+    expect(result.missingFields).toEqual(['currentPerformance', 'performanceBasis'])
+  })
+
+  it('accepts current pain or injury status with natural reversed word order', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: 'No pain currently; no injury in the past year; no relevant disease or medication; sleep, stress, and recovery stable',
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      requiresUserInput: false,
+      mode: 'personalized',
+    }))
+  })
+
+  it('returns compact philosophies only after personalized intake is complete', async () => {
+    const getActivities = jest.fn().mockResolvedValue([])
+    const service = new GarminToolService(clientWith({ getActivities }), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      language: 'zh-CN',
+      goal: '2099-11-01 参加 10 公里比赛，理想目标 45 分，最低可接受目标 47 分',
+      currentPerformance: COMPLETE_PERFORMANCE_ZH,
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_ZH,
+      availability: COMPLETE_AVAILABILITY_ZH,
+      healthConstraints: COMPLETE_HEALTH_ZH,
+      hasWarningSymptoms: false,
+      trainingPreference: 'hard_easy',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+      includeRecentActivities: true,
+    })
+
+    if (result.requiresUserInput || 'safetyStop' in result) {
+      throw new Error('expected personalized advice material')
+    }
+    expect(result).toEqual(expect.objectContaining({
+      requiresUserInput: false,
+      athleteContext: expect.objectContaining({
+        goal: expect.stringContaining('10 公里'),
+        currentPerformance: expect.stringContaining('23:30'),
+        trainingPreference: 'hard_easy',
+        maxQualitySessionsPerWeek: 1,
+        intensityGuidancePreference: 'mixed',
+      }),
+      trainingPhilosophies: expect.arrayContaining([
+        expect.objectContaining({ id: 'polarized' }),
+        expect.objectContaining({ id: 'daniels' }),
+      ]),
+      planningInstructions: expect.arrayContaining([
+        expect.stringContaining('当前成绩'),
+        expect.stringContaining('双阈值'),
+        expect.stringContaining('健康警示症状'),
+        expect.stringContaining('周总量或总时长范围'),
+        expect.stringContaining('热身和冷身'),
+        expect.stringContaining('疼痛、疾病、睡眠不足、异常疲劳、天气或比赛'),
+        expect.stringContaining('有限变量'),
+        expect.stringContaining('完成率、RPE、疼痛、睡眠'),
+        expect.stringContaining('比赛或计时测试'),
+        expect.stringContaining('分区体系'),
+        expect.stringContaining('不能混用'),
+      ]),
+      evidenceLegend: expect.objectContaining({
+        system_principle: expect.any(String),
+        research_evidence: expect.any(String),
+        application_inference: expect.any(String),
+      }),
+    }))
+    expect(result.trainingPhilosophies[0]).toEqual(expect.objectContaining({
+      id: 'polarized',
+    }))
+    expect(getActivities).toHaveBeenCalledWith(0, 5)
   })
 
   it('adds only recent running activities when personalized advice is requested', async () => {
@@ -587,11 +1301,46 @@ describe('GarminToolService', () => {
       accountUsername: 'runner@example.com',
     })
 
-    const result = await service.getRunningAdvice({ includeRecentActivities: true })
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Finish a half marathon on 2099-11-01',
+      currentPerformance: '10 km in 50:00 on 2026-08-01; all-out effort on a rolling course in warm weather',
+      performanceBasis: 'recent_race',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'pace',
+      includeRecentActivities: true,
+    })
 
+    if (result.requiresUserInput || 'safetyStop' in result) {
+      throw new Error('expected personalized advice material')
+    }
     expect(result.recentRunningActivities).toEqual([
       expect.objectContaining({ id: 2, type: 'trail_running' }),
     ])
+  })
+
+  it('never fetches Garmin activities in explanation mode', async () => {
+    const getActivities = jest.fn()
+    const service = new GarminToolService(clientWith({ getActivities }), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'explain',
+      query: 'polarized',
+      includeRecentActivities: true,
+    })
+
+    expect(result.requiresUserInput).toBe(false)
+    expect(getActivities).not.toHaveBeenCalled()
+    expect(result).not.toHaveProperty('recentRunningActivities')
   })
 
   it('keeps running knowledge available when optional recent activities fail', async () => {
@@ -605,12 +1354,226 @@ describe('GarminToolService', () => {
     })
 
     await expect(service.getRunningAdvice({
+      mode: 'personalized',
       query: 'threshold',
+      goal: 'Finish a half marathon on 2099-11-01',
+      currentPerformance: '10 km in 50:00 on 2026-08-01; all-out effort on a rolling course in warm weather',
+      performanceBasis: 'recent_race',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'mixed',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
       includeRecentActivities: true,
     })).resolves.toEqual(expect.objectContaining({
       matchedSkills: expect.any(Array),
       recentRunningActivities: 'Recent Garmin activities are temporarily unavailable.',
     }))
+  })
+
+  it('returns a safety stop without workout material for warning symptoms', async () => {
+    const getActivities = jest.fn()
+    const service = new GarminToolService(clientWith({ getActivities }), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      language: 'zh-CN',
+      goal: '2099-11-01 参加 10 公里比赛',
+      currentPerformance: '2026-08-01 参加 5 公里计时跑，成绩 23:30',
+      performanceBasis: 'time_trial',
+      trainingBackground: '近 8 周每周 35 公里，每周跑 4 天',
+      availability: '每周可跑 4 天，周日长跑',
+      healthConstraints: '跑步时出现胸部不适和眩晕',
+      hasWarningSymptoms: true,
+      trainingPreference: 'hard_easy',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+      includeRecentActivities: true,
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      requiresUserInput: false,
+      mode: 'personalized',
+      safetyStop: true,
+      instruction: expect.stringContaining('医疗专业人员'),
+    }))
+    expect(result).not.toHaveProperty('matchedSkills')
+    expect(result).not.toHaveProperty('trainingPhilosophies')
+    expect(getActivities).not.toHaveBeenCalled()
+  })
+
+  it('requires clarification when warning-symptom text contradicts a false flag', async () => {
+    const getActivities = jest.fn()
+    const service = new GarminToolService(clientWith({ getActivities }), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      language: 'en',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: 'I currently have chest discomfort while running',
+      hasWarningSymptoms: false,
+      trainingPreference: 'hard_easy',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'mixed',
+      includeRecentActivities: true,
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      requiresUserInput: true,
+      missingFields: ['healthConstraints', 'hasWarningSymptoms'],
+      questions: expect.arrayContaining([
+        expect.objectContaining({ field: 'healthConstraints' }),
+        expect.objectContaining({
+          field: 'hasWarningSymptoms',
+          question: expect.stringContaining('conflict'),
+        }),
+      ]),
+    }))
+    expect(result).not.toHaveProperty('matchedSkills')
+    expect(getActivities).not.toHaveBeenCalled()
+  })
+
+  it('asks to disambiguate a negated warning-symptom list instead of diagnosing it', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      language: 'en',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: 'No current chest discomfort, unusual breathlessness, fainting, dizziness, or palpitations; no injury in the past year; no relevant disease or medication; sleep, stress, and recovery are stable',
+      hasWarningSymptoms: false,
+      trainingPreference: 'steady',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      requiresUserInput: true,
+      missingFields: ['healthConstraints', 'hasWarningSymptoms'],
+    }))
+    expect(result).not.toHaveProperty('safetyStop')
+  })
+
+  it('does not allow cross-sentence warning text to reach planning material', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      language: 'en',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints: 'No chest pain. Currently dizzy.',
+      hasWarningSymptoms: false,
+      trainingPreference: 'steady',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      requiresUserInput: true,
+      missingFields: ['healthConstraints', 'hasWarningSymptoms'],
+    }))
+    expect(result).not.toHaveProperty('matchedSkills')
+  })
+
+  it.each([
+    'I feel lightheaded during easy running',
+    'I passed out after the last session',
+    'I lost consciousness after an easy run',
+    'I had a loss of consciousness after an easy run',
+    'My heart races during easy runs',
+    'I feel pressure in my chest during easy runs',
+    '轻松跑时曾经晕倒',
+    '跑步时曾经昏倒',
+    '跑步时曾经昏厥',
+    '跑步时曾经失去意识',
+    '轻松跑时胸口有压迫感',
+    '轻松跑时胸口疼',
+    '跑步时会心慌',
+  ])('recognizes common warning-symptom wording: %s', async (healthConstraints) => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: COMPLETE_PERFORMANCE_EN,
+      performanceBasis: 'time_trial',
+      trainingBackground: COMPLETE_TRAINING_BACKGROUND_EN,
+      availability: COMPLETE_AVAILABILITY_EN,
+      healthConstraints,
+      hasWarningSymptoms: false,
+      trainingPreference: 'steady',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      requiresUserInput: true,
+      missingFields: ['healthConstraints', 'hasWarningSymptoms'],
+    }))
+    expect(result).not.toHaveProperty('matchedSkills')
+  })
+
+  it('does not invent exact quality paces without a recent benchmark', async () => {
+    const service = new GarminToolService(clientWith(), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+    })
+
+    const result = await service.getRunningAdvice({
+      mode: 'personalized',
+      language: 'en',
+      goal: 'Complete a 10 km race on 2099-11-01',
+      currentPerformance: 'No trustworthy recent benchmark is available',
+      performanceBasis: 'no_recent_benchmark',
+      trainingBackground: 'Running for 1 year; over the last 8 weeks average 15 km and peak 18 km per week, three days per week, longest run 7 km, no quality sessions, after one recent break without an abrupt load change',
+      availability: 'Three days per week, 45 minutes each; Monday rest day and Sunday long-run day; roads available; 20 minutes of strength training; double days unavailable',
+      healthConstraints: COMPLETE_HEALTH_EN,
+      hasWarningSymptoms: false,
+      trainingPreference: 'steady',
+      maxQualitySessionsPerWeek: 1,
+      intensityGuidancePreference: 'rpe',
+    })
+
+    if (result.requiresUserInput || 'safetyStop' in result) {
+      throw new Error('expected personalized advice material')
+    }
+    expect(result.planningInstructions?.[0]).toContain('no trustworthy recent benchmark')
+    expect(result.planningInstructions?.[0]).toContain('do not prescribe exact')
   })
 
   it('returns an allowlisted profile summary without location or privacy settings', async () => {

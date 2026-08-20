@@ -90,9 +90,47 @@ describe('Tools Utils', () => {
       },
     })
 
+    const runningAdvice = definitions.find(
+      definition => definition.name === 'get_running_skill_advice',
+    )!
+    expect(runningAdvice.description).toContain('personalized')
+    expect(runningAdvice.description).toContain('Hansons')
+    expect(runningAdvice.description).toContain('Jack Daniels')
+    expect(runningAdvice.description).toContain('Norwegian')
+    expect(runningAdvice.description).toContain('polarized')
+    expect(runningAdvice.parameters).toMatchObject({
+      type: 'object',
+      required: ['mode'],
+      additionalProperties: false,
+      properties: {
+        mode: { enum: ['explain', 'personalized'] },
+        language: { enum: ['zh-CN', 'en'] },
+        goal: { type: 'string', minLength: 4, maxLength: 500 },
+        currentPerformance: { type: 'string', minLength: 4, maxLength: 500 },
+        performanceBasis: {
+          enum: ['recent_race', 'time_trial', 'no_recent_benchmark'],
+        },
+        trainingBackground: { type: 'string', minLength: 8, maxLength: 1000 },
+        availability: { type: 'string', minLength: 4, maxLength: 750 },
+        healthConstraints: { type: 'string', minLength: 2, maxLength: 750 },
+        hasWarningSymptoms: { type: 'boolean' },
+        trainingPreference: { enum: ['steady', 'hard_easy', 'mixed'] },
+        maxQualitySessionsPerWeek: {
+          type: 'integer',
+          minimum: 0,
+          maximum: 7,
+        },
+        intensityGuidancePreference: {
+          enum: ['pace', 'heart_rate', 'rpe', 'mixed'],
+        },
+      },
+    })
+
     const createWorkout = definitions.find(
       definition => definition.name === 'create_garmin_workout',
     )!
+    expect(createWorkout.description).toContain('does not generate a training plan')
+    expect(createWorkout.description).toContain('mode="personalized"')
     const stepVariants = createWorkout.parameters.properties.steps.items.oneOf
     expect(stepVariants).toHaveLength(2)
     expect(stepVariants[0]).toMatchObject({
