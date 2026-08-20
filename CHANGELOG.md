@@ -4,8 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+> These changes are not included in the published npm `0.1.4` package. The
+> package version remains unchanged and this checkout is not ready for a stable
+> release until the private MFA flow is verified with real accounts.
+
 ### Added
-- Shared tool-service behavior for the dsh plugin and standalone MCP server, so both interfaces expose the same 9 tools and argument semantics.
+- Shared tool-service behavior for the dsh plugin and standalone MCP server, so both interfaces expose the same 10 tools and argument semantics.
+- Experimental local `auth:setup` flow for Garmin two-step verification: password and MFA code are entered with echo disabled in a trusted local TTY, never through CLI flags, environment variables, MCP tools, or model input; only a private OAuth session file is persisted (`0600` on POSIX; Windows ACL validation remains a limitation).
+- `GARMIN_SESSION_TOKEN_FILE` runtime authentication, allowing dsh/MCP to restart without storing the Garmin password.
+- Account-bound session files: new auth CLI output stores a one-way SHA-256 digest of the trimmed, NFKC-normalized, lower-cased username plus region and rejects mismatched runtime configuration before loading OAuth tokens. Legacy files with only `oauth1` and `oauth2` remain readable for compatibility.
+- Process-isolated multi-account operation: generate one session file per account and run a separate dsh profile or MCP server/process for each account.
+- `download_garmin_activity_fit`, which requires an explicitly chosen `GARMIN_FIT_DOWNLOAD_DIR` parent (no default), downloads Garmin's original activity ZIP, and safely extracts exactly one bounded/validated FIT as `<base>/GARMIN_FIT_<user-email>/<activityId>.fit`. The email component is safely normalized: normal emails remain recognizable while unsafe filename characters are replaced. Multiple account processes may share the parent. The tool refuses overwrite, returns only activity ID/file name/size/hash (never the parent, account directory, email, full path, or binary data), and fails before writing if the parent is unset.
 - Explicit workout preview/confirmation flow: writes require `confirmed: true` plus a matching, one-time `confirmationId` issued for the unchanged preview.
 - Read-only integration-test authentication via either password or `GARMIN_SESSION_TOKEN`; failures are accumulated and produce a non-zero exit status.
 - Conservative coverage checks, a package dry-run smoke test, and a finite CI timeout.
@@ -18,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - Corrected workout-listing terminology: `get_garmin_workouts` returns workout-library templates, not calendar scheduling.
 - Added verified Codex and Claude Code setup, connection checks, environment-based credential forwarding, and natural-language usage examples.
 - Documented that npm `0.1.4` predates the MCP entry point and uses a local checkout until an MCP-capable version is published.
+- Documented session-file/MFA setup for Codex, Claude Code, WorkBuddy, and ZCode, including one isolated server per Garmin account.
 - Made the standalone workout maintenance script dry-run by default and skip already-existing workout names.
 
 ### Fixed
@@ -29,12 +39,20 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 - Removed AI-callable session-token export and documented that session tokens must be handled as secrets through trusted local workflows.
+- Kept password, MFA codes, OAuth session contents, ZIP/FIT bytes, email-derived directories, and complete local paths out of model context; the FIT tool accepts no caller-controlled output path.
+- Added strict session-file parsing plus atomic owner-only writes, and bounded/non-overwriting FIT extraction with archive/header validation.
+- Required an existing custom `auth:setup --output` parent to be owner-only on POSIX (normally `0700`); missing parents are created owner-only and unsafe parents are rejected.
 - Redacted sensitive authentication details from logged errors.
 - Replaced the upstream SDK's global refresh interceptor with per-client, quiet refresh handling; non-idempotent workout writes are never replayed automatically.
 - Isolated cached/in-flight data across session-token to password identity changes and filtered credential/account/social fields from expanded activity output.
 - Added one-time, expiring, definition-bound workout confirmation IDs and marked MCP write/read semantics with tool annotations.
 - Prevented the upstream Garmin SDK from logging raw HTTP response bodies.
 - Made integration-test output hide account identifiers and health/activity details by default; detailed output now requires `GARMIN_INTEGRATION_VERBOSE=true`.
+
+### Known limitations
+- The MFA implementation uses Garmin's private SSO flow and has not yet completed an end-to-end test with a real MFA-enabled global or China account.
+- Multiple accounts are isolated by separate processes; a single-process account selector and multi-tenant authorization/ACL are not implemented.
+- Garmin's original activity archive is not guaranteed to contain a FIT file; FIT download fails safely when there is no single valid FIT entry.
 
 ## [0.1.4] - 2026-08-19
 
