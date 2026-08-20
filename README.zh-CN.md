@@ -237,7 +237,7 @@ npm run test:integration
 
 ## 在其他 AI 编程助手中使用（MCP 协议）
 
-本插件同时提供了一个独立的 **MCP (Model Context Protocol) 服务器**，让你可以在 Claude Desktop、Codex CLI、Cursor、Windsurf 等任何支持 MCP 的客户端中使用相同的 Garmin 工具 — **无需安装 DeepSeek Harness**。
+本插件同时提供了一个独立的 **MCP (Model Context Protocol) 服务器**，让你可以在 OpenAI Codex、Claude Code、Claude Desktop、Cursor、Windsurf 等任何支持 MCP 的客户端中使用相同的 Garmin 工具 — **无需安装 DeepSeek Harness**。
 
 > **当前可用性：** npm `0.1.4` 早于 MCP 入口加入。新的 MCP 版本发布前，
 > 请使用本地源码；下文 registry `npx` 命令明确仅供未来发布后使用。
@@ -253,6 +253,86 @@ npm run build
 
 请把示例中的 `/absolute/path/to/garmin-connect-plugin-for-dsh` 替换为本地源码目录的
 真实绝对路径。
+
+下面的命令行示例需要从启动进程的环境中读取 Garmin 凭据。不要把真实密码直接写入
+会被 shell history 保存的命令。bash/zsh 可以无回显读取；也可以改用日常使用的
+系统或 shell 密钥管理器注入：
+
+```bash
+export GARMIN_USERNAME='你的佳明邮箱'
+export GARMIN_REGION='cn'
+printf 'Garmin password: ' >&2
+IFS= read -r -s GARMIN_PASSWORD
+printf '\n' >&2
+export GARMIN_PASSWORD
+```
+
+### OpenAI Codex（桌面端、CLI 与 IDE 扩展）
+
+同一主机上的 Codex 客户端共用 `~/.codex/config.toml`。推荐只在配置中声明需要转发的
+环境变量名，不把凭据值复制到 TOML。确保 Codex 进程能够读取上面的变量后，把以下
+内容加入 `~/.codex/config.toml`：
+
+```toml
+[mcp_servers.garmin-connect]
+command = "node"
+args = ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"]
+env_vars = ["GARMIN_USERNAME", "GARMIN_PASSWORD", "GARMIN_REGION"]
+
+# 只读工具可正常运行；非只读的训练创建工具会先由 Codex 请求批准。
+default_tools_approval_mode = "writes"
+```
+
+Codex 进程必须继承上面导出的变量。如果桌面端不是从该终端启动，请在
+**Settings → MCP servers** 中添加服务器并提供环境变量，或通过你日常使用的密钥注入
+环境启动它。设置界面中填写的值属于本地凭据，请保护生成的配置文件。
+
+如果只希望当前可信项目使用，可把同一配置写入项目内的 `.codex/config.toml`。
+修改后重启 Codex 客户端，并检查已保存的配置：
+
+```bash
+codex mcp list
+codex mcp get garmin-connect
+```
+
+在 Codex CLI 内输入 `/mcp`，确认服务器已经连接并查看工具。设置界面及
+`codex mcp add` 的更多用法见
+[Codex 官方 MCP 文档](https://developers.openai.com/codex/mcp/)。
+
+### Claude Code
+
+Garmin 通常属于个人服务，因此推荐使用 user scope。下面的 bash/zsh 示例通过
+环境变量展开，让原始凭据值不写入 `~/.claude.json`：
+
+```bash
+claude mcp add-json --scope user garmin-connect \
+  '{"type":"stdio","command":"node","args":["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],"env":{"GARMIN_USERNAME":"${GARMIN_USERNAME}","GARMIN_PASSWORD":"${GARMIN_PASSWORD}","GARMIN_REGION":"${GARMIN_REGION:-global}"}}'
+```
+
+如果只希望当前项目使用，把 `--scope user` 改为 `--scope local`。以后每次启动
+Claude Code 时都要保证这些环境变量可用——重复上面的隐藏输入，或使用密钥管理器——
+然后检查连接：
+
+```bash
+claude mcp get garmin-connect
+claude mcp list
+```
+
+在 Claude Code 内输入 `/mcp` 可以查看连接状态和工具。作用域与 `.mcp.json` 的更多
+说明见 [Claude Code 官方 MCP 文档](https://code.claude.com/docs/zh-CN/mcp)。
+不要把个人 Garmin 凭据提交到项目级配置。
+
+### 在 Codex 或 Claude Code 中实际使用
+
+当 `garmin-connect` 显示已连接后，直接用自然语言提问即可，客户端会自动选择 MCP
+工具。如果工具选择不明确，可以明确说“使用 garmin-connect MCP 服务器”。例如：
+
+- “使用 garmin-connect 查看我最近五次跑步。”
+- “对比我最近七天的睡眠和静息心率。”
+- “预览一个门槛跑训练，把步骤展示给我；在我确认前不要创建。”
+
+创建训练仍然执行强制的两次调用确认流程：第一次只返回预览；只有用户批准并带上返回的
+一次性 `confirmationId` 后，第二次调用才会创建。
 
 ### Claude Desktop
 
@@ -287,33 +367,9 @@ npm run build
 `~/.codeium/windsurf/mcp_config.json`，加入上方相同的
 `mcpServers.garmin-connect` 对象。
 
-### OpenAI Codex CLI
-
-使用 Codex CLI 注册服务器：
-
-```bash
-codex mcp add garmin-connect \
-  --env GARMIN_USERNAME=你的佳明邮箱 \
-  --env GARMIN_PASSWORD=你的密码 \
-  --env GARMIN_REGION=cn \
-  -- node /absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js
-```
-
-等价的 `~/.codex/config.toml` 配置如下：
-
-```toml
-[mcp_servers.garmin-connect]
-command = "node"
-args = ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"]
-
-[mcp_servers.garmin-connect.env]
-GARMIN_USERNAME = "你的佳明邮箱"
-GARMIN_PASSWORD = "你的密码"
-GARMIN_REGION = "cn"
-```
-
-以上示例会把凭据保存在 MCP 客户端配置中。请限制配置文件权限，或改用客户端支持的
-密钥注入机制。
+Claude Desktop、Cursor 与 Windsurf 的 JSON 示例会把凭据保存在客户端配置中。
+请限制配置文件权限、不要提交它们，或改用客户端支持的密钥注入机制。上面的 Codex
+与 Claude Code 示例只转发环境变量，无需把原始凭据值写入 MCP 配置。
 
 等包含 MCP 可执行入口的版本发布到 npm 后，可以把本地的 `node …/lib/mcp.js`
 替换为：
@@ -368,8 +424,8 @@ MCP 服务器通过标准协议暴露与 dsh 插件**相同的 9 个工具及参
       ┌──────────┴──────────┐
       ▼                     ▼
 connect.garmin.com    MCP Server (stdio)
-connect.garmin.cn     → Claude / Codex /
-                        Cursor / Windsurf
+connect.garmin.cn     → Claude Desktop / Claude Code /
+                        Codex / Cursor / Windsurf
 ```
 
 ---
@@ -400,7 +456,7 @@ src/
 ├── config.ts         # 配置 Schema（schemastery），支持环境变量自动解析
 ├── client.ts         # Garmin API 封装，含缓存层
 ├── tool-service.ts   # dsh 与 MCP 共用的工具行为
-├── mcp.ts            # 独立 MCP 适配器（用于 Claude/Codex/Cursor）
+├── mcp.ts            # 独立 MCP 适配器（用于 Codex/Claude Code 等客户端）
 ├── knowledge/
 │   ├── running-skills.ts  # 8 大跑步核心技能知识库
 │   └── workout-schema.ts  # 训练定义 → Garmin JSON 构建器
@@ -444,7 +500,7 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugi
 - [x] **身体成分** — 体重、BMI、体脂率
 - [x] **训练库** — 查询可复用的 Garmin 训练模板
 - [x] **创建训练** — 安全预览并创建训练库条目
-- [x] **MCP 服务器** — 支持 Claude Desktop、Codex CLI、Cursor、Windsurf
+- [x] **MCP 服务器** — 支持 Codex、Claude Code/Desktop、Cursor、Windsurf
 - [x] **跑步教练** — 8 大核心跑步训练技能知识库
 - [ ] **训练状态** — VO2 Max、训练负荷、恢复时间
 - [ ] **多账号同步** — 在中国区 ↔ 国际版账号之间同步运动数据

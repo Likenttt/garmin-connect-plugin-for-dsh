@@ -239,7 +239,7 @@ or provide a token only through an existing trusted local workflow.
 
 ## Use with Other AI Coding Agents (MCP)
 
-This plugin also ships as a standalone **MCP (Model Context Protocol) server**, so you can use the same Garmin tools with Claude Desktop, Codex CLI, Cursor, Windsurf, and any other MCP-compatible client — no DeepSeek Harness required.
+This plugin also ships as a standalone **MCP (Model Context Protocol) server**, so you can use the same Garmin tools with OpenAI Codex, Claude Code, Claude Desktop, Cursor, Windsurf, and any other MCP-compatible client — no DeepSeek Harness required.
 
 > **Current availability:** npm `0.1.4` predates the MCP entry point. Until a
 > newer MCP-capable version is published, use a local checkout; the registry
@@ -256,6 +256,96 @@ npm run build
 
 Replace `/absolute/path/to/garmin-connect-plugin-for-dsh` in the examples with
 the checkout's actual absolute path.
+
+The command-line examples below expect Garmin credentials in the launching
+shell. Do not type a real password directly into a command that will be saved
+in shell history. For bash/zsh, read it without echoing, or inject it with your
+usual OS/shell secret manager:
+
+```bash
+export GARMIN_USERNAME='your@email.com'
+export GARMIN_REGION='global'
+printf 'Garmin password: ' >&2
+IFS= read -r -s GARMIN_PASSWORD
+printf '\n' >&2
+export GARMIN_PASSWORD
+```
+
+### OpenAI Codex (app, CLI, and IDE extension)
+
+Codex clients on the same host share `~/.codex/config.toml`. The recommended
+setup forwards credential variable names from the environment instead of
+copying their values into TOML. With the variables above available to the Codex
+process, add this entry to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.garmin-connect]
+command = "node"
+args = ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"]
+env_vars = ["GARMIN_USERNAME", "GARMIN_PASSWORD", "GARMIN_REGION"]
+
+# Read tools can run normally; Codex asks before the non-read-only workout tool.
+default_tools_approval_mode = "writes"
+```
+
+The Codex process must inherit the exported variables. If the desktop app was
+launched outside that shell, add the server through **Settings → MCP servers**
+and provide its environment there, or launch it through your usual secret-aware
+environment. Values entered in Settings are local credentials; protect the
+resulting configuration file.
+
+For a trusted-project-only setup, put the same table in `.codex/config.toml`
+inside that project. Restart the Codex client after editing the file, then
+inspect the saved configuration:
+
+```bash
+codex mcp list
+codex mcp get garmin-connect
+```
+
+Inside Codex CLI, use `/mcp` to verify that the server is active and inspect
+its tools. The
+[official Codex MCP documentation](https://developers.openai.com/codex/mcp/)
+also covers the Settings UI and `codex mcp add` command.
+
+### Claude Code
+
+Garmin is normally a personal server, so user scope is a good default. The
+following bash/zsh example keeps credential values out of `~/.claude.json`:
+
+```bash
+claude mcp add-json --scope user garmin-connect \
+  '{"type":"stdio","command":"node","args":["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],"env":{"GARMIN_USERNAME":"${GARMIN_USERNAME}","GARMIN_PASSWORD":"${GARMIN_PASSWORD}","GARMIN_REGION":"${GARMIN_REGION:-global}"}}'
+```
+
+Use `--scope local` instead if the server should be available only in the
+current project. Keep the environment variables available whenever you launch
+Claude Code—repeat the hidden input above or use a secret manager—then verify
+the connection:
+
+```bash
+claude mcp get garmin-connect
+claude mcp list
+```
+
+Inside Claude Code, `/mcp` shows connection status and the exposed tools. See
+the [official Claude Code MCP documentation](https://code.claude.com/docs/en/mcp)
+for scope and `.mcp.json` details. Do not commit personal Garmin credentials in
+a project-scoped configuration.
+
+### Using the tools in Codex or Claude Code
+
+Once `garmin-connect` reports as connected, ask naturally; the client selects
+the MCP tool. If tool selection is ambiguous, explicitly say “use the
+garmin-connect MCP server.” For example:
+
+- “Use garmin-connect to show my last five runs.”
+- “Compare my sleep and resting heart rate over the last seven days.”
+- “Preview a threshold workout, show me the steps, and do not create it until I approve.”
+
+Workout creation still follows the enforced two-call confirmation flow: the
+first call only previews, and creation requires your approval plus the returned
+one-time `confirmationId`.
 
 ### Claude Desktop
 
@@ -290,33 +380,11 @@ Open **Windsurf Settings → Cascade → MCP Servers**, or edit
 `~/.codeium/windsurf/mcp_config.json`, and add the same
 `mcpServers.garmin-connect` object shown above.
 
-### OpenAI Codex CLI
-
-Register the server with the Codex CLI:
-
-```bash
-codex mcp add garmin-connect \
-  --env GARMIN_USERNAME=your@email.com \
-  --env GARMIN_PASSWORD=yourpassword \
-  --env GARMIN_REGION=global \
-  -- node /absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js
-```
-
-The equivalent entry in `~/.codex/config.toml` is:
-
-```toml
-[mcp_servers.garmin-connect]
-command = "node"
-args = ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"]
-
-[mcp_servers.garmin-connect.env]
-GARMIN_USERNAME = "your@email.com"
-GARMIN_PASSWORD = "yourpassword"
-GARMIN_REGION = "global"
-```
-
-These examples store a credential in the MCP client configuration. Restrict the
-file's permissions, or use your client's supported secret-injection mechanism.
+The Claude Desktop, Cursor, and Windsurf JSON examples store credentials in
+their client configuration. Restrict those files' permissions, never commit
+them, or use a client-supported secret-injection mechanism. The Codex and
+Claude Code examples above forward environment variables so raw credential
+values do not need to be written into their MCP configuration.
 
 After a version containing the MCP executable is published to npm, the local
 `node …/lib/mcp.js` command can be replaced with:
@@ -372,8 +440,8 @@ intentionally unavailable through either AI interface.
       ┌──────────┴──────────┐
       ▼                     ▼
 connect.garmin.com    MCP Server (stdio)
-connect.garmin.cn     → Claude / Codex /
-                        Cursor / Windsurf
+connect.garmin.cn     → Claude Desktop / Claude Code /
+                        Codex / Cursor / Windsurf
 ```
 
 ---
@@ -404,7 +472,7 @@ src/
 ├── config.ts         # Configuration schema with env-var resolution
 ├── client.ts         # Garmin API wrapper with caching
 ├── tool-service.ts   # Shared tool behavior for dsh and MCP
-├── mcp.ts            # Standalone MCP adapter for Claude/Codex/Cursor
+├── mcp.ts            # Standalone MCP adapter for Codex/Claude Code/other clients
 ├── knowledge/
 │   ├── running-skills.ts  # 8-skill running coaching knowledge base
 │   └── workout-schema.ts  # Workout definition → Garmin JSON builder
@@ -448,7 +516,7 @@ Distribution notes:
 - [x] **Body Composition** — weight, BMI, body fat %
 - [x] **Workout Library** — list reusable Garmin workout templates
 - [x] **Workout Creation** — safely preview and create structured workout-library entries
-- [x] **MCP Server** — use with Claude Desktop, Codex CLI, Cursor, Windsurf
+- [x] **MCP Server** — use with Codex, Claude Code/Desktop, Cursor, Windsurf
 - [x] **Running Coach** — 8-skill training knowledge base
 - [ ] **Training Status** — VO2 Max, training load, recovery time
 - [ ] **Multi-account Sync** — sync activities between CN ↔ Global accounts

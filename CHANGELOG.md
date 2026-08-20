@@ -16,7 +16,7 @@ All notable changes to this project will be documented in this file.
 - Changed `prepare` to use the project's local TypeScript compiler instead of downloading one through `npx`.
 - Package contents now include `.env.example`.
 - Corrected workout-listing terminology: `get_garmin_workouts` returns workout-library templates, not calendar scheduling.
-- Updated MCP setup examples, including the Codex CLI command and `~/.codex/config.toml` format.
+- Added verified Codex and Claude Code setup, connection checks, environment-based credential forwarding, and natural-language usage examples.
 - Documented that npm `0.1.4` predates the MCP entry point and uses a local checkout until an MCP-capable version is published.
 - Made the standalone workout maintenance script dry-run by default and skip already-existing workout names.
 
