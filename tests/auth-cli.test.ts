@@ -1,9 +1,13 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { BrowserCanaryControlError } from '../src/browser-auth-canary'
 import {
+  authCliExitCode,
   defaultAccountSessionPath,
+  runAuthCanary,
   runAuthSetup,
+  type AuthCanaryCliDependencies,
   type AuthCliDependencies,
   type AuthCliIO,
 } from '../src/auth-cli'
@@ -37,6 +41,19 @@ describe('Garmin interactive auth CLI', () => {
     expect(manifest.bin?.['garmin-connect-auth']).toBe('lib/auth-cli.js')
   })
 
+  it('keeps the browser driver optional for users who only run the plugin', () => {
+    const manifest = JSON.parse(readFileSync(
+      path.resolve(__dirname, '../package.json'),
+      'utf8',
+    )) as {
+      dependencies?: Record<string, string>
+      optionalDependencies?: Record<string, string>
+    }
+
+    expect(manifest.optionalDependencies?.['playwright-core']).toBe('1.62.1')
+    expect(manifest.dependencies?.['playwright-core']).toBeUndefined()
+  })
+
   it('shows command help without starting an interactive login', () => {
     const entrypoint = path.resolve(__dirname, '../src/auth-cli.ts')
     const result = spawnSync(
@@ -47,6 +64,7 @@ describe('Garmin interactive auth CLI', () => {
 
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('garmin-connect-auth login [options]')
+    expect(result.stdout).toContain('garmin-connect-auth canary --region <global|cn>')
     expect(result.stdout).toContain('--account <alias>')
     expect(result.stdout).toContain('--region <global|cn>')
     expect(result.stdout).toContain('--output <path>')
@@ -99,6 +117,31 @@ describe('Garmin interactive auth CLI', () => {
     expect(result.status).toBe(0)
     expect(result.stdout).toBe(`${manifest.version}\n`)
     expect(result.stderr).toBe('')
+  })
+
+  it('shows canary help and version without loading a browser', () => {
+    const entrypoint = path.resolve(__dirname, '../src/auth-cli.ts')
+    const manifest = JSON.parse(readFileSync(
+      path.resolve(__dirname, '../package.json'),
+      'utf8',
+    )) as { version: string }
+    const help = spawnSync(
+      process.execPath,
+      ['--import', require.resolve('tsx'), entrypoint, 'canary', '--help'],
+      { encoding: 'utf8', timeout: 5_000 },
+    )
+    const version = spawnSync(
+      process.execPath,
+      ['--import', require.resolve('tsx'), entrypoint, 'canary', '--version'],
+      { encoding: 'utf8', timeout: 5_000 },
+    )
+
+    expect(help.status).toBe(0)
+    expect(help.stdout).toContain('garmin-connect-auth canary --region <global|cn>')
+    expect(help.stderr).toBe('')
+    expect(version.status).toBe(0)
+    expect(version.stdout).toBe(`${manifest.version}\n`)
+    expect(version.stderr).toBe('')
   })
 
   it('prompts locally for password and MFA, then persists only the session tokens', async () => {
@@ -211,5 +254,81 @@ describe('Garmin interactive auth CLI', () => {
     expect(defaultAccountSessionPath('work', {
       XDG_CONFIG_HOME: '/private/config',
     })).toBe('/private/config/dsh-plugin-garmin-connect/accounts/work.session.json')
+  })
+
+  it('runs the browser canary without prompting or persisting a session', async () => {
+    const prompt = jest.fn()
+    const write = jest.fn()
+    const io: AuthCliIO = { prompt, write }
+    const canary = jest.fn(async (options: any) => {
+      options.onStage('browser_opened')
+      options.onStage('ticket=ST-MUST_NOT_BE_RENDERED')
+      options.onStage('ticket_captured')
+      return {
+        ok: true as const,
+        region: 'cn' as const,
+        persisted: false as const,
+        access_token: 'MUST_NOT_BE_RENDERED',
+        email: 'private@example.test',
+      }
+    })
+    const dependencies: AuthCanaryCliDependencies = { canary }
+
+    await expect(runAuthCanary({
+      argv: ['canary', '--region', 'cn'],
+      io,
+      dependencies,
+    })).resolves.toEqual({ ok: true, region: 'cn', persisted: false })
+
+    expect(canary).toHaveBeenCalledWith({
+      region: 'cn',
+      signal: undefined,
+      onStage: expect.any(Function),
+    })
+    expect(prompt).not.toHaveBeenCalled()
+    const output = write.mock.calls.flat().join('')
+    expect(output).toContain('canary_status=passed')
+    expect(output).toContain('region=cn')
+    expect(output).toContain('session_persisted=no')
+    expect(output).toContain('credentials_collected_by_cli=no')
+    expect(output).toContain('canary_stage=browser_opened')
+    expect(output).toContain('canary_stage=ticket_captured')
+    expect(output).not.toMatch(/MUST_NOT|private@example|access_token/)
+    expect(output).not.toContain('canary_stage=ticket=')
+  })
+
+  it('requires an explicit canary region and rejects login-only options', async () => {
+    const io: AuthCliIO = { prompt: jest.fn(), write: jest.fn() }
+    const canary = jest.fn()
+    const dependencies: AuthCanaryCliDependencies = { canary }
+
+    await expect(runAuthCanary({
+      argv: ['canary'],
+      io,
+      dependencies,
+    })).rejects.toThrow('Canary region is required')
+    await expect(runAuthCanary({
+      argv: ['canary', '--region', 'cn', '--account', 'personal'],
+      io,
+      dependencies,
+    })).rejects.toThrow('Unknown canary option')
+    await expect(runAuthCanary({
+      argv: ['canary', '--region', 'cn', '--mfa-code=123456'],
+      io,
+      dependencies,
+    })).rejects.toThrow('Passwords and MFA codes must be entered interactively')
+
+    expect(canary).not.toHaveBeenCalled()
+  })
+
+  it('preserves signal-specific exit codes after browser cleanup', () => {
+    const cancelled = new BrowserCanaryControlError('CANCELLED')
+    const timedOut = new BrowserCanaryControlError('TIMED_OUT')
+
+    expect(authCliExitCode(cancelled, 'SIGINT')).toBe(130)
+    expect(authCliExitCode(cancelled, 'SIGTERM')).toBe(143)
+    expect(authCliExitCode(cancelled, 'SIGHUP')).toBe(129)
+    expect(authCliExitCode(timedOut)).toBe(1)
+    expect(authCliExitCode(new Error('unexpected'))).toBe(1)
   })
 })

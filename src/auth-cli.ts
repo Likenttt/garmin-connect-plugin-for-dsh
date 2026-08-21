@@ -9,6 +9,17 @@ import {
   type GarminAuthOptions,
   type GarminAuthResult,
 } from './auth'
+import {
+  BrowserCanaryControlError,
+  isBrowserDiAuthCanaryStage,
+  runBrowserDiAuthCanary,
+  type BrowserDiAuthCanaryOptions,
+  type BrowserDiAuthCanaryResult,
+} from './browser-auth-canary'
+import {
+  createAxiosCanaryHttpAdapter,
+  createPlaywrightBrowserAdapter,
+} from './browser-auth-canary-runtime'
 import type { GarminRegion } from './config'
 import {
   bindSessionTokensToAccount,
@@ -41,25 +52,52 @@ export interface AuthSetupResult {
   usedMfa: boolean
 }
 
+export interface AuthCanaryCliDependencies {
+  canary(options: BrowserDiAuthCanaryOptions): Promise<BrowserDiAuthCanaryResult>
+}
+
+export interface AuthCanaryInput {
+  argv: string[]
+  io: AuthCliIO
+  signal?: AbortSignal
+  dependencies?: AuthCanaryCliDependencies
+}
+
 const defaultDependencies: AuthCliDependencies = {
   authenticate: authenticateGarminSession,
   writeSession: writeSessionTokenFile,
+}
+
+const defaultCanaryDependencies: AuthCanaryCliDependencies = {
+  canary: options => runBrowserDiAuthCanary(options, {
+    browser: createPlaywrightBrowserAdapter(),
+    http: createAxiosCanaryHttpAdapter(),
+  }),
 }
 
 const AUTH_CLI_HELP = `Garmin Connect authentication
 
 Usage:
   garmin-connect-auth login [options]
+  garmin-connect-auth canary --region <global|cn>
 
-Options:
+Login options:
   --account <alias>       Account alias (default: default)
   --region <global|cn>    Garmin account region (default: global)
   --output <path>         OAuth session file path
+
+Canary options:
+  --region <global|cn>    Required; never inferred from environment
+
+General options:
   -h, --help              Show this help
   -V, --version           Show the installed version
 
 Passwords and MFA codes are requested interactively with terminal echo disabled.
 Never pass either secret as a command-line option, environment variable, or model input.
+
+The experimental canary opens an isolated system Chrome window. Enter credentials
+only on Garmin's page. It validates browser + DI authentication but saves no session.
 `
 
 const AUTH_CLI_VERSION = (require('../package.json') as { version: string }).version
@@ -131,6 +169,40 @@ export async function runAuthSetup(input: AuthSetupInput): Promise<AuthSetupResu
   }
 }
 
+/** Run the non-persisting browser/DI probe without reading CLI credentials. */
+export async function runAuthCanary(
+  input: AuthCanaryInput,
+): Promise<BrowserDiAuthCanaryResult> {
+  rejectSensitiveArgs(input.argv)
+  const region = parseCanaryRegion(input.argv)
+  const dependencies = input.dependencies ?? defaultCanaryDependencies
+
+  input.io.write(
+    'Opening an isolated Garmin page. Enter email, password, MFA, or CAPTCHA ' +
+    'only in that page; this CLI does not read those values or save a session.\n',
+  )
+  const result = await dependencies.canary({
+    region,
+    signal: input.signal,
+    onStage: (stage) => {
+      if (isBrowserDiAuthCanaryStage(stage)) {
+        input.io.write(`canary_stage=${stage}\n`)
+      }
+    },
+  })
+  if (!result.ok || result.region !== region || result.persisted !== false) {
+    throw new PublicToolError('Garmin browser authentication canary returned an invalid result')
+  }
+
+  input.io.write('canary_status=passed\n')
+  input.io.write(`region=${region}\n`)
+  input.io.write('browser=system-chrome\n')
+  input.io.write('di_auth=passed\n')
+  input.io.write('session_persisted=no\n')
+  input.io.write('credentials_collected_by_cli=no\n')
+  return { ok: true, region, persisted: false }
+}
+
 export function defaultAccountSessionPath(
   account: string,
   env: Record<string, string | undefined> = process.env,
@@ -155,16 +227,7 @@ interface ParsedArgs {
 function parseArgs(argv: string[]): ParsedArgs {
   const args = [...argv]
   if (args[0] === 'login') args.shift()
-  if (args.some(argument => (
-    argument === '--password'
-    || argument.startsWith('--password=')
-    || argument === '--mfa-code'
-    || argument.startsWith('--mfa-code=')
-  ))) {
-    throw new PublicToolError(
-      'Passwords and MFA codes must be entered interactively, not passed on the command line',
-    )
-  }
+  rejectSensitiveArgs(args)
 
   const parsed: ParsedArgs = {}
   while (args.length > 0) {
@@ -182,6 +245,41 @@ function parseArgs(argv: string[]): ParsedArgs {
     throw new PublicToolError('Unknown authentication option')
   }
   return parsed
+}
+
+function parseCanaryRegion(argv: string[]): GarminRegion {
+  const args = [...argv]
+  if (args[0] === 'canary') args.shift()
+  let region: string | undefined
+  while (args.length > 0) {
+    const flag = args.shift()
+    if (flag !== '--region' || region !== undefined) {
+      throw new PublicToolError('Unknown canary option')
+    }
+    const value = args.shift()
+    if (!value || value.startsWith('--')) {
+      throw new PublicToolError('Missing value for --region')
+    }
+    region = value
+  }
+  if (!region) throw new PublicToolError('Canary region is required; use global or cn')
+  if (region !== 'global' && region !== 'cn') {
+    throw new PublicToolError('Invalid canary region; expected global or cn')
+  }
+  return region
+}
+
+function rejectSensitiveArgs(argv: readonly string[]): void {
+  if (argv.some(argument => (
+    argument === '--password'
+    || argument.startsWith('--password=')
+    || argument === '--mfa-code'
+    || argument.startsWith('--mfa-code=')
+  ))) {
+    throw new PublicToolError(
+      'Passwords and MFA codes must be entered interactively, not passed on the command line',
+    )
+  }
 }
 
 function expandHome(value: string): string {
@@ -272,14 +370,31 @@ function requireTty(input: Readable & { isTTY?: boolean }): void {
   }
 }
 
+export type AuthCliTerminationSignal = 'SIGHUP' | 'SIGINT' | 'SIGTERM'
+
+export function authCliExitCode(
+  error: unknown,
+  signal?: AuthCliTerminationSignal,
+): number {
+  if (
+    error instanceof BrowserCanaryControlError
+    && error.code === 'CANCELLED'
+  ) {
+    if (signal === 'SIGHUP') return 129
+    return signal === 'SIGTERM' ? 143 : 130
+  }
+  return 1
+}
+
 async function main(): Promise<void> {
+  let terminationSignal: AuthCliTerminationSignal | undefined
   try {
     const argv = process.argv.slice(2)
     const helpRequested = (
       argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h')
     ) || (
       argv.length === 2
-      && argv[0] === 'login'
+      && (argv[0] === 'login' || argv[0] === 'canary')
       && (argv[1] === '--help' || argv[1] === '-h')
     )
     if (helpRequested) {
@@ -290,21 +405,47 @@ async function main(): Promise<void> {
       argv.length === 1 && (argv[0] === '--version' || argv[0] === '-V')
     ) || (
       argv.length === 2
-      && argv[0] === 'login'
+      && (argv[0] === 'login' || argv[0] === 'canary')
       && (argv[1] === '--version' || argv[1] === '-V')
     )
     if (versionRequested) {
       process.stdout.write(`${AUTH_CLI_VERSION}\n`)
       return
     }
-    await runAuthSetup({
-      argv,
-      env: process.env,
-      io: terminalIO(),
-    })
+    if (argv[0] === 'canary') {
+      const controller = new AbortController()
+      const cancelFromSigint = (): void => {
+        terminationSignal ??= 'SIGINT'
+        controller.abort()
+      }
+      const cancelFromSigterm = (): void => {
+        terminationSignal ??= 'SIGTERM'
+        controller.abort()
+      }
+      const cancelFromSighup = (): void => {
+        terminationSignal ??= 'SIGHUP'
+        controller.abort()
+      }
+      process.once('SIGHUP', cancelFromSighup)
+      process.once('SIGINT', cancelFromSigint)
+      process.once('SIGTERM', cancelFromSigterm)
+      try {
+        await runAuthCanary({
+          argv,
+          io: terminalIO(),
+          signal: controller.signal,
+        })
+      } finally {
+        process.off('SIGHUP', cancelFromSighup)
+        process.off('SIGINT', cancelFromSigint)
+        process.off('SIGTERM', cancelFromSigterm)
+      }
+      return
+    }
+    await runAuthSetup({ argv, env: process.env, io: terminalIO() })
   } catch (error) {
     process.stderr.write(`${publicErrorMessage(error, 'Garmin authentication failed')}\n`)
-    process.exitCode = 1
+    process.exitCode = authCliExitCode(error, terminationSignal)
   }
 }
 
