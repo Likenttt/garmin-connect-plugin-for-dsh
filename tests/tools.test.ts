@@ -77,6 +77,7 @@ describe('Tools Utils', () => {
     )!
     expect(downloadFit.description).toContain('GARMIN_FIT_DOWNLOAD_DIR')
     expect(downloadFit.description).toContain('parent directory')
+    expect(downloadFit.description).toContain('GARMIN_FIT_<region>_<account-email>')
     expect(downloadFit.parameters).toMatchObject({
       type: 'object',
       required: ['activityId'],

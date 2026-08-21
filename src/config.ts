@@ -33,7 +33,7 @@ export interface Config {
   logLevel: 'debug' | 'info' | 'warn' | 'error'
   /** Default activity detail: compact, or expanded full data with private fields filtered */
   activityDetail: 'compact' | 'full'
-  /** User-selected trusted local directory used for extracted FIT activity files */
+  /** User-selected FIT parent; output is separated by Garmin region and account */
   fitDownloadDir: string
 }
 
@@ -101,7 +101,7 @@ export const Config = z.object({
 
   fitDownloadDir: z.string()
     .default('')
-    .description('User-selected local FIT directory (no default). Env: GARMIN_FIT_DOWNLOAD_DIR'),
+    .description('User-selected FIT parent; output is separated by region and account. Env: GARMIN_FIT_DOWNLOAD_DIR'),
 })
 
 /** Resolve secrets at runtime so schema metadata never contains credentials. */

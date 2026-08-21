@@ -51,6 +51,7 @@ describe('MCP adapter', () => {
         tool => tool.name === 'download_garmin_activity_fit',
       )!
       expect(downloadFit.description).toContain('GARMIN_FIT_DOWNLOAD_DIR')
+      expect(downloadFit.description).toContain('GARMIN_FIT_<region>_<account-email>')
       expect(downloadFit.description).toContain('parent directory')
       expect(downloadFit.inputSchema).toMatchObject({
         type: 'object',

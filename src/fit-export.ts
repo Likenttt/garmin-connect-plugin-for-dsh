@@ -10,6 +10,7 @@ import {
 import type { FileHandle } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { Unzip, UnzipInflate } from 'fflate'
+import type { GarminRegion } from './config'
 import { PublicToolError } from './utils/errors'
 
 export const MAX_ZIP_BYTES = 50 * 1024 * 1024
@@ -26,6 +27,7 @@ const FIT_CRC_TABLE = [
 export type FitExportErrorCode =
   | 'INVALID_ACTIVITY_ID'
   | 'INVALID_ACCOUNT_IDENTIFIER'
+  | 'INVALID_ACCOUNT_REGION'
   | 'INVALID_ZIP_SOURCE'
   | 'ZIP_TOO_LARGE'
   | 'INVALID_ZIP'
@@ -70,13 +72,14 @@ export interface FitExportMetadata {
 }
 
 /**
- * Build the deterministic per-account directory selected by the user-facing
- * GARMIN_FIT_DOWNLOAD_DIR parent. Normal email addresses remain readable;
- * path/control characters are encoded and disambiguated with a short hash.
+ * Build the deterministic per-region, per-account directory selected by the
+ * user-facing GARMIN_FIT_DOWNLOAD_DIR parent. Normal email addresses remain
+ * readable; path/control characters are encoded and disambiguated with a short hash.
  */
 export function fitAccountOutputDirectory(
   parentDirectory: string,
   username: string,
+  region: GarminRegion,
 ): string {
   if (!parentDirectory.trim()) {
     throw new FitExportError(
@@ -89,6 +92,12 @@ export function fitAccountOutputDirectory(
     throw new FitExportError(
       'INVALID_ACCOUNT_IDENTIFIER',
       'The Garmin account identifier is invalid.',
+    )
+  }
+  if (region !== 'global' && region !== 'cn') {
+    throw new FitExportError(
+      'INVALID_ACCOUNT_REGION',
+      'The Garmin account region is invalid.',
     )
   }
 
@@ -111,7 +120,7 @@ export function fitAccountOutputDirectory(
     encoded += `_${createHash('sha256').update(account).digest('hex').slice(0, 12)}`
   }
 
-  return resolve(parentDirectory, `GARMIN_FIT_${encoded}`)
+  return resolve(parentDirectory, `GARMIN_FIT_${region}_${encoded}`)
 }
 
 function isNodeErrorWithCode(error: unknown, codes: ReadonlyArray<string>): boolean {

@@ -250,7 +250,7 @@ export function createMcpServer(service: ToolService): McpServer {
 
   register(
     'download_garmin_activity_fit',
-    'Download one Garmin activity as a FIT file. GARMIN_FIT_DOWNLOAD_DIR must explicitly select a trusted local parent directory; files are isolated under GARMIN_FIT_<account-email>. Returns non-sensitive metadata without the local path or binary content.',
+    'Download one Garmin activity as a FIT file. GARMIN_FIT_DOWNLOAD_DIR must explicitly select a trusted local parent directory; files are isolated under GARMIN_FIT_<region>_<account-email>. Returns non-sensitive metadata without the local path or binary content.',
     {
       activityId: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).describe(
         'Positive Garmin activity ID returned by get_garmin_activities.',
@@ -403,6 +403,7 @@ async function main(): Promise<void> {
     activityDetail: config.activityDetail,
     fitDownloadDir: config.fitDownloadDir,
     accountUsername: config.username,
+    accountRegion: config.region,
   })
   const server = createMcpServer(service)
   await server.connect(new StdioServerTransport())

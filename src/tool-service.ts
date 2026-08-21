@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { chmod, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { GarminRegion } from './config'
 import { exportFitFromZip, fitAccountOutputDirectory } from './fit-export'
 import type { ActivityDetail } from './utils/format'
 import {
@@ -50,6 +51,7 @@ export interface GarminToolServiceOptions {
   activityDetail: ActivityDetail
   fitDownloadDir: string
   accountUsername: string
+  accountRegion: GarminRegion
 }
 
 export interface DateRangeArgs {
@@ -213,6 +215,7 @@ export class GarminToolService {
     const accountOutputDirectory = fitAccountOutputDirectory(
       this.options.fitDownloadDir,
       this.options.accountUsername,
+      this.options.accountRegion,
     )
 
     let temporaryDirectory: string | undefined

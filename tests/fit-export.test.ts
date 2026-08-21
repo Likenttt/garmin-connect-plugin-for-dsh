@@ -61,21 +61,42 @@ function makeZip(entries: Record<string, Uint8Array>, level: 0 | 6 = 0): Buffer 
 
 describe('fitAccountOutputDirectory', () => {
   it('never falls back to the process working directory', () => {
-    expect(() => fitAccountOutputDirectory('', 'runner@example.com'))
+    expect(() => fitAccountOutputDirectory('', 'runner@example.com', 'global'))
       .toThrow('FIT output directory is not configured')
   })
 
-  it('keeps a normal account email readable under the configured parent', () => {
-    expect(fitAccountOutputDirectory('/private/exports', ' Runner@Example.COM '))
-      .toBe('/private/exports/GARMIN_FIT_runner@example.com')
+  it.each([
+    ['global', '/private/exports/GARMIN_FIT_global_runner@example.com'],
+    ['cn', '/private/exports/GARMIN_FIT_cn_runner@example.com'],
+  ] as const)(
+    'keeps the %s region and a normal account email readable under the configured parent',
+    (region, expected) => {
+      expect(fitAccountOutputDirectory(
+        '/private/exports',
+        ' Runner@Example.COM ',
+        region,
+      )).toBe(expected)
+    },
+  )
+
+  it('rejects an unknown Garmin region instead of creating an ambiguous directory', () => {
+    expect(() => fitAccountOutputDirectory(
+      '/private/exports',
+      'runner@example.com',
+      'other' as 'cn',
+    )).toThrow('Garmin account region is invalid')
   })
 
   it('encodes path characters and cannot escape the configured parent', () => {
     const parent = resolve('/private/exports')
-    const result = fitAccountOutputDirectory(parent, '../family\\runner@example.com')
+    const result = fitAccountOutputDirectory(
+      parent,
+      '../family\\runner@example.com',
+      'cn',
+    )
 
     expect(dirname(result)).toBe(parent)
-    expect(basename(result)).toMatch(/^GARMIN_FIT_/)
+    expect(basename(result)).toMatch(/^GARMIN_FIT_cn_/)
     expect(basename(result)).not.toContain('/')
     expect(basename(result)).not.toContain('\\')
   })

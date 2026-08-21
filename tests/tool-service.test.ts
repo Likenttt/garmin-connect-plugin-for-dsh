@@ -45,6 +45,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getSleep({ startDate: '2026-02-30' }))
@@ -60,6 +61,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getSleep({
@@ -78,6 +80,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getSleep({
@@ -101,6 +104,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await service.getSleep({ startDate: '2026-08-01', endDate: '2026-08-10' })
@@ -121,7 +125,12 @@ describe('GarminToolService', () => {
     const service = new GarminToolService(clientWith({
       getSleep: fetchDate,
       getSteps: fetchDate,
-    }), { activityDetail: 'compact', fitDownloadDir: '/tmp/garmin-fit-service-test-output', accountUsername: 'runner@example.com' })
+    }), {
+      activityDetail: 'compact',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+      accountRegion: 'global',
+    })
 
     await Promise.all([
       service.getSleep({ startDate: '2026-08-01', endDate: '2026-08-10' }),
@@ -141,6 +150,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getSleep({
@@ -157,6 +167,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getSleep({ startDate: '2026-08-01' }))
@@ -176,6 +187,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getActivities({ limit: 500, offset: -4, detail: 'full' })
@@ -213,6 +225,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir,
       accountUsername: 'runner@example.com',
+      accountRegion: 'cn',
     })
 
     try {
@@ -234,7 +247,7 @@ describe('GarminToolService', () => {
       ])
       await expect(stat(join(
         fitDownloadDir,
-        'GARMIN_FIT_runner@example.com',
+        'GARMIN_FIT_cn_runner@example.com',
         '42.fit',
       ))).resolves.toMatchObject({ size: 16 })
       expect(JSON.stringify(result)).not.toContain('runner@example.com')
@@ -246,7 +259,7 @@ describe('GarminToolService', () => {
     }
   })
 
-  it('isolates the same activity ID into separate per-account directories', async () => {
+  it('isolates the same email and activity ID into separate region directories', async () => {
     const root = await mkdtemp(join(tmpdir(), 'garmin-fit-accounts-test-'))
     const downloadOriginalActivityZip = jest.fn(async (
       activityId: number,
@@ -260,32 +273,38 @@ describe('GarminToolService', () => {
       await writeFile(zipPath, zipSync({ 'activity.fit': fit }))
       return zipPath
     })
-    const makeService = (accountUsername: string) => new GarminToolService(clientWith({
+    const makeService = (
+      accountUsername: string,
+      accountRegion: 'global' | 'cn',
+    ) => new GarminToolService(clientWith({
       downloadOriginalActivityZip,
     }), {
       activityDetail: 'compact',
       fitDownloadDir: root,
       accountUsername,
+      accountRegion,
     })
 
     try {
-      const [personal, work] = await Promise.all([
-        makeService('Personal@Example.com').downloadActivityFit({ activityId: 42 }),
-        makeService('work@example.com').downloadActivityFit({ activityId: 42 }),
+      const [globalResult, cnResult] = await Promise.all([
+        makeService('Runner@Example.com', 'global')
+          .downloadActivityFit({ activityId: 42 }),
+        makeService('runner@example.com', 'cn')
+          .downloadActivityFit({ activityId: 42 }),
       ])
 
       await expect(stat(join(
         root,
-        'GARMIN_FIT_personal@example.com',
+        'GARMIN_FIT_global_runner@example.com',
         '42.fit',
       ))).resolves.toMatchObject({ size: 16 })
       await expect(stat(join(
         root,
-        'GARMIN_FIT_work@example.com',
+        'GARMIN_FIT_cn_runner@example.com',
         '42.fit',
       ))).resolves.toMatchObject({ size: 16 })
-      expect(JSON.stringify([personal, work])).not.toContain('example.com')
-      expect(JSON.stringify([personal, work])).not.toContain(root)
+      expect(JSON.stringify([globalResult, cnResult])).not.toContain('example.com')
+      expect(JSON.stringify([globalResult, cnResult])).not.toContain(root)
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -311,6 +330,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: root,
       accountUsername: '../../outside\\runner@example.com',
+      accountRegion: 'global',
     })
 
     try {
@@ -319,7 +339,7 @@ describe('GarminToolService', () => {
 
       expect(entries).toHaveLength(1)
       expect(entries[0].isDirectory()).toBe(true)
-      expect(entries[0].name).toMatch(/^GARMIN_FIT_/)
+      expect(entries[0].name).toMatch(/^GARMIN_FIT_global_/)
       expect(entries[0].name).not.toContain('/')
       expect(entries[0].name).not.toContain('\\')
       await expect(stat(join(root, entries[0].name, '42.fit')))
@@ -341,6 +361,7 @@ describe('GarminToolService', () => {
         activityDetail: 'compact',
         fitDownloadDir: '/tmp/garmin-fit-service-test-output',
         accountUsername: 'runner@example.com',
+        accountRegion: 'global',
       })
 
       await expect(service.downloadActivityFit({ activityId })).rejects.toThrow(
@@ -360,6 +381,7 @@ describe('GarminToolService', () => {
         activityDetail: 'compact',
         fitDownloadDir,
         accountUsername: 'runner@example.com',
+        accountRegion: 'global',
       } as any)
 
       await expect(service.downloadActivityFit({ activityId: 42 })).rejects.toThrow(
@@ -385,6 +407,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: join(root, 'exports'),
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     try {
@@ -418,6 +441,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: join(root, 'exports'),
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
     mockedRm.mockImplementation(async (
       path,
@@ -438,7 +462,7 @@ describe('GarminToolService', () => {
       await expect(stat(join(
         root,
         'exports',
-        'GARMIN_FIT_runner@example.com',
+        'GARMIN_FIT_global_runner@example.com',
         '42.fit',
       ))).resolves.toMatchObject({ size: 16 })
     } finally {
@@ -456,6 +480,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect((service as any).getActivities()).resolves.toEqual([])
@@ -473,6 +498,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getSteps({ startDate: '2026-08-20' })).resolves.toEqual({
@@ -495,6 +521,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getHeartRate({
@@ -526,6 +553,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getWeight({ startDate: '2026-08-20' })).resolves.toEqual(
@@ -549,6 +577,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getWorkouts({ limit: 0, offset: -3 })).resolves.toEqual([
@@ -563,6 +592,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -586,6 +616,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getRunningAdvice({} as any)).rejects.toThrow(
@@ -600,6 +631,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -655,6 +687,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -683,6 +716,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -708,6 +742,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -740,6 +775,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -772,6 +808,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -804,6 +841,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -833,6 +871,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -862,6 +901,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -891,6 +931,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -916,6 +957,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -945,6 +987,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -974,6 +1017,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1001,6 +1045,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1030,6 +1075,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1062,6 +1108,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1087,6 +1134,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1116,6 +1164,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1141,6 +1190,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1168,6 +1218,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1193,6 +1244,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1221,6 +1273,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1299,6 +1352,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1330,6 +1384,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1351,6 +1406,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getRunningAdvice({
@@ -1379,6 +1435,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1414,6 +1471,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1452,6 +1510,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1481,6 +1540,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1524,6 +1584,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1552,6 +1613,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const result = await service.getRunningAdvice({
@@ -1590,6 +1652,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.getProfile()).resolves.toEqual({
@@ -1606,6 +1669,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.createWorkout({
@@ -1629,6 +1693,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     const definition = {
@@ -1658,6 +1723,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
 
     await expect(service.createWorkout({
@@ -1679,6 +1745,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
     const definition = {
       name: 'Type-confusion attempt',
@@ -1700,6 +1767,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
     const preview = await service.createWorkout({
       name: 'Easy Run',
@@ -1722,6 +1790,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
     const definition = {
       name: 'Expiring preview',
@@ -1745,6 +1814,7 @@ describe('GarminToolService', () => {
       activityDetail: 'compact',
       fitDownloadDir: '/tmp/garmin-fit-service-test-output',
       accountUsername: 'runner@example.com',
+      accountRegion: 'global',
     })
     const definition = {
       name: 'One-time preview',

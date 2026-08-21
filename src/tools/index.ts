@@ -37,6 +37,7 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
     activityDetail: config.activityDetail,
     fitDownloadDir: config.fitDownloadDir,
     accountUsername: config.username,
+    accountRegion: config.region,
   })
 
   // ------------------------------------------------------------------
@@ -405,7 +406,7 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
     description:
       'Download one Garmin activity as a FIT file to the trusted local directory explicitly ' +
       'configured with GARMIN_FIT_DOWNLOAD_DIR. This variable selects a parent directory; ' +
-      'files are isolated under GARMIN_FIT_<account-email>. Local configuration is required. ' +
+      'files are isolated under GARMIN_FIT_<region>_<account-email>. Local configuration is required. ' +
       'Returns non-sensitive file metadata without the local path or FIT binary. ' +
       'Existing FIT files are never overwritten.',
     parameters: {
