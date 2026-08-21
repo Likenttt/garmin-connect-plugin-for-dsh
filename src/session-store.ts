@@ -14,6 +14,8 @@ import type { FileHandle } from 'node:fs/promises'
 import { PublicToolError } from './utils/errors'
 
 const MAX_SESSION_FILE_BYTES = 1024 * 1024
+export const GARMIN_DI_CLIENT_ID = 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2'
+const MAX_DI_TOKEN_BYTES = 16 * 1024
 
 export interface GarminSessionTokens {
   oauth1: Record<string, unknown>
@@ -25,11 +27,29 @@ export interface GarminSessionAccountBinding {
   region: 'global' | 'cn'
 }
 
-export interface GarminSessionFile extends GarminSessionTokens {
+export interface GarminLegacySessionFile extends GarminSessionTokens {
   account?: GarminSessionAccountBinding
 }
 
-/** Read the session format produced by GarminClient.exportSession(). */
+export interface GarminDiSessionTokens {
+  accessToken: string
+  refreshToken: string
+  clientId: typeof GARMIN_DI_CLIENT_ID
+  accessExpiresAtMs: number
+  refreshExpiresAtMs: number | null
+}
+
+export interface GarminDiSessionFile {
+  kind: 'di-oauth'
+  schemaVersion: 1
+  clientId: typeof GARMIN_DI_CLIENT_ID
+  tokens: Omit<GarminDiSessionTokens, 'clientId'>
+  account: GarminSessionAccountBinding
+}
+
+export type GarminSessionFile = GarminLegacySessionFile | GarminDiSessionFile
+
+/** Read one strictly validated legacy OAuth or DI OAuth session file. */
 export async function readSessionTokenFile(path: string): Promise<GarminSessionFile> {
   let file: FileHandle | undefined
   let source: string
@@ -117,10 +137,29 @@ export function bindSessionTokensToAccount(
   tokens: GarminSessionTokens,
   username: string,
   region: 'global' | 'cn',
-): GarminSessionFile {
+): GarminLegacySessionFile {
   return {
     oauth1: tokens.oauth1,
     oauth2: tokens.oauth2,
+    account: sessionAccountBinding(username, region),
+  }
+}
+
+export function bindDiSessionTokensToAccount(
+  tokens: GarminDiSessionTokens,
+  username: string,
+  region: 'global' | 'cn',
+): GarminDiSessionFile {
+  return {
+    kind: 'di-oauth',
+    schemaVersion: 1,
+    clientId: tokens.clientId,
+    tokens: {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      accessExpiresAtMs: tokens.accessExpiresAtMs,
+      refreshExpiresAtMs: tokens.refreshExpiresAtMs,
+    },
     account: sessionAccountBinding(username, region),
   }
 }
@@ -148,6 +187,7 @@ function sessionAccountBinding(
 }
 
 function isSessionFile(value: unknown): value is GarminSessionFile {
+  if (isDiSessionFile(value)) return true
   if (!isRecord(value) || !isRecord(value.oauth1) || !isRecord(value.oauth2)) return false
   const keys = Object.keys(value).sort()
   const validTopLevelKeys = keys.length === 2
@@ -166,6 +206,62 @@ function isSessionFile(value: unknown): value is GarminSessionFile {
     && (value.account.region === 'global' || value.account.region === 'cn')
     && typeof value.account.usernameHash === 'string'
     && /^[a-f0-9]{64}$/.test(value.account.usernameHash)
+}
+
+export function isDiSessionFile(value: unknown): value is GarminDiSessionFile {
+  if (!isRecord(value) || value.kind !== 'di-oauth') return false
+  const keys = Object.keys(value).sort()
+  if (
+    keys.length !== 5
+    || keys[0] !== 'account'
+    || keys[1] !== 'clientId'
+    || keys[2] !== 'kind'
+    || keys[3] !== 'schemaVersion'
+    || keys[4] !== 'tokens'
+  ) {
+    return false
+  }
+  if (
+    value.schemaVersion !== 1
+    || value.clientId !== GARMIN_DI_CLIENT_ID
+    || !isRecord(value.tokens)
+    || !isValidAccountBinding(value.account)
+  ) return false
+  const tokenKeys = Object.keys(value.tokens).sort()
+  return tokenKeys.length === 4
+    && tokenKeys[0] === 'accessExpiresAtMs'
+    && tokenKeys[1] === 'accessToken'
+    && tokenKeys[2] === 'refreshExpiresAtMs'
+    && tokenKeys[3] === 'refreshToken'
+    && isPositiveTimestamp(value.tokens.accessExpiresAtMs)
+    && (
+      value.tokens.refreshExpiresAtMs === null
+      || isPositiveTimestamp(value.tokens.refreshExpiresAtMs)
+    )
+    && isBoundedOpaqueToken(value.tokens.accessToken)
+    && isBoundedOpaqueToken(value.tokens.refreshToken)
+}
+
+function isValidAccountBinding(value: unknown): value is GarminSessionAccountBinding {
+  if (!isRecord(value)) return false
+  const accountKeys = Object.keys(value).sort()
+  return accountKeys.length === 2
+    && accountKeys[0] === 'region'
+    && accountKeys[1] === 'usernameHash'
+    && (value.region === 'global' || value.region === 'cn')
+    && typeof value.usernameHash === 'string'
+    && /^[a-f0-9]{64}$/.test(value.usernameHash)
+}
+
+function isBoundedOpaqueToken(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && Buffer.byteLength(value, 'utf8') <= MAX_DI_TOKEN_BYTES
+    && /^[\x21-\x7e]+$/.test(value)
+}
+
+function isPositiveTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

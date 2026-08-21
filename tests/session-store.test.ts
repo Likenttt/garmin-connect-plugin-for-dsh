@@ -9,6 +9,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  bindDiSessionTokensToAccount,
   bindSessionTokensToAccount,
   readSessionTokenFile,
   sessionFileMatchesAccount,
@@ -57,6 +58,77 @@ describe('session token file store', () => {
     expect(sessionFileMatchesAccount(session, 'runner@example.com', 'cn')).toBe(true)
     expect(sessionFileMatchesAccount(session, 'other@example.com', 'cn')).toBe(false)
     expect(sessionFileMatchesAccount(session, 'runner@example.com', 'global')).toBe(false)
+  })
+
+  it('loads a strictly shaped DI session bound to the browser account and region', async () => {
+    const session = bindDiSessionTokensToAccount({
+      accessToken: 'di-access-token',
+      refreshToken: 'di-refresh-token',
+      clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
+      accessExpiresAtMs: 1_800_000_000_000,
+      refreshExpiresAtMs: 1_900_000_000_000,
+    }, 'Runner@Example.COM', 'cn')
+    const path = await sessionPath(JSON.stringify(session))
+
+    await expect(readSessionTokenFile(path)).resolves.toEqual(session)
+    expect(session).toEqual({
+      kind: 'di-oauth',
+      schemaVersion: 1,
+      clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
+      tokens: {
+        accessToken: 'di-access-token',
+        refreshToken: 'di-refresh-token',
+        accessExpiresAtMs: 1_800_000_000_000,
+        refreshExpiresAtMs: 1_900_000_000_000,
+      },
+      account: {
+        usernameHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        region: 'cn',
+      },
+    })
+    expect(JSON.stringify(session)).not.toContain('Runner@Example.COM')
+    expect(sessionFileMatchesAccount(session, 'runner@example.com', 'cn')).toBe(true)
+    expect(sessionFileMatchesAccount(session, 'runner@example.com', 'global')).toBe(false)
+  })
+
+  it.each([
+    ['wrong kind', { kind: 'legacy-oauth' }],
+    ['wrong schema version', { schemaVersion: 2 }],
+    ['unknown client', { clientId: 'UNTRUSTED_CLIENT' }],
+    ['missing account binding', { account: undefined }],
+    ['unexpected top-level field', { privateNote: 'TOP_SECRET_FRAGMENT' }],
+    ['control characters in a token', {
+      tokens: {
+        accessToken: 'di-access-token\r\nInjected: value',
+        refreshToken: 'di-refresh-token',
+        accessExpiresAtMs: 1_800_000_000_000,
+        refreshExpiresAtMs: null,
+      },
+    }],
+    ['invalid access expiry', {
+      tokens: {
+        accessToken: 'di-access-token',
+        refreshToken: 'di-refresh-token',
+        accessExpiresAtMs: 0,
+        refreshExpiresAtMs: null,
+      },
+    }],
+  ])('rejects a DI session with %s', async (_case, override) => {
+    const valid = bindDiSessionTokensToAccount({
+      accessToken: 'di-access-token',
+      refreshToken: 'di-refresh-token',
+      clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
+      accessExpiresAtMs: 1_800_000_000_000,
+      refreshExpiresAtMs: null,
+    }, 'runner@example.com', 'global')
+    const candidate = {
+      ...valid,
+      ...override,
+    }
+    const path = await sessionPath(JSON.stringify(candidate))
+
+    await expect(readSessionTokenFile(path))
+      .rejects.toThrow('Garmin session token file is invalid')
   })
 
   it.each([

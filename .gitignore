@@ -13,6 +13,7 @@ dist/
 # Garmin session cache (contains auth tokens)
 .garmin-session/
 *.garmin-session.json
+*.session.json
 
 # IDE
 .vscode/

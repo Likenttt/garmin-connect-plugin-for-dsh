@@ -1,7 +1,11 @@
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { writeSessionTokenFile } from '../src/session-store'
+import {
+  bindDiSessionTokensToAccount,
+  readSessionTokenFile,
+  writeSessionTokenFile,
+} from '../src/session-store'
 
 describe('session token file writer', () => {
   const temporaryDirectories: string[] = []
@@ -28,6 +32,24 @@ describe('session token file writer', () => {
     expect((await stat(parent)).mode & 0o777).toBe(0o700)
     expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect(await readdir(parent)).toEqual(['session.json'])
+  })
+
+  it('atomically round-trips a private DI session file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'garmin-session-write-test-'))
+    temporaryDirectories.push(root)
+    const path = join(root, 'account', 'browser.session.json')
+    const session = bindDiSessionTokensToAccount({
+      accessToken: 'di-access-token',
+      refreshToken: 'di-refresh-token',
+      clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
+      accessExpiresAtMs: 1_800_000_000_000,
+      refreshExpiresAtMs: null,
+    }, 'runner@example.com', 'global')
+
+    await writeSessionTokenFile(path, session)
+
+    await expect(readSessionTokenFile(path)).resolves.toEqual(session)
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
   })
 
   it('refuses to change or write through an existing broadly-readable directory', async () => {
