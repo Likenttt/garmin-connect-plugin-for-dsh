@@ -1,7 +1,12 @@
 import type { GarminRegion } from './config'
+import {
+  bindDiSessionTokensToAccount,
+  GARMIN_DI_CLIENT_ID,
+  type GarminDiSessionFile,
+  type GarminDiSessionTokens,
+} from './session-store'
 import { PublicToolError } from './utils/errors'
 
-const DI_CLIENT_ID = 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2'
 const DI_GRANT_TYPE =
   'https://connectapi.garmin.com/di-oauth2-service/oauth/grant/service_ticket'
 const PROFILE_PATH = '/userprofile-service/socialProfile'
@@ -17,6 +22,8 @@ const TICKET_MISSING_MESSAGE =
   'Garmin browser authentication did not return a usable service ticket'
 const DI_EXCHANGE_FAILED_MESSAGE = 'Garmin DI token exchange canary failed'
 const PROFILE_FAILED_MESSAGE = 'Garmin DI profile probe failed'
+const SESSION_FAILED_MESSAGE = 'Garmin DI authentication did not return a persistable session'
+const SESSION_WRITE_FAILED_MESSAGE = 'Garmin DI session could not be persisted'
 
 const BROWSER_DI_AUTH_CANARY_STAGES = [
   'browser_opened',
@@ -124,6 +131,11 @@ export interface BrowserDiAuthCanaryDependencies {
   http: BrowserDiAuthCanaryHttp
 }
 
+export interface BrowserDiAuthSetupDependencies extends BrowserDiAuthCanaryDependencies {
+  now?(): number
+  writeSession(path: string, session: GarminDiSessionFile): Promise<void>
+}
+
 export interface BrowserDiAuthCanaryOptions {
   region: GarminRegion
   signal?: AbortSignal
@@ -147,6 +159,17 @@ export interface BrowserDiAuthCanaryResult {
   persisted: false
 }
 
+export interface BrowserDiAuthSetupOptions extends BrowserDiAuthCanaryOptions {
+  username: string
+  sessionTokenFile: string
+}
+
+export interface BrowserDiAuthSetupResult {
+  ok: true
+  region: GarminRegion
+  persisted: true
+}
+
 /**
  * Experimental, non-persisting probe for Garmin's browser-to-DI login path.
  * The browser owns all credential/MFA UI; this seam only handles a short-lived
@@ -162,45 +185,12 @@ export async function runBrowserDiAuthCanary(
   let serviceTicket: string | undefined
 
   try {
-    try {
-      await dependencies.browser.openAndCapture({
-        portalUrl: endpoints.portalUrl,
-        serviceUrl: endpoints.serviceUrl,
-        allowedResponseUrls: endpoints.allowedResponseUrls,
-        blockedTicketRedirect: endpoints.blockedTicketRedirect,
-        maxObservedResponseBytes: MAX_OBSERVED_RESPONSE_BYTES,
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.onStage ? { onStage: reportStage } : {}),
-        onResponse: async (response) => {
-          if (serviceTicket) return true
-          if (!isAllowedPortalResponseUrl(
-            response.url,
-            endpoints.allowedResponseUrls,
-            endpoints.serviceUrl,
-          )) return false
-          const responseStage = portalResponseStage(response.url)
-          if (responseStage) reportStage(responseStage)
-          if (!isSuccessful(response.status) || !isJson(response.contentType)) return false
-
-          let body: unknown
-          try {
-            body = await response.json()
-          } catch {
-            return false
-          }
-          if (!isSuccessfulTicketResponse(body)) return false
-          if (serviceTicket) return true
-          serviceTicket = body.serviceTicketId
-          reportStage('ticket_captured')
-          return true
-        },
-      })
-    } catch (error) {
-      if (error instanceof BrowserCanaryControlError) throw error
-      throw new PublicToolError(BROWSER_FAILED_MESSAGE)
-    }
-
-    if (!serviceTicket) throw new PublicToolError(TICKET_MISSING_MESSAGE)
+    serviceTicket = await captureBrowserServiceTicket(
+      options,
+      dependencies.browser,
+      endpoints,
+      reportStage,
+    )
     return await runCapturedServiceTicketDiCanaryWithReporter(
       options.region,
       serviceTicket,
@@ -212,6 +202,110 @@ export async function runBrowserDiAuthCanary(
   } finally {
     serviceTicket = undefined
   }
+}
+
+/** Authenticate in a visible browser and persist without returning credentials. */
+export async function runBrowserDiAuthSetup(
+  options: BrowserDiAuthSetupOptions,
+  dependencies: BrowserDiAuthSetupDependencies,
+): Promise<BrowserDiAuthSetupResult> {
+  assertCanaryRegion(options.region)
+  if (!isNonEmptyText(options.username) || !isNonEmptyText(options.sessionTokenFile)) {
+    throw new PublicToolError(SESSION_FAILED_MESSAGE)
+  }
+  const endpoints = endpointsFor(options.region)
+  const reportStage = createStageReporter(options.onStage)
+  let serviceTicket: string | undefined
+
+  try {
+    serviceTicket = await captureBrowserServiceTicket(
+      options,
+      dependencies.browser,
+      endpoints,
+      reportStage,
+    )
+    await authenticateCapturedServiceTicket(
+      serviceTicket,
+      endpoints,
+      dependencies.http,
+      options.signal,
+      reportStage,
+      async (exchanged, profile) => {
+        let session: GarminDiSessionFile
+        try {
+          const nowMs = dependencies.now?.() ?? Date.now()
+          session = bindDiSessionTokensToAccount(
+            sessionTokensFromExchange(exchanged, nowMs),
+            options.username,
+            options.region,
+            profileIdFromProfile(profile),
+          )
+        } catch {
+          throw new PublicToolError(SESSION_FAILED_MESSAGE)
+        }
+
+        // The atomic writer is the commit point. Honour cancellation before it
+        // starts, then await it fully so the CLI cannot report cancellation
+        // while a complete session has actually been installed.
+        throwIfAborted(options.signal)
+        try {
+          await dependencies.writeSession(options.sessionTokenFile, session)
+        } catch {
+          throw new PublicToolError(SESSION_WRITE_FAILED_MESSAGE)
+        }
+      },
+    )
+    return { ok: true, region: options.region, persisted: true }
+  } finally {
+    serviceTicket = undefined
+  }
+}
+
+async function captureBrowserServiceTicket(
+  options: BrowserDiAuthCanaryOptions,
+  browser: BrowserDiAuthCanaryBrowser,
+  endpoints: RegionEndpoints,
+  reportStage: (stage: BrowserDiAuthCanaryStage) => void,
+): Promise<string> {
+  let serviceTicket: string | undefined
+  try {
+    await browser.openAndCapture({
+      portalUrl: endpoints.portalUrl,
+      serviceUrl: endpoints.serviceUrl,
+      allowedResponseUrls: endpoints.allowedResponseUrls,
+      blockedTicketRedirect: endpoints.blockedTicketRedirect,
+      maxObservedResponseBytes: MAX_OBSERVED_RESPONSE_BYTES,
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.onStage ? { onStage: reportStage } : {}),
+      onResponse: async (response) => {
+        if (serviceTicket) return true
+        if (!isAllowedPortalResponseUrl(
+          response.url,
+          endpoints.allowedResponseUrls,
+          endpoints.serviceUrl,
+        )) return false
+        const responseStage = portalResponseStage(response.url)
+        if (responseStage) reportStage(responseStage)
+        if (!isSuccessful(response.status) || !isJson(response.contentType)) return false
+
+        let body: unknown
+        try {
+          body = await response.json()
+        } catch {
+          return false
+        }
+        if (!isSuccessfulTicketResponse(body)) return false
+        serviceTicket = body.serviceTicketId
+        reportStage('ticket_captured')
+        return true
+      },
+    })
+  } catch (error) {
+    if (error instanceof BrowserCanaryControlError) throw error
+    throw new PublicToolError(BROWSER_FAILED_MESSAGE)
+  }
+  if (!serviceTicket) throw new PublicToolError(TICKET_MISSING_MESSAGE)
+  return serviceTicket
 }
 
 /**
@@ -246,13 +340,41 @@ async function runCapturedServiceTicketDiCanaryWithReporter(
   signal: AbortSignal | undefined,
   reportStage: (stage: BrowserDiAuthCanaryStage) => void,
 ): Promise<BrowserDiAuthCanaryResult> {
+  await authenticateCapturedServiceTicket(
+    capturedTicket,
+    endpoints,
+    http,
+    signal,
+    reportStage,
+  )
+  return { ok: true, region, persisted: false }
+}
+
+interface ExchangedDiTokens {
+  accessToken: string
+  refreshToken: string
+  accessExpiresInSeconds?: number
+  refreshExpiresInSeconds?: number
+}
+
+async function authenticateCapturedServiceTicket(
+  capturedTicket: string,
+  endpoints: RegionEndpoints,
+  http: BrowserDiAuthCanaryHttp,
+  signal: AbortSignal | undefined,
+  reportStage: (stage: BrowserDiAuthCanaryStage) => void,
+  consume?: (
+    exchanged: ExchangedDiTokens,
+    profile: Record<string, unknown>,
+  ) => Promise<void>,
+): Promise<void> {
   let serviceTicket: string | undefined = capturedTicket
-  let accessToken: string | undefined
+  let exchanged: ExchangedDiTokens | undefined
   try {
     reportStage('ticket_captured')
     throwIfAborted(signal)
     reportStage('di_exchange_started')
-    accessToken = await exchangeServiceTicket(
+    exchanged = await exchangeServiceTicket(
       serviceTicket,
       endpoints,
       http,
@@ -262,14 +384,14 @@ async function runCapturedServiceTicketDiCanaryWithReporter(
     serviceTicket = undefined
     throwIfAborted(signal)
     reportStage('profile_probe_started')
-    await probeProfile(accessToken, endpoints, http, signal)
+    const profile = await probeProfile(exchanged.accessToken, endpoints, http, signal)
     reportStage('profile_probe_succeeded')
-    return { ok: true, region, persisted: false }
+    await consume?.(exchanged, profile)
   } finally {
     // Strings cannot be zeroized in JavaScript, but release our references as
     // soon as the one-shot probe finishes and never retain them in the result.
     serviceTicket = undefined
-    accessToken = undefined
+    exchanged = undefined
   }
 }
 
@@ -396,7 +518,7 @@ async function exchangeServiceTicket(
   endpoints: RegionEndpoints,
   http: BrowserDiAuthCanaryHttp,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<ExchangedDiTokens> {
   try {
     const response = await http.request({
       method: 'POST',
@@ -404,11 +526,11 @@ async function exchangeServiceTicket(
       headers: {
         ...nativeHeaders(),
         Accept: 'application/json',
-        Authorization: `Basic ${Buffer.from(`${DI_CLIENT_ID}:`).toString('base64')}`,
+        Authorization: `Basic ${Buffer.from(`${GARMIN_DI_CLIENT_ID}:`).toString('base64')}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({
-        client_id: DI_CLIENT_ID,
+        client_id: GARMIN_DI_CLIENT_ID,
         service_ticket: ticket,
         grant_type: DI_GRANT_TYPE,
         service_url: endpoints.serviceUrl,
@@ -429,7 +551,25 @@ async function exchangeServiceTicket(
       && typeof refreshToken === 'string'
       && isBoundedToken(refreshToken)
     ) {
-      return accessToken
+      const accessExpiresInSeconds = optionalPositiveSeconds(response.body.expires_in)
+      const refreshExpiresInSeconds = optionalPositiveSeconds(
+        response.body.refresh_token_expires_in,
+      )
+      if (
+        (response.body.expires_in !== undefined && accessExpiresInSeconds === undefined)
+        || (
+          response.body.refresh_token_expires_in !== undefined
+          && refreshExpiresInSeconds === undefined
+        )
+      ) {
+        throw new Error('Unexpected DI expiry')
+      }
+      return {
+        accessToken,
+        refreshToken,
+        ...(accessExpiresInSeconds === undefined ? {} : { accessExpiresInSeconds }),
+        ...(refreshExpiresInSeconds === undefined ? {} : { refreshExpiresInSeconds }),
+      }
     }
     throw new Error('Unexpected DI token')
   } catch (error) {
@@ -443,7 +583,7 @@ async function probeProfile(
   endpoints: RegionEndpoints,
   http: BrowserDiAuthCanaryHttp,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<Record<string, unknown>> {
   try {
     const response = await http.request({
       method: 'GET',
@@ -464,6 +604,7 @@ async function probeProfile(
     ) {
       throw new Error('Unexpected profile response')
     }
+    return response.body
   } catch (error) {
     if (error instanceof BrowserCanaryControlError) throw error
     throw new PublicToolError(PROFILE_FAILED_MESSAGE)
@@ -505,7 +646,71 @@ function requestPolicy(maxResponseBytes: number): Pick<
 }
 
 function isBoundedToken(token: string): boolean {
-  return token.length > 0 && Buffer.byteLength(token, 'utf8') <= MAX_TOKEN_BYTES
+  return token.length > 0
+    && Buffer.byteLength(token, 'utf8') <= MAX_TOKEN_BYTES
+    && /^[\x21-\x7e]+$/.test(token)
+}
+
+function sessionTokensFromExchange(
+  exchanged: ExchangedDiTokens,
+  nowMs: number,
+): GarminDiSessionTokens {
+  if (!Number.isSafeInteger(nowMs) || nowMs < 0) {
+    throw new Error('Invalid authentication clock')
+  }
+  const accessExpiresAtMs = absoluteExpiry(
+    nowMs,
+    exchanged.accessExpiresInSeconds,
+  )
+  if (accessExpiresAtMs === undefined) {
+    throw new Error('Missing access expiry')
+  }
+  let refreshExpiresAtMs: number | null = null
+  if (exchanged.refreshExpiresInSeconds !== undefined) {
+    const computedRefreshExpiry = absoluteExpiry(
+      nowMs,
+      exchanged.refreshExpiresInSeconds,
+    )
+    if (computedRefreshExpiry === undefined) {
+      throw new Error('Invalid refresh expiry')
+    }
+    refreshExpiresAtMs = computedRefreshExpiry
+  }
+  return {
+    accessToken: exchanged.accessToken,
+    refreshToken: exchanged.refreshToken,
+    clientId: GARMIN_DI_CLIENT_ID,
+    accessExpiresAtMs,
+    refreshExpiresAtMs,
+  }
+}
+
+function absoluteExpiry(nowMs: number, seconds: number | undefined): number | undefined {
+  if (seconds === undefined) return undefined
+  const durationMs = seconds * 1000
+  if (!Number.isSafeInteger(durationMs) || durationMs <= 0) return undefined
+  const expiresAtMs = nowMs + durationMs
+  return Number.isSafeInteger(expiresAtMs) && expiresAtMs > 0
+    ? expiresAtMs
+    : undefined
+}
+
+function optionalPositiveSeconds(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined
+}
+
+function profileIdFromProfile(profile: Record<string, unknown>): number {
+  const profileId = profile.profileId
+  if (typeof profileId !== 'number' || !Number.isSafeInteger(profileId) || profileId <= 0) {
+    throw new Error('Invalid profile identity')
+  }
+  return profileId
+}
+
+function isNonEmptyText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
 }
 
 function isSuccessfulTicketResponse(

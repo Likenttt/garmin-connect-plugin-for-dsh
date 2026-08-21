@@ -1,5 +1,6 @@
 import {
   runCapturedServiceTicketDiCanary,
+  runBrowserDiAuthSetup,
   runBrowserDiAuthCanary,
   type BrowserDiAuthCanaryDependencies,
   type BrowserDiAuthCanaryStage,
@@ -45,6 +46,8 @@ function successfulFixture(region: 'global' | 'cn' = 'global') {
         body: {
           access_token: 'di-access-secret',
           refresh_token: 'di-refresh-secret',
+          expires_in: 3_600,
+          refresh_token_expires_in: 86_400,
         },
       })
       .mockResolvedValueOnce({
@@ -52,7 +55,7 @@ function successfulFixture(region: 'global' | 'cn' = 'global') {
         contentType: 'application/json',
         body: {
           displayName: 'Private Runner',
-          emailAddress: 'runner@example.test',
+          profileId: 123456789,
         },
       }),
   }
@@ -61,6 +64,217 @@ function successfulFixture(region: 'global' | 'cn' = 'global') {
 }
 
 describe('experimental browser DI authentication canary', () => {
+  it('persists a bounded account-bound DI session without returning secrets', async () => {
+    const { dependencies } = successfulFixture('cn')
+    const nowMs = 1_800_000_000_000
+    const writeSession = jest.fn().mockResolvedValue(undefined)
+
+    const result = await runBrowserDiAuthSetup(
+      {
+        region: 'cn',
+        username: 'runner@example.test',
+        sessionTokenFile: '/private/account/session.json',
+      },
+      { ...dependencies, now: () => nowMs, writeSession },
+    )
+
+    expect(result).toEqual({
+      ok: true,
+      region: 'cn',
+      persisted: true,
+    })
+    expect(JSON.stringify(result)).not.toMatch(/runner|access|refresh|profile/i)
+    expect(writeSession).toHaveBeenCalledWith('/private/account/session.json', {
+      kind: 'di-oauth',
+      schemaVersion: 1,
+      clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
+      tokens: {
+        accessToken: 'di-access-secret',
+        refreshToken: 'di-refresh-secret',
+        accessExpiresAtMs: nowMs + 3_600_000,
+        refreshExpiresAtMs: nowMs + 86_400_000,
+      },
+      account: {
+        usernameHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        profileIdHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        region: 'cn',
+      },
+    })
+  })
+
+  it('persists a null refresh expiry when Garmin does not report one', async () => {
+    const { dependencies, http } = successfulFixture('cn')
+    http.request.mockReset()
+      .mockResolvedValueOnce({
+        status: 200,
+        contentType: 'application/json',
+        body: {
+          access_token: 'di-access-secret',
+          refresh_token: 'di-refresh-secret',
+          expires_in: 3_600,
+        },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        contentType: 'application/json',
+        body: { profileId: 123456789 },
+      })
+    const writeSession = jest.fn().mockResolvedValue(undefined)
+
+    await runBrowserDiAuthSetup(
+      {
+        region: 'cn',
+        username: 'runner@example.test',
+        sessionTokenFile: '/private/account/session.json',
+      },
+      { ...dependencies, now: () => 1_800_000_000_000, writeSession },
+    )
+
+    expect(writeSession.mock.calls[0][1].tokens.refreshExpiresAtMs).toBeNull()
+  })
+
+  it.each([
+    { body: { profileId: 0 }, label: 'invalid profile identity' },
+    { body: { displayName: 'runner' }, label: 'missing profile identity' },
+  ])('does not write a session with $label', async ({ body }) => {
+    const { dependencies, http } = successfulFixture('cn')
+    http.request.mockReset().mockImplementationOnce(async () => ({
+      status: 200,
+      contentType: 'application/json',
+      body: {
+        access_token: 'di-access-secret',
+        refresh_token: 'di-refresh-secret',
+        expires_in: 3_600,
+      },
+    })).mockImplementationOnce(async () => ({
+      status: 200,
+      contentType: 'application/json',
+      body,
+    }))
+    const writeSession = jest.fn()
+
+    await expect(runBrowserDiAuthSetup(
+      {
+        region: 'cn',
+        username: 'runner@example.test',
+        sessionTokenFile: '/private/account/session.json',
+      },
+      { ...dependencies, writeSession },
+    )).rejects.toThrow(
+      'Garmin DI authentication did not return a persistable session',
+    )
+
+    expect(writeSession).not.toHaveBeenCalled()
+  })
+
+  it('does not write a session when the access expiry is absent', async () => {
+    const { dependencies, http } = successfulFixture('cn')
+    http.request.mockReset()
+      .mockResolvedValueOnce({
+        status: 200,
+        contentType: 'application/json',
+        body: {
+          access_token: 'di-access-secret',
+          refresh_token: 'di-refresh-secret',
+        },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        contentType: 'application/json',
+        body: { profileId: 123456789 },
+      })
+    const writeSession = jest.fn()
+
+    await expect(runBrowserDiAuthSetup(
+      {
+        region: 'cn',
+        username: 'runner@example.test',
+        sessionTokenFile: '/private/account/session.json',
+      },
+      { ...dependencies, writeSession },
+    )).rejects.toThrow(
+      'Garmin DI authentication did not return a persistable session',
+    )
+
+    expect(writeSession).not.toHaveBeenCalled()
+  })
+
+  it('replaces session writer errors without disclosing paths or credentials', async () => {
+    const { dependencies } = successfulFixture('cn')
+    const writeSession = jest.fn().mockRejectedValue(
+      new Error('/private/account/session.json di-access-secret runner@example.test'),
+    )
+
+    const promise = runBrowserDiAuthSetup(
+      {
+        region: 'cn',
+        username: 'runner@example.test',
+        sessionTokenFile: '/private/account/session.json',
+      },
+      { ...dependencies, writeSession },
+    )
+
+    await expect(promise).rejects.toThrow('Garmin DI session could not be persisted')
+    await promise.catch((error: Error) => {
+      expect(error.message).not.toMatch(/private|runner|access/i)
+    })
+    expect(writeSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('honours cancellation before the atomic session writer starts', async () => {
+    const { dependencies, http } = successfulFixture('cn')
+    const controller = new AbortController()
+    http.request.mockReset().mockImplementationOnce(async () => ({
+      status: 200,
+      contentType: 'application/json',
+      body: {
+        access_token: 'di-access-secret',
+        refresh_token: 'di-refresh-secret',
+        expires_in: 3_600,
+      },
+    })).mockImplementationOnce(async () => {
+      controller.abort()
+      return {
+        status: 200,
+        contentType: 'application/json',
+        body: { profileId: 123456789 },
+      }
+    })
+    const writeSession = jest.fn()
+
+    await expect(runBrowserDiAuthSetup(
+      {
+        region: 'cn',
+        username: 'runner@example.test',
+        sessionTokenFile: '/private/account/session.json',
+        signal: controller.signal,
+      },
+      { ...dependencies, writeSession },
+    )).rejects.toThrow('Garmin browser authentication was cancelled')
+
+    expect(writeSession).not.toHaveBeenCalled()
+  })
+
+  it('finishes the atomic commit when cancellation arrives during the write', async () => {
+    const { dependencies } = successfulFixture('cn')
+    const controller = new AbortController()
+    const writeSession = jest.fn().mockImplementation(async () => {
+      controller.abort()
+    })
+
+    await expect(runBrowserDiAuthSetup(
+      {
+        region: 'cn',
+        username: 'runner@example.test',
+        sessionTokenFile: '/private/account/session.json',
+        signal: controller.signal,
+      },
+      { ...dependencies, writeSession },
+    )).resolves.toEqual({ ok: true, region: 'cn', persisted: true })
+
+    expect(writeSession).toHaveBeenCalledTimes(1)
+  })
+
   it('probes DI from an already captured ticket without exposing secrets', async () => {
     const { http } = successfulFixture('cn')
     const stages: BrowserDiAuthCanaryStage[] = []
