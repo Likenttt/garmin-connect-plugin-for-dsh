@@ -19,7 +19,7 @@ require manual verification.
 | Release readiness | **Ready within documented scope** — two-step verification deferred |
 | Clean-candidate automated snapshot | **Passed** — 20 suites, 456 tests |
 | TypeScript build | **Passed** |
-| npm package smoke test | **Passed** — 89 files; 176.1 kB packed; 686.8 kB unpacked |
+| npm package smoke test | **Passed** — 89 files; 176.1 kB packed; 686.9 kB unpacked |
 | Real Garmin integration | **Passed** — 8/8 read-only checks against the `global` region |
 | Two-step verification | **Incomplete / not release-ready** — partial China-region browser, ticket exchange, and profile evidence only |
 
@@ -49,7 +49,7 @@ npm run pack:smoke
 `npm run build` completed successfully. `npm run pack:smoke` also completed
 successfully and inspected a tarball containing 89 files, including the
 changelog and both test-report pages, with a packed size of 176.1 kB and an
-unpacked size of 686.8 kB.
+unpacked size of 686.9 kB.
 
 ## Real Garmin read-only integration
 
