@@ -13,6 +13,7 @@ import {
   bindSessionTokensToAccount,
   readSessionTokenFile,
   sessionFileMatchesAccount,
+  sessionFileMatchesProfile,
 } from '../src/session-store'
 
 describe('session token file store', () => {
@@ -67,7 +68,7 @@ describe('session token file store', () => {
       clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
       accessExpiresAtMs: 1_800_000_000_000,
       refreshExpiresAtMs: 1_900_000_000_000,
-    }, 'Runner@Example.COM', 'cn')
+    }, 'Runner@Example.COM', 'cn', 123456789)
     const path = await sessionPath(JSON.stringify(session))
 
     await expect(readSessionTokenFile(path)).resolves.toEqual(session)
@@ -83,12 +84,15 @@ describe('session token file store', () => {
       },
       account: {
         usernameHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        profileIdHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         region: 'cn',
       },
     })
     expect(JSON.stringify(session)).not.toContain('Runner@Example.COM')
     expect(sessionFileMatchesAccount(session, 'runner@example.com', 'cn')).toBe(true)
     expect(sessionFileMatchesAccount(session, 'runner@example.com', 'global')).toBe(false)
+    expect(sessionFileMatchesProfile(session, 123456789)).toBe(true)
+    expect(sessionFileMatchesProfile(session, 987654321)).toBe(false)
   })
 
   it.each([
@@ -120,7 +124,7 @@ describe('session token file store', () => {
       clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
       accessExpiresAtMs: 1_800_000_000_000,
       refreshExpiresAtMs: null,
-    }, 'runner@example.com', 'global')
+    }, 'runner@example.com', 'global', 123456789)
     const candidate = {
       ...valid,
       ...override,

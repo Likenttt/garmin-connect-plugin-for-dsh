@@ -27,6 +27,10 @@ export interface GarminSessionAccountBinding {
   region: 'global' | 'cn'
 }
 
+export interface GarminDiSessionAccountBinding extends GarminSessionAccountBinding {
+  profileIdHash: string
+}
+
 export interface GarminLegacySessionFile extends GarminSessionTokens {
   account?: GarminSessionAccountBinding
 }
@@ -44,7 +48,7 @@ export interface GarminDiSessionFile {
   schemaVersion: 1
   clientId: typeof GARMIN_DI_CLIENT_ID
   tokens: Omit<GarminDiSessionTokens, 'clientId'>
-  account: GarminSessionAccountBinding
+  account: GarminDiSessionAccountBinding
 }
 
 export type GarminSessionFile = GarminLegacySessionFile | GarminDiSessionFile
@@ -149,7 +153,11 @@ export function bindDiSessionTokensToAccount(
   tokens: GarminDiSessionTokens,
   username: string,
   region: 'global' | 'cn',
+  profileId: number,
 ): GarminDiSessionFile {
+  if (!isValidProfileId(profileId)) {
+    throw new PublicToolError('Garmin session account identity is invalid')
+  }
   return {
     kind: 'di-oauth',
     schemaVersion: 1,
@@ -160,7 +168,10 @@ export function bindDiSessionTokensToAccount(
       accessExpiresAtMs: tokens.accessExpiresAtMs,
       refreshExpiresAtMs: tokens.refreshExpiresAtMs,
     },
-    account: sessionAccountBinding(username, region),
+    account: {
+      ...sessionAccountBinding(username, region),
+      profileIdHash: profileIdHash(profileId),
+    },
   }
 }
 
@@ -173,6 +184,14 @@ export function sessionFileMatchesAccount(
   const expected = sessionAccountBinding(username, region)
   return session.account.usernameHash === expected.usernameHash
     && session.account.region === expected.region
+}
+
+export function sessionFileMatchesProfile(
+  session: GarminSessionFile,
+  profileId: number,
+): boolean {
+  if (!isDiSessionFile(session) || !isValidProfileId(profileId)) return false
+  return session.account.profileIdHash === profileIdHash(profileId)
 }
 
 function sessionAccountBinding(
@@ -225,7 +244,7 @@ export function isDiSessionFile(value: unknown): value is GarminDiSessionFile {
     value.schemaVersion !== 1
     || value.clientId !== GARMIN_DI_CLIENT_ID
     || !isRecord(value.tokens)
-    || !isValidAccountBinding(value.account)
+    || !isValidDiAccountBinding(value.account)
   ) return false
   const tokenKeys = Object.keys(value.tokens).sort()
   return tokenKeys.length === 4
@@ -240,6 +259,21 @@ export function isDiSessionFile(value: unknown): value is GarminDiSessionFile {
     )
     && isBoundedOpaqueToken(value.tokens.accessToken)
     && isBoundedOpaqueToken(value.tokens.refreshToken)
+}
+
+function isValidDiAccountBinding(value: unknown): value is GarminDiSessionAccountBinding {
+  if (!isRecord(value)) return false
+  const accountKeys = Object.keys(value).sort()
+  return accountKeys.length === 3
+    && accountKeys[0] === 'profileIdHash'
+    && accountKeys[1] === 'region'
+    && accountKeys[2] === 'usernameHash'
+    && isValidAccountBinding({
+      region: value.region,
+      usernameHash: value.usernameHash,
+    })
+    && typeof value.profileIdHash === 'string'
+    && /^[a-f0-9]{64}$/.test(value.profileIdHash)
 }
 
 function isValidAccountBinding(value: unknown): value is GarminSessionAccountBinding {
@@ -262,6 +296,16 @@ function isBoundedOpaqueToken(value: unknown): value is string {
 
 function isPositiveTimestamp(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+function isValidProfileId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+function profileIdHash(profileId: number): string {
+  return createHash('sha256')
+    .update(`garmin-profile-id:v1:${profileId}`)
+    .digest('hex')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

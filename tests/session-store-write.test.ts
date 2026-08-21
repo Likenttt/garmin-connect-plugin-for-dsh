@@ -44,7 +44,7 @@ describe('session token file writer', () => {
       clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
       accessExpiresAtMs: 1_800_000_000_000,
       refreshExpiresAtMs: null,
-    }, 'runner@example.com', 'global')
+    }, 'runner@example.com', 'global', 123456789)
 
     await writeSessionTokenFile(path, session)
 
