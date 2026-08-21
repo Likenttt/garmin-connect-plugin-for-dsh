@@ -24,6 +24,10 @@ const DI_EXCHANGE_FAILED_MESSAGE = 'Garmin DI token exchange canary failed'
 const PROFILE_FAILED_MESSAGE = 'Garmin DI profile probe failed'
 const SESSION_FAILED_MESSAGE = 'Garmin DI authentication did not return a persistable session'
 const SESSION_WRITE_FAILED_MESSAGE = 'Garmin DI session could not be persisted'
+const IDENTITY_CONFIRMATION_FAILED_MESSAGE =
+  'Garmin browser account confirmation could not be completed'
+const IDENTITY_CONFIRMATION_DECLINED_MESSAGE =
+  'Garmin browser account confirmation was declined'
 
 const BROWSER_DI_AUTH_CANARY_STAGES = [
   'browser_opened',
@@ -162,6 +166,12 @@ export interface BrowserDiAuthCanaryResult {
 export interface BrowserDiAuthSetupOptions extends BrowserDiAuthCanaryOptions {
   username: string
   sessionTokenFile: string
+  confirmIdentity(identity: BrowserDiProfileIdentity): Promise<boolean>
+}
+
+export interface BrowserDiProfileIdentity {
+  displayName?: string
+  userName?: string
 }
 
 export interface BrowserDiAuthSetupResult {
@@ -210,7 +220,11 @@ export async function runBrowserDiAuthSetup(
   dependencies: BrowserDiAuthSetupDependencies,
 ): Promise<BrowserDiAuthSetupResult> {
   assertCanaryRegion(options.region)
-  if (!isNonEmptyText(options.username) || !isNonEmptyText(options.sessionTokenFile)) {
+  if (
+    !isNonEmptyText(options.username)
+    || !isNonEmptyText(options.sessionTokenFile)
+    || typeof options.confirmIdentity !== 'function'
+  ) {
     throw new PublicToolError(SESSION_FAILED_MESSAGE)
   }
   const endpoints = endpointsFor(options.region)
@@ -230,15 +244,35 @@ export async function runBrowserDiAuthSetup(
       dependencies.http,
       options.signal,
       reportStage,
-      async (exchanged, profile) => {
+      dependencies.now ?? Date.now,
+      async (exchanged, profile, observedAtMs) => {
+        let verifiedProfile: VerifiedProfileIdentity
         let session: GarminDiSessionFile
         try {
-          const nowMs = dependencies.now?.() ?? Date.now()
+          verifiedProfile = verifiedProfileIdentity(profile)
+        } catch {
+          throw new PublicToolError(SESSION_FAILED_MESSAGE)
+        }
+
+        throwIfAborted(options.signal)
+        let confirmed: boolean
+        try {
+          confirmed = await options.confirmIdentity(verifiedProfile.publicIdentity)
+        } catch {
+          throwIfAborted(options.signal)
+          throw new PublicToolError(IDENTITY_CONFIRMATION_FAILED_MESSAGE)
+        }
+        throwIfAborted(options.signal)
+        if (confirmed !== true) {
+          throw new PublicToolError(IDENTITY_CONFIRMATION_DECLINED_MESSAGE)
+        }
+
+        try {
           session = bindDiSessionTokensToAccount(
-            sessionTokensFromExchange(exchanged, nowMs),
+            sessionTokensFromExchange(exchanged, observedAtMs),
             options.username,
             options.region,
-            profileIdFromProfile(profile),
+            verifiedProfile.profileId,
           )
         } catch {
           throw new PublicToolError(SESSION_FAILED_MESSAGE)
@@ -363,9 +397,11 @@ async function authenticateCapturedServiceTicket(
   http: BrowserDiAuthCanaryHttp,
   signal: AbortSignal | undefined,
   reportStage: (stage: BrowserDiAuthCanaryStage) => void,
+  now?: () => number,
   consume?: (
     exchanged: ExchangedDiTokens,
     profile: Record<string, unknown>,
+    observedAtMs: number | undefined,
   ) => Promise<void>,
 ): Promise<void> {
   let serviceTicket: string | undefined = capturedTicket
@@ -380,13 +416,21 @@ async function authenticateCapturedServiceTicket(
       http,
       signal,
     )
+    let observedAtMs: number | undefined
+    if (now) {
+      try {
+        observedAtMs = now()
+      } catch {
+        throw new PublicToolError(SESSION_FAILED_MESSAGE)
+      }
+    }
     reportStage('di_exchange_succeeded')
     serviceTicket = undefined
     throwIfAborted(signal)
     reportStage('profile_probe_started')
     const profile = await probeProfile(exchanged.accessToken, endpoints, http, signal)
     reportStage('profile_probe_succeeded')
-    await consume?.(exchanged, profile)
+    await consume?.(exchanged, profile, observedAtMs)
   } finally {
     // Strings cannot be zeroized in JavaScript, but release our references as
     // soon as the one-shot probe finishes and never retain them in the result.
@@ -653,9 +697,9 @@ function isBoundedToken(token: string): boolean {
 
 function sessionTokensFromExchange(
   exchanged: ExchangedDiTokens,
-  nowMs: number,
+  nowMs: number | undefined,
 ): GarminDiSessionTokens {
-  if (!Number.isSafeInteger(nowMs) || nowMs < 0) {
+  if (typeof nowMs !== 'number' || !Number.isSafeInteger(nowMs) || nowMs < 0) {
     throw new Error('Invalid authentication clock')
   }
   const accessExpiresAtMs = absoluteExpiry(
@@ -701,12 +745,39 @@ function optionalPositiveSeconds(value: unknown): number | undefined {
     : undefined
 }
 
-function profileIdFromProfile(profile: Record<string, unknown>): number {
+interface VerifiedProfileIdentity {
+  profileId: number
+  publicIdentity: BrowserDiProfileIdentity
+}
+
+function verifiedProfileIdentity(
+  profile: Record<string, unknown>,
+): VerifiedProfileIdentity {
   const profileId = profile.profileId
   if (typeof profileId !== 'number' || !Number.isSafeInteger(profileId) || profileId <= 0) {
     throw new Error('Invalid profile identity')
   }
-  return profileId
+  const displayName = safeProfileLabel(profile.displayName)
+  const userName = safeProfileLabel(profile.userName)
+  if (!displayName && !userName) throw new Error('Missing recognizable profile identity')
+  return {
+    profileId,
+    publicIdentity: {
+      ...(displayName ? { displayName } : {}),
+      ...(userName && userName !== displayName ? { userName } : {}),
+    },
+  }
+}
+
+function safeProfileLabel(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value
+    .normalize('NFKC')
+    .replace(/[\p{Cc}\p{Cf}\p{Cs}]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  if (!normalized) return undefined
+  return Array.from(normalized).slice(0, 80).join('')
 }
 
 function isNonEmptyText(value: unknown): value is string {

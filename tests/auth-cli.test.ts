@@ -6,7 +6,9 @@ import {
   authCliExitCode,
   defaultAccountSessionPath,
   runAuthCanary,
+  runBrowserAuthSetup,
   runAuthSetup,
+  type BrowserAuthCliDependencies,
   type AuthCanaryCliDependencies,
   type AuthCliDependencies,
   type AuthCliIO,
@@ -59,7 +61,7 @@ describe('Garmin interactive auth CLI', () => {
     const result = spawnSync(
       process.execPath,
       ['--import', require.resolve('tsx'), entrypoint, '--help'],
-      { encoding: 'utf8', timeout: 5_000 },
+      { encoding: 'utf8', timeout: 15_000 },
     )
 
     expect(result.status).toBe(0)
@@ -77,12 +79,46 @@ describe('Garmin interactive auth CLI', () => {
     const result = spawnSync(
       process.execPath,
       ['--import', require.resolve('tsx'), entrypoint, 'login', '--help'],
-      { encoding: 'utf8', timeout: 5_000 },
+      { encoding: 'utf8', timeout: 15_000 },
     )
 
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('garmin-connect-auth login [options]')
     expect(result.stderr).toBe('')
+  })
+
+  it('shows browser-login help without loading the optional browser driver', () => {
+    const entrypoint = path.resolve(__dirname, '../src/auth-cli.ts')
+    const result = spawnSync(
+      process.execPath,
+      ['--import', require.resolve('tsx'), entrypoint, 'login', '--browser', '--help'],
+      { encoding: 'utf8', timeout: 15_000 },
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain(
+      'garmin-connect-auth login --browser --region <global|cn> [options]',
+    )
+    expect(result.stdout).toContain('--browser')
+    expect(result.stderr).toBe('')
+  })
+
+  it('routes login --browser through browser validation before any terminal secret prompt', () => {
+    const entrypoint = path.resolve(__dirname, '../src/auth-cli.ts')
+    const result = spawnSync(
+      process.execPath,
+      ['--import', require.resolve('tsx'), entrypoint, 'login', '--browser'],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, GARMIN_REGION: 'cn', GARMIN_PASSWORD: 'PASSWORD_MARKER' },
+        timeout: 15_000,
+      },
+    )
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toBe('Browser login region is required; use global or cn\n')
+    expect(result.stderr).not.toContain('PASSWORD_MARKER')
   })
 
   it('shows the package version without starting an interactive login', () => {
@@ -94,7 +130,7 @@ describe('Garmin interactive auth CLI', () => {
     const result = spawnSync(
       process.execPath,
       ['--import', require.resolve('tsx'), entrypoint, '--version'],
-      { encoding: 'utf8', timeout: 5_000 },
+      { encoding: 'utf8', timeout: 15_000 },
     )
 
     expect(result.status).toBe(0)
@@ -111,7 +147,24 @@ describe('Garmin interactive auth CLI', () => {
     const result = spawnSync(
       process.execPath,
       ['--import', require.resolve('tsx'), entrypoint, 'login', '--version'],
-      { encoding: 'utf8', timeout: 5_000 },
+      { encoding: 'utf8', timeout: 15_000 },
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe(`${manifest.version}\n`)
+    expect(result.stderr).toBe('')
+  })
+
+  it('shows browser-login version without loading the optional browser driver', () => {
+    const entrypoint = path.resolve(__dirname, '../src/auth-cli.ts')
+    const manifest = JSON.parse(readFileSync(
+      path.resolve(__dirname, '../package.json'),
+      'utf8',
+    )) as { version: string }
+    const result = spawnSync(
+      process.execPath,
+      ['--import', require.resolve('tsx'), entrypoint, 'login', '--browser', '--version'],
+      { encoding: 'utf8', timeout: 15_000 },
     )
 
     expect(result.status).toBe(0)
@@ -128,12 +181,12 @@ describe('Garmin interactive auth CLI', () => {
     const help = spawnSync(
       process.execPath,
       ['--import', require.resolve('tsx'), entrypoint, 'canary', '--help'],
-      { encoding: 'utf8', timeout: 5_000 },
+      { encoding: 'utf8', timeout: 15_000 },
     )
     const version = spawnSync(
       process.execPath,
       ['--import', require.resolve('tsx'), entrypoint, 'canary', '--version'],
-      { encoding: 'utf8', timeout: 5_000 },
+      { encoding: 'utf8', timeout: 15_000 },
     )
 
     expect(help.status).toBe(0)
@@ -188,6 +241,28 @@ describe('Garmin interactive auth CLI', () => {
     expect(rendered).not.toContain('123456')
     expect(rendered).not.toContain('SECRET_ONE')
     expect(rendered).not.toContain('SECRET_TWO')
+  })
+
+  it('escapes terminal-control characters in the legacy session path output', async () => {
+    const { io, write, dependencies } = fixture([
+      'runner@example.test',
+      'PASSWORD_MARKER',
+      '123456',
+    ])
+    const injectedPath = '/safe/legacy\nINJECTED\u001b[31m\u202e.json'
+
+    await runAuthSetup({
+      argv: ['login', '--region', 'cn', '--output', injectedPath],
+      env: {},
+      io,
+      dependencies,
+    })
+
+    const output = write.mock.calls.flat().join('')
+    expect(output).toContain('legacy\\nINJECTED\\u001b[31m\\u202e.json')
+    expect(output).not.toContain('\nINJECTED')
+    expect(output).not.toContain('\u001b')
+    expect(output).not.toContain('\u202e')
   })
 
   it('may reuse the username but always prompts locally for password and MFA', async () => {
@@ -254,6 +329,285 @@ describe('Garmin interactive auth CLI', () => {
     expect(defaultAccountSessionPath('work', {
       XDG_CONFIG_HOME: '/private/config',
     })).toBe('/private/config/dsh-plugin-garmin-connect/accounts/work.session.json')
+  })
+
+  it('opens browser login for an explicit region and persists through the DI setup seam', async () => {
+    const prompt = jest.fn().mockResolvedValue(' YES ')
+    const write = jest.fn()
+    const io: AuthCliIO = { prompt, write }
+    const setup = jest.fn(async (options: any) => {
+      options.onStage('browser_opened')
+      options.onStage('ticket=ST-MUST_NOT_BE_RENDERED')
+      options.onStage('profile_probe_succeeded')
+      expect(await options.confirmIdentity({
+        displayName: 'Private Runner',
+        userName: 'private-runner',
+      })).toBe(true)
+      return {
+        ok: true as const,
+        region: 'cn' as const,
+        persisted: true as const,
+        access_token: 'MUST_NOT_BE_RENDERED',
+        email: 'private@example.test',
+        profileId: 123456789,
+      }
+    })
+    const dependencies: BrowserAuthCliDependencies = { setup }
+    const signal = new AbortController().signal
+
+    await expect(runBrowserAuthSetup({
+      argv: [
+        'login',
+        '--browser',
+        '--account',
+        'personal',
+        '--region',
+        'cn',
+        '--output',
+        '/safe/personal.json',
+      ],
+      env: {
+        GARMIN_USERNAME: 'runner@example.test',
+        GARMIN_PASSWORD: 'PASSWORD_MARKER',
+      },
+      io,
+      signal,
+      dependencies,
+    })).resolves.toEqual({
+      account: 'personal',
+      region: 'cn',
+      sessionTokenFile: path.resolve('/safe/personal.json'),
+    })
+
+    expect(setup).toHaveBeenCalledWith({
+      username: 'runner@example.test',
+      region: 'cn',
+      sessionTokenFile: path.resolve('/safe/personal.json'),
+      signal,
+      onStage: expect.any(Function),
+      confirmIdentity: expect.any(Function),
+    })
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(prompt).toHaveBeenCalledWith(expect.stringMatching(
+      /Private Runner.*private-runner.*personal.*runner@example\.test.*type yes/i,
+    ), false)
+    const output = write.mock.calls.flat().join('')
+    expect(output).toContain('authentication_status=passed')
+    expect(output).toContain('region=cn')
+    expect(output).toContain('session_persisted=yes')
+    expect(output).toContain('Session saved securely to: "/safe/personal.json"')
+    expect(output).toContain('auth_stage=browser_opened')
+    expect(output).toContain('auth_stage=profile_probe_succeeded')
+    expect(output).not.toMatch(
+      /MUST_NOT|runner@example|private@example|PASSWORD_MARKER|access_token|profileId|123456789/,
+    )
+    expect(output).not.toContain('Private Runner')
+    expect(output).not.toContain('private-runner')
+    expect(output).not.toContain('auth_stage=ticket=')
+  })
+
+  it('declines an unconfirmed browser identity before persistence', async () => {
+    const prompt = jest.fn().mockResolvedValue('no')
+    const write = jest.fn()
+    const io: AuthCliIO = { prompt, write }
+    let persistenceStarted = false
+    const setup = jest.fn(async (options: any) => {
+      const confirmed = await options.confirmIdentity({ displayName: 'Other Runner' })
+      if (!confirmed) {
+        throw new Error('Garmin browser account confirmation was declined')
+      }
+      persistenceStarted = true
+      return { ok: true as const, region: 'cn' as const, persisted: true as const }
+    })
+
+    await expect(runBrowserAuthSetup({
+      argv: ['login', '--browser', '--region', 'cn', '--account', 'personal'],
+      env: { GARMIN_USERNAME: 'expected@example.test' },
+      io,
+      dependencies: { setup },
+    })).rejects.toThrow('Garmin browser account confirmation was declined')
+
+    expect(prompt).toHaveBeenCalledWith(expect.stringMatching(
+      /Other Runner.*personal.*expected@example\.test/i,
+    ), false)
+    expect(persistenceStarted).toBe(false)
+    expect(write.mock.calls.flat().join('')).not.toContain('authentication_status=passed')
+    expect(write.mock.calls.flat().join('')).not.toContain('session_persisted=yes')
+  })
+
+  it('does not infer browser-login region from GARMIN_REGION', async () => {
+    const prompt = jest.fn()
+    const io: AuthCliIO = { prompt, write: jest.fn() }
+    const setup = jest.fn()
+
+    await expect(runBrowserAuthSetup({
+      argv: ['login', '--browser'],
+      env: {
+        GARMIN_REGION: 'cn',
+        GARMIN_USERNAME: 'runner@example.test',
+      },
+      io,
+      dependencies: { setup },
+    })).rejects.toThrow('Browser login region is required; use global or cn')
+
+    expect(prompt).not.toHaveBeenCalled()
+    expect(setup).not.toHaveBeenCalled()
+  })
+
+  it('prompts visibly only for a missing username and keeps password/MFA in the browser', async () => {
+    const prompt = jest.fn().mockResolvedValue('runner@example.test')
+    const write = jest.fn()
+    const io: AuthCliIO = { prompt, write }
+    const setup = jest.fn().mockResolvedValue({
+      ok: true,
+      region: 'global',
+      persisted: true,
+    })
+
+    await expect(runBrowserAuthSetup({
+      argv: ['login', '--browser', '--region', 'global', '--account', 'work'],
+      env: {
+        XDG_CONFIG_HOME: '/private/config',
+        GARMIN_PASSWORD: 'PASSWORD_MARKER',
+      },
+      io,
+      dependencies: { setup },
+    })).resolves.toEqual({
+      account: 'work',
+      region: 'global',
+      sessionTokenFile:
+        '/private/config/dsh-plugin-garmin-connect/accounts/work.session.json',
+    })
+
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(prompt).toHaveBeenCalledWith('Garmin email: ', false)
+    expect(setup).toHaveBeenCalledWith({
+      username: 'runner@example.test',
+      region: 'global',
+      sessionTokenFile:
+        '/private/config/dsh-plugin-garmin-connect/accounts/work.session.json',
+      signal: undefined,
+      confirmIdentity: expect.any(Function),
+      onStage: expect.any(Function),
+    })
+    expect(JSON.stringify(setup.mock.calls)).not.toContain('PASSWORD_MARKER')
+  })
+
+  it.each([
+    ['--password', 'secret'],
+    ['--mfa-code', '123456'],
+    ['--password=secret'],
+    ['--mfa-code=123456'],
+  ])('rejects browser-login sensitive flag %s before opening Chrome', async (...flag) => {
+    const io: AuthCliIO = { prompt: jest.fn(), write: jest.fn() }
+    const setup = jest.fn()
+
+    await expect(runBrowserAuthSetup({
+      argv: ['login', '--browser', '--region', 'cn', ...flag],
+      env: { GARMIN_USERNAME: 'runner@example.test' },
+      io,
+      dependencies: { setup },
+    })).rejects.toThrow('Passwords and MFA codes must be entered interactively')
+
+    expect(setup).not.toHaveBeenCalled()
+  })
+
+  it('keeps the optional-browser-driver error fixed and data-free', async () => {
+    const marker = 'PRIVATE_BROWSER_PATH runner@example.test'
+    const io: AuthCliIO = { prompt: jest.fn(), write: jest.fn() }
+    const setup = jest.fn().mockRejectedValue(
+      new BrowserCanaryControlError('DRIVER_UNAVAILABLE'),
+    )
+
+    const operation = runBrowserAuthSetup({
+      argv: ['login', '--browser', '--region', 'cn'],
+      env: { GARMIN_USERNAME: marker },
+      io,
+      dependencies: { setup },
+    })
+
+    await expect(operation).rejects.toThrow(
+      'Garmin browser authentication requires the optional playwright-core driver',
+    )
+    await expect(operation).rejects.not.toThrow(marker)
+  })
+
+  it('reports persistence success when cancellation arrives after the atomic commit starts', async () => {
+    const controller = new AbortController()
+    const write = jest.fn()
+    const io: AuthCliIO = { prompt: jest.fn(), write }
+    const setup = jest.fn().mockImplementation(async () => {
+      controller.abort()
+      return { ok: true, region: 'cn', persisted: true }
+    })
+
+    await expect(runBrowserAuthSetup({
+      argv: ['login', '--browser', '--region', 'cn'],
+      env: { GARMIN_USERNAME: 'runner@example.test' },
+      io,
+      signal: controller.signal,
+      dependencies: { setup },
+    })).resolves.toEqual({
+      account: 'default',
+      region: 'cn',
+      sessionTokenFile: expect.stringMatching(/default\.session\.json$/),
+    })
+
+    expect(write.mock.calls.flat().join('')).toContain('session_persisted=yes')
+  })
+
+  it('escapes terminal-control characters in the displayed session path', async () => {
+    const write = jest.fn()
+    const io: AuthCliIO = { prompt: jest.fn(), write }
+    const injectedPath = '/safe/session\nINJECTED\u001b[31m\u202e.json'
+    const setup = jest.fn().mockResolvedValue({
+      ok: true,
+      region: 'cn',
+      persisted: true,
+    })
+
+    await runBrowserAuthSetup({
+      argv: ['login', '--browser', '--region', 'cn', '--output', injectedPath],
+      env: { GARMIN_USERNAME: 'runner@example.test' },
+      io,
+      dependencies: { setup },
+    })
+
+    expect(setup).toHaveBeenCalledWith(expect.objectContaining({
+      sessionTokenFile: path.resolve(injectedPath),
+    }))
+    const output = write.mock.calls.flat().join('')
+    expect(output).toContain('session\\nINJECTED\\u001b[31m\\u202e.json')
+    expect(output).not.toContain('\nINJECTED')
+    expect(output).not.toContain('\u001b')
+    expect(output).not.toContain('\u202e')
+  })
+
+  it('bounds the displayed session path without changing the write target', async () => {
+    const write = jest.fn()
+    const io: AuthCliIO = { prompt: jest.fn(), write }
+    const longPath = `/safe/${'A'.repeat(2_000)}.json`
+    const setup = jest.fn().mockResolvedValue({
+      ok: true,
+      region: 'cn',
+      persisted: true,
+    })
+
+    await runBrowserAuthSetup({
+      argv: ['login', '--browser', '--region', 'cn', '--output', longPath],
+      env: { GARMIN_USERNAME: 'runner@example.test' },
+      io,
+      dependencies: { setup },
+    })
+
+    expect(setup).toHaveBeenCalledWith(expect.objectContaining({
+      sessionTokenFile: path.resolve(longPath),
+    }))
+    const output = write.mock.calls.flat().join('')
+    expect(output).toContain(
+      'Session saved securely to: [configured path omitted: exceeds display limit]',
+    )
+    expect(output).not.toContain('A'.repeat(1_000))
   })
 
   it('runs the browser canary without prompting or persisting a session', async () => {

@@ -68,12 +68,14 @@ describe('experimental browser DI authentication canary', () => {
     const { dependencies } = successfulFixture('cn')
     const nowMs = 1_800_000_000_000
     const writeSession = jest.fn().mockResolvedValue(undefined)
+    const confirmIdentity = jest.fn().mockResolvedValue(true)
 
     const result = await runBrowserDiAuthSetup(
       {
         region: 'cn',
         username: 'runner@example.test',
         sessionTokenFile: '/private/account/session.json',
+        confirmIdentity,
       },
       { ...dependencies, now: () => nowMs, writeSession },
     )
@@ -84,9 +86,12 @@ describe('experimental browser DI authentication canary', () => {
       persisted: true,
     })
     expect(JSON.stringify(result)).not.toMatch(/runner|access|refresh|profile/i)
+    expect(confirmIdentity).toHaveBeenCalledWith({
+      displayName: 'Private Runner',
+    })
     expect(writeSession).toHaveBeenCalledWith('/private/account/session.json', {
       kind: 'di-oauth',
-      schemaVersion: 1,
+      schemaVersion: 2,
       clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
       tokens: {
         accessToken: 'di-access-secret',
@@ -117,7 +122,7 @@ describe('experimental browser DI authentication canary', () => {
       .mockResolvedValueOnce({
         status: 200,
         contentType: 'application/json',
-        body: { profileId: 123456789 },
+        body: { displayName: 'Private Runner', profileId: 123456789 },
       })
     const writeSession = jest.fn().mockResolvedValue(undefined)
 
@@ -126,6 +131,7 @@ describe('experimental browser DI authentication canary', () => {
         region: 'cn',
         username: 'runner@example.test',
         sessionTokenFile: '/private/account/session.json',
+        confirmIdentity: jest.fn().mockResolvedValue(true),
       },
       { ...dependencies, now: () => 1_800_000_000_000, writeSession },
     )
@@ -136,6 +142,7 @@ describe('experimental browser DI authentication canary', () => {
   it.each([
     { body: { profileId: 0 }, label: 'invalid profile identity' },
     { body: { displayName: 'runner' }, label: 'missing profile identity' },
+    { body: { profileId: 123456789 }, label: 'missing recognizable profile label' },
   ])('does not write a session with $label', async ({ body }) => {
     const { dependencies, http } = successfulFixture('cn')
     http.request.mockReset().mockImplementationOnce(async () => ({
@@ -158,6 +165,7 @@ describe('experimental browser DI authentication canary', () => {
         region: 'cn',
         username: 'runner@example.test',
         sessionTokenFile: '/private/account/session.json',
+        confirmIdentity: jest.fn().mockResolvedValue(true),
       },
       { ...dependencies, writeSession },
     )).rejects.toThrow(
@@ -181,7 +189,7 @@ describe('experimental browser DI authentication canary', () => {
       .mockResolvedValueOnce({
         status: 200,
         contentType: 'application/json',
-        body: { profileId: 123456789 },
+        body: { displayName: 'Private Runner', profileId: 123456789 },
       })
     const writeSession = jest.fn()
 
@@ -190,6 +198,7 @@ describe('experimental browser DI authentication canary', () => {
         region: 'cn',
         username: 'runner@example.test',
         sessionTokenFile: '/private/account/session.json',
+        confirmIdentity: jest.fn().mockResolvedValue(true),
       },
       { ...dependencies, writeSession },
     )).rejects.toThrow(
@@ -210,6 +219,7 @@ describe('experimental browser DI authentication canary', () => {
         region: 'cn',
         username: 'runner@example.test',
         sessionTokenFile: '/private/account/session.json',
+        confirmIdentity: jest.fn().mockResolvedValue(true),
       },
       { ...dependencies, writeSession },
     )
@@ -237,7 +247,7 @@ describe('experimental browser DI authentication canary', () => {
       return {
         status: 200,
         contentType: 'application/json',
-        body: { profileId: 123456789 },
+        body: { displayName: 'Private Runner', profileId: 123456789 },
       }
     })
     const writeSession = jest.fn()
@@ -247,6 +257,7 @@ describe('experimental browser DI authentication canary', () => {
         region: 'cn',
         username: 'runner@example.test',
         sessionTokenFile: '/private/account/session.json',
+        confirmIdentity: jest.fn().mockResolvedValue(true),
         signal: controller.signal,
       },
       { ...dependencies, writeSession },
@@ -267,12 +278,75 @@ describe('experimental browser DI authentication canary', () => {
         region: 'cn',
         username: 'runner@example.test',
         sessionTokenFile: '/private/account/session.json',
+        confirmIdentity: jest.fn().mockResolvedValue(true),
         signal: controller.signal,
       },
       { ...dependencies, writeSession },
     )).resolves.toEqual({ ok: true, region: 'cn', persisted: true })
 
     expect(writeSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('requires explicit confirmation of the actual Garmin profile before writing', async () => {
+    const { dependencies } = successfulFixture('cn')
+    const writeSession = jest.fn()
+    const confirmIdentity = jest.fn().mockResolvedValue(false)
+
+    await expect(runBrowserDiAuthSetup(
+      {
+        region: 'cn',
+        username: 'expected@example.test',
+        sessionTokenFile: '/private/account/session.json',
+        confirmIdentity,
+      },
+      { ...dependencies, writeSession },
+    )).rejects.toThrow('Garmin browser account confirmation was declined')
+
+    expect(confirmIdentity).toHaveBeenCalledWith({ displayName: 'Private Runner' })
+    expect(writeSession).not.toHaveBeenCalled()
+  })
+
+  it('records token expiry before the profile request instead of extending it', async () => {
+    const { dependencies, http } = successfulFixture('cn')
+    let profileRequested = false
+    http.request.mockReset()
+      .mockResolvedValueOnce({
+        status: 200,
+        contentType: 'application/json',
+        body: {
+          access_token: 'di-access-secret',
+          refresh_token: 'di-refresh-secret',
+          expires_in: 3_600,
+        },
+      })
+      .mockImplementationOnce(async () => {
+        profileRequested = true
+        return {
+          status: 200,
+          contentType: 'application/json',
+          body: { displayName: 'Private Runner', profileId: 123456789 },
+        }
+      })
+    const observedAtMs = 1_800_000_000_000
+    const now = jest.fn(() => {
+      expect(profileRequested).toBe(false)
+      return observedAtMs
+    })
+    const writeSession = jest.fn().mockResolvedValue(undefined)
+
+    await runBrowserDiAuthSetup(
+      {
+        region: 'cn',
+        username: 'runner@example.test',
+        sessionTokenFile: '/private/account/session.json',
+        confirmIdentity: jest.fn().mockResolvedValue(true),
+      },
+      { ...dependencies, now, writeSession },
+    )
+
+    expect(now).toHaveBeenCalledTimes(1)
+    expect(writeSession.mock.calls[0][1].tokens.accessExpiresAtMs)
+      .toBe(observedAtMs + 3_600_000)
   })
 
   it('probes DI from an already captured ticket without exposing secrets', async () => {

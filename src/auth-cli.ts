@@ -4,17 +4,17 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import readline from 'node:readline/promises'
 import type { Readable, Writable } from 'node:stream'
-import {
-  authenticateGarminSession,
-  type GarminAuthOptions,
-  type GarminAuthResult,
-} from './auth'
+import type { GarminAuthOptions, GarminAuthResult } from './auth'
 import {
   BrowserCanaryControlError,
   isBrowserDiAuthCanaryStage,
+  runBrowserDiAuthSetup,
   runBrowserDiAuthCanary,
   type BrowserDiAuthCanaryOptions,
   type BrowserDiAuthCanaryResult,
+  type BrowserDiProfileIdentity,
+  type BrowserDiAuthSetupOptions,
+  type BrowserDiAuthSetupResult,
 } from './browser-auth-canary'
 import {
   createAxiosCanaryHttpAdapter,
@@ -56,6 +56,24 @@ export interface AuthCanaryCliDependencies {
   canary(options: BrowserDiAuthCanaryOptions): Promise<BrowserDiAuthCanaryResult>
 }
 
+export interface BrowserAuthCliDependencies {
+  setup(options: BrowserDiAuthSetupOptions): Promise<BrowserDiAuthSetupResult>
+}
+
+export interface BrowserAuthSetupInput {
+  argv: string[]
+  env: Record<string, string | undefined>
+  io: AuthCliIO
+  signal?: AbortSignal
+  dependencies?: BrowserAuthCliDependencies
+}
+
+export interface BrowserAuthSetupResult {
+  account: string
+  region: GarminRegion
+  sessionTokenFile: string
+}
+
 export interface AuthCanaryInput {
   argv: string[]
   io: AuthCliIO
@@ -64,7 +82,11 @@ export interface AuthCanaryInput {
 }
 
 const defaultDependencies: AuthCliDependencies = {
-  authenticate: authenticateGarminSession,
+  // Keep help/version and browser-only commands independent of the legacy
+  // Garmin SDK graph. The SDK is loaded only if terminal login is selected.
+  authenticate: options => (
+    require('./auth') as typeof import('./auth')
+  ).authenticateGarminSession(options),
   writeSession: writeSessionTokenFile,
 }
 
@@ -75,15 +97,27 @@ const defaultCanaryDependencies: AuthCanaryCliDependencies = {
   }),
 }
 
+const defaultBrowserDependencies: BrowserAuthCliDependencies = {
+  setup: options => runBrowserDiAuthSetup(options, {
+    browser: createPlaywrightBrowserAdapter(),
+    http: createAxiosCanaryHttpAdapter(),
+    writeSession: writeSessionTokenFile,
+  }),
+}
+
+const MAX_DISPLAYED_SESSION_PATH_BYTES = 1024
+
 const AUTH_CLI_HELP = `Garmin Connect authentication
 
 Usage:
   garmin-connect-auth login [options]
+  garmin-connect-auth login --browser --region <global|cn> [options]
   garmin-connect-auth canary --region <global|cn>
 
 Login options:
+  --browser               Enter password, MFA, and CAPTCHA on Garmin's page
   --account <alias>       Account alias (default: default)
-  --region <global|cn>    Garmin account region (default: global)
+  --region <global|cn>    Region (default: global; required with --browser)
   --output <path>         OAuth session file path
 
 Canary options:
@@ -150,7 +184,9 @@ export async function runAuthSetup(input: AuthSetupInput): Promise<AuthSetupResu
     )
 
     input.io.write('Authentication succeeded.\n')
-    input.io.write(`Session saved securely to: ${sessionTokenFile}\n`)
+    input.io.write(
+      `Session saved securely to: ${sessionPathForTerminal(sessionTokenFile)}\n`,
+    )
     input.io.write(
       'Configure GARMIN_USERNAME, GARMIN_REGION, and GARMIN_SESSION_TOKEN_FILE; ' +
       'the runtime no longer needs GARMIN_PASSWORD.\n',
@@ -167,6 +203,72 @@ export async function runAuthSetup(input: AuthSetupInput): Promise<AuthSetupResu
     // local reference promptly keeps the password out of subsequent logic.
     password = ''
   }
+}
+
+/** Authenticate with Garmin's visible browser UI and persist a DI session. */
+export async function runBrowserAuthSetup(
+  input: BrowserAuthSetupInput,
+): Promise<BrowserAuthSetupResult> {
+  const parsed = parseBrowserLoginArgs(input.argv)
+  const dependencies = input.dependencies ?? defaultBrowserDependencies
+  const account = parsed.account ?? input.env.GARMIN_ACCOUNT?.trim() ?? 'default'
+  if (!/^[a-z][a-z0-9_-]{0,31}$/.test(account)) {
+    throw new PublicToolError(
+      'Invalid account alias; use lowercase letters, numbers, underscores, or hyphens',
+    )
+  }
+
+  if (parsed.region !== 'global' && parsed.region !== 'cn') {
+    throw new PublicToolError(
+      parsed.region === undefined
+        ? 'Browser login region is required; use global or cn'
+        : 'Invalid browser login region; expected global or cn',
+    )
+  }
+  const region: GarminRegion = parsed.region
+  const configuredPath = parsed.output ?? input.env.GARMIN_SESSION_TOKEN_FILE?.trim()
+  const sessionTokenFile = configuredPath
+    ? path.resolve(expandHome(configuredPath))
+    : defaultAccountSessionPath(account, input.env)
+  const username = input.env.GARMIN_USERNAME?.trim()
+    || (await input.io.prompt('Garmin email: ', false)).trim()
+  if (!username) throw new PublicToolError('Garmin username is required')
+
+  input.io.write(
+    'Opening an isolated Garmin page. Enter password, MFA, or CAPTCHA only ' +
+    'on Garmin\'s page; this CLI reads only the username.\n',
+  )
+  const result = await dependencies.setup({
+    username,
+    region,
+    sessionTokenFile,
+    signal: input.signal,
+    confirmIdentity: async identity => (
+      (await input.io.prompt(
+        browserIdentityConfirmationPrompt(identity, account, username),
+        false,
+      )).trim().toLowerCase() === 'yes'
+    ),
+    onStage: (stage) => {
+      if (isBrowserDiAuthCanaryStage(stage)) {
+        input.io.write(`auth_stage=${stage}\n`)
+      }
+    },
+  })
+  if (!result.ok || result.region !== region || result.persisted !== true) {
+    throw new PublicToolError('Garmin browser authentication returned an invalid result')
+  }
+
+  input.io.write('authentication_status=passed\n')
+  input.io.write(`region=${region}\n`)
+  input.io.write('browser=system-chrome\n')
+  input.io.write('di_auth=passed\n')
+  input.io.write('session_persisted=yes\n')
+  input.io.write(
+    `Session saved securely to: ${sessionPathForTerminal(sessionTokenFile)}\n`,
+  )
+  input.io.write('credentials_collected_by_cli=username-only\n')
+  return { account, region, sessionTokenFile }
 }
 
 /** Run the non-persisting browser/DI probe without reading CLI credentials. */
@@ -222,6 +324,38 @@ interface ParsedArgs {
   account?: string
   region?: string
   output?: string
+}
+
+interface ParsedBrowserLoginArgs extends ParsedArgs {
+  browser: true
+}
+
+function parseBrowserLoginArgs(argv: string[]): ParsedBrowserLoginArgs {
+  const args = [...argv]
+  if (args[0] === 'login') args.shift()
+  rejectSensitiveArgs(args)
+  let browser = false
+  const parsed: ParsedArgs = {}
+  while (args.length > 0) {
+    const flag = args.shift()
+    if (flag === '--browser' && !browser) {
+      browser = true
+      continue
+    }
+    if (flag === '--account' || flag === '--region' || flag === '--output') {
+      const value = args.shift()
+      if (!value || value.startsWith('--')) {
+        throw new PublicToolError(`Missing value for ${flag}`)
+      }
+      if (flag === '--account') parsed.account = value
+      else if (flag === '--region') parsed.region = value
+      else parsed.output = value
+      continue
+    }
+    throw new PublicToolError('Unknown browser authentication option')
+  }
+  if (!browser) throw new PublicToolError('Browser authentication requires --browser')
+  return { ...parsed, browser: true }
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -287,6 +421,47 @@ function expandHome(value: string): string {
   return value.startsWith(`~${path.sep}`)
     ? path.join(homedir(), value.slice(2))
     : value
+}
+
+function sessionPathForTerminal(value: string): string {
+  return terminalQuotedValue(
+    value,
+    MAX_DISPLAYED_SESSION_PATH_BYTES,
+    '[configured path omitted: exceeds display limit]',
+  )
+}
+
+function browserIdentityConfirmationPrompt(
+  identity: BrowserDiProfileIdentity,
+  account: string,
+  username: string,
+): string {
+  const labels = [
+    identity.displayName
+      ? `displayName=${terminalQuotedValue(identity.displayName, 512, '[omitted]')}`
+      : undefined,
+    identity.userName
+      ? `userName=${terminalQuotedValue(identity.userName, 512, '[omitted]')}`
+      : undefined,
+  ].filter((value): value is string => value !== undefined).join(', ')
+  return (
+    `Authenticated Garmin profile (${labels || 'label unavailable'}). ` +
+    `Bind it to local account ${terminalQuotedValue(account, 128, '[omitted]')} ` +
+    `for username ${terminalQuotedValue(username, 512, '[omitted]')}? ` +
+    'Type yes to save session: '
+  )
+}
+
+function terminalQuotedValue(
+  value: string,
+  maxBytes: number,
+  omitted: string,
+): string {
+  const encoded = JSON.stringify(value).replace(
+    /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu,
+    character => `\\u${character.codePointAt(0)!.toString(16).padStart(4, '0')}`,
+  )
+  return Buffer.byteLength(encoded, 'utf8') <= maxBytes ? encoded : omitted
 }
 
 function safeMfaMethod(value: string): string {
@@ -396,6 +571,11 @@ async function main(): Promise<void> {
       argv.length === 2
       && (argv[0] === 'login' || argv[0] === 'canary')
       && (argv[1] === '--help' || argv[1] === '-h')
+    ) || (
+      argv.length === 3
+      && argv[0] === 'login'
+      && argv[1] === '--browser'
+      && (argv[2] === '--help' || argv[2] === '-h')
     )
     if (helpRequested) {
       process.stdout.write(AUTH_CLI_HELP)
@@ -407,12 +587,18 @@ async function main(): Promise<void> {
       argv.length === 2
       && (argv[0] === 'login' || argv[0] === 'canary')
       && (argv[1] === '--version' || argv[1] === '-V')
+    ) || (
+      argv.length === 3
+      && argv[0] === 'login'
+      && argv[1] === '--browser'
+      && (argv[2] === '--version' || argv[2] === '-V')
     )
     if (versionRequested) {
       process.stdout.write(`${AUTH_CLI_VERSION}\n`)
       return
     }
-    if (argv[0] === 'canary') {
+    const browserLoginRequested = argv[0] === 'login' && argv.includes('--browser')
+    if (argv[0] === 'canary' || browserLoginRequested) {
       const controller = new AbortController()
       const cancelFromSigint = (): void => {
         terminationSignal ??= 'SIGINT'
@@ -430,11 +616,20 @@ async function main(): Promise<void> {
       process.once('SIGINT', cancelFromSigint)
       process.once('SIGTERM', cancelFromSigterm)
       try {
-        await runAuthCanary({
-          argv,
-          io: terminalIO(),
-          signal: controller.signal,
-        })
+        if (browserLoginRequested) {
+          await runBrowserAuthSetup({
+            argv,
+            env: process.env,
+            io: terminalIO(),
+            signal: controller.signal,
+          })
+        } else {
+          await runAuthCanary({
+            argv,
+            io: terminalIO(),
+            signal: controller.signal,
+          })
+        }
       } finally {
         process.off('SIGHUP', cancelFromSighup)
         process.off('SIGINT', cancelFromSigint)
