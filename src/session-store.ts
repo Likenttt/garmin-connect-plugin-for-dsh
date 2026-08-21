@@ -52,8 +52,17 @@ export interface GarminDiSessionFile {
 
 export type GarminSessionFile = GarminLegacySessionFile | GarminDiSessionFile
 
+/** Base class for a file that selected DI auth but cannot be used safely. */
+export class GarminDiSessionFileError extends PublicToolError {
+  override name = 'GarminDiSessionFileError'
+
+  constructor(message = 'Garmin session token file is invalid') {
+    super(message)
+  }
+}
+
 /** A recognized pre-release DI shape that must never fall back to password login. */
-export class ObsoleteGarminDiSessionError extends PublicToolError {
+export class ObsoleteGarminDiSessionError extends GarminDiSessionFileError {
   override name = 'ObsoleteGarminDiSessionError'
 
   constructor() {
@@ -89,10 +98,13 @@ export async function readSessionTokenFile(path: string): Promise<GarminSessionF
   try {
     const parsed = JSON.parse(source) as unknown
     if (isObsoleteDiSessionFile(parsed)) throw new ObsoleteGarminDiSessionError()
+    if (isRecord(parsed) && parsed.kind === 'di-oauth' && !isDiSessionFile(parsed)) {
+      throw new GarminDiSessionFileError()
+    }
     if (!isSessionFile(parsed)) throw new Error('Invalid token structure')
     return parsed
   } catch (error) {
-    if (error instanceof ObsoleteGarminDiSessionError) throw error
+    if (error instanceof GarminDiSessionFileError) throw error
     throw new PublicToolError('Garmin session token file is invalid')
   }
 }

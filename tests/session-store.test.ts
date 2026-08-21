@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import {
   bindDiSessionTokensToAccount,
   bindSessionTokensToAccount,
+  GarminDiSessionFileError,
   readSessionTokenFile,
   sessionFileMatchesAccount,
   sessionFileMatchesProfile,
@@ -147,6 +148,25 @@ describe('session token file store', () => {
 
     await expect(readSessionTokenFile(path)).rejects.toThrow(
       'Garmin DI session format is obsolete; run browser authentication again',
+    )
+  })
+
+  it.each([
+    ['a damaged current session', { tokens: { accessToken: '' } }],
+    ['a future session version', { schemaVersion: 3 }],
+    ['an unsupported DI client', { clientId: 'FUTURE_DI_CLIENT' }],
+  ])('classifies %s as DI so callers cannot fall back to password', async (_case, override) => {
+    const current = bindDiSessionTokensToAccount({
+      accessToken: 'di-access-token',
+      refreshToken: 'di-refresh-token',
+      clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
+      accessExpiresAtMs: 1_800_000_000_000,
+      refreshExpiresAtMs: null,
+    }, 'runner@example.com', 'global', 123456789)
+    const path = await sessionPath(JSON.stringify({ ...current, ...override }))
+
+    await expect(readSessionTokenFile(path)).rejects.toBeInstanceOf(
+      GarminDiSessionFileError,
     )
   })
 

@@ -5,12 +5,30 @@ import { join } from 'node:path'
 import { GarminConnect } from 'garmin-connect'
 import { GarminClient } from '../src/client'
 import type { Config } from '../src/config'
-import { bindSessionTokensToAccount } from '../src/session-store'
+import {
+  bindDiSessionTokensToAccount,
+  bindSessionTokensToAccount,
+  GARMIN_DI_CLIENT_ID,
+} from '../src/session-store'
 import { MAX_ZIP_BYTES } from '../src/fit-export'
 
 jest.mock('garmin-connect', () => ({
-  GarminConnect: jest.fn().mockImplementation(() => ({
-    client: { client: { defaults: {} } },
+  GarminConnect: jest.fn().mockImplementation(() => {
+    const interceptorManager = {
+      clear: jest.fn(),
+      use: jest.fn(),
+    }
+    return {
+    client: {
+      client: {
+        defaults: {},
+        interceptors: {
+          request: { ...interceptorManager },
+          response: { ...interceptorManager },
+        },
+        request: jest.fn(),
+      },
+    },
     login: jest.fn().mockResolvedValue(undefined),
     loadToken: jest.fn(),
     exportToken: jest.fn(),
@@ -23,11 +41,20 @@ jest.mock('garmin-connect', () => ({
     downloadOriginalActivityData: jest.fn(),
     addWorkout: jest.fn(),
     getUserProfile: jest.fn(),
-  })),
+  }}),
 }))
 
 type MockGarmin = {
-  client: { client: { defaults: { timeout?: number; maxContentLength?: number } } }
+  client: {
+    client: {
+      defaults: { timeout?: number; maxContentLength?: number }
+      interceptors: {
+        request: { clear: jest.Mock; use: jest.Mock }
+        response: { clear: jest.Mock; use: jest.Mock }
+      }
+      request: jest.Mock
+    }
+  }
   login: jest.Mock
   loadToken: jest.Mock
   exportToken: jest.Mock
@@ -80,6 +107,20 @@ async function createSessionFile(source: string): Promise<string> {
   return path
 }
 
+function createDiSession(
+  username = 'runner@example.test',
+  region: 'global' | 'cn' = 'global',
+  profileId = 123456789,
+) {
+  return bindDiSessionTokensToAccount({
+    clientId: GARMIN_DI_CLIENT_ID,
+    accessToken: 'di-access-secret',
+    refreshToken: 'di-refresh-secret',
+    accessExpiresAtMs: Date.now() + 3_600_000,
+    refreshExpiresAtMs: Date.now() + 86_400_000,
+  }, username, region, profileId)
+}
+
 describe('GarminClient', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -121,6 +162,115 @@ describe('GarminClient', () => {
 
     await expect(client.connect()).resolves.toBeUndefined()
     expect(latestGarmin().loadToken).toHaveBeenCalledWith(tokens.oauth1, tokens.oauth2)
+    expect(latestGarmin().login).not.toHaveBeenCalled()
+  })
+
+  it('loads a profile-bound DI session without password or legacy OAuth', async () => {
+    const diSession = createDiSession()
+    const sessionTokenFile = await createSessionFile(JSON.stringify(diSession))
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: '',
+      sessionTokenFile,
+    })
+    latestGarmin().getUserProfile.mockResolvedValue({ profileId: 123456789 })
+
+    await expect(client.connect()).resolves.toBeUndefined()
+    expect(latestGarmin().getUserProfile).toHaveBeenCalledTimes(1)
+    expect(latestGarmin().loadToken).not.toHaveBeenCalled()
+    expect(latestGarmin().login).not.toHaveBeenCalled()
+  })
+
+  it('does not apply one outer timeout across the DI refresh and profile chain', async () => {
+    const sessionTokenFile = await createSessionFile(JSON.stringify(createDiSession()))
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: '',
+      sessionTokenFile,
+      requestTimeoutMs: 10,
+    })
+    latestGarmin().getUserProfile.mockImplementation(() => new Promise(resolveProfile => {
+      setTimeout(() => resolveProfile({ profileId: 123456789 }), 30)
+    }))
+
+    await expect(client.connect()).resolves.toBeUndefined()
+    expect(latestGarmin().getUserProfile).toHaveBeenCalledTimes(1)
+  })
+
+  it('never falls back to password after a DI GET remains unauthorized', async () => {
+    const sessionTokenFile = await createSessionFile(JSON.stringify(createDiSession()))
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: 'must-not-be-used-for-di',
+      sessionTokenFile,
+    })
+    latestGarmin().getUserProfile.mockResolvedValue({ profileId: 123456789 })
+    latestGarmin().getActivities.mockRejectedValue(
+      Object.assign(new Error('raw response secret'), { status: 401 }),
+    )
+
+    await expect(client.getActivities()).rejects.toThrow(
+      'Garmin DI session was rejected; run garmin-connect-auth login --browser again',
+    )
+    expect(latestGarmin().login).not.toHaveBeenCalled()
+    expect(latestGarmin().loadToken).not.toHaveBeenCalled()
+  })
+
+  it('never falls back to password for an obsolete DI session file', async () => {
+    const obsoleteSession = {
+      ...createDiSession(),
+      schemaVersion: 1,
+    }
+    const sessionTokenFile = await createSessionFile(JSON.stringify(obsoleteSession))
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: 'must-not-be-used-for-obsolete-di',
+      sessionTokenFile,
+    })
+
+    await expect(client.connect()).rejects.toThrow(
+      'Garmin DI session format is obsolete; run browser authentication again',
+    )
+    expect(latestGarmin().login).not.toHaveBeenCalled()
+    expect(latestGarmin().loadToken).not.toHaveBeenCalled()
+  })
+
+  it('never falls back to password for a malformed current DI session file', async () => {
+    const malformedSession = {
+      ...createDiSession(),
+      tokens: {
+        ...createDiSession().tokens,
+        refreshToken: '',
+      },
+    }
+    const sessionTokenFile = await createSessionFile(JSON.stringify(malformedSession))
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: 'must-not-be-used-for-malformed-di',
+      sessionTokenFile,
+    })
+
+    await expect(client.connect()).rejects.toThrow('Garmin session token file is invalid')
+    expect(latestGarmin().login).not.toHaveBeenCalled()
+    expect(latestGarmin().loadToken).not.toHaveBeenCalled()
+  })
+
+  it('does not refresh, reject, or password-fallback a DI session after HTTP 403', async () => {
+    const sessionTokenFile = await createSessionFile(JSON.stringify(createDiSession()))
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: 'must-not-be-used-for-di',
+      sessionTokenFile,
+    })
+    latestGarmin().getUserProfile.mockResolvedValue({ profileId: 123456789 })
+    latestGarmin().getActivities
+      .mockRejectedValueOnce(Object.assign(new Error('forbidden body'), { status: 403 }))
+      .mockResolvedValueOnce([{ activityId: 42 }])
+
+    await expect(client.getActivities()).rejects.toEqual(
+      expect.objectContaining({ status: 403 }),
+    )
+    await expect(client.getActivities()).resolves.toEqual([{ activityId: 42 }])
     expect(latestGarmin().login).not.toHaveBeenCalled()
   })
 

@@ -1,9 +1,18 @@
 import { Context } from '@deepseek-ai/cordis'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { GarminConnect } from 'garmin-connect'
 import type { Config } from './config'
+import {
+  createGarminDiSessionRuntimeDependencies,
+  GarminDiSessionRuntime,
+} from './di-session'
 import { MAX_ZIP_BYTES } from './fit-export'
-import { readSessionTokenFile, sessionFileMatchesAccount } from './session-store'
+import {
+  GarminDiSessionFileError,
+  isDiSessionFile,
+  readSessionTokenFile,
+  sessionFileMatchesAccount,
+} from './session-store'
 import { MemoryCache } from './utils/cache'
 import { parseLocalDate } from './utils/date'
 import { PublicToolError } from './utils/errors'
@@ -16,6 +25,9 @@ const LOG_LEVEL_RANK: Record<LogLevel, number> = {
   warn: 2,
   error: 3,
 }
+
+const DI_SESSION_REJECTED_MESSAGE =
+  'Garmin DI session was rejected; run garmin-connect-auth login --browser again'
 
 /**
  * Thin wrapper around the `garmin-connect` npm package that adds:
@@ -33,6 +45,8 @@ export class GarminClient {
   private connected = false
   private connecting: Promise<void> | null = null
   private sessionTokenRejected = false
+  private diSessionSelected = false
+  private diRuntime: GarminDiSessionRuntime | null = null
   private authEpoch = 0
 
   constructor(ctx: Context, config: Config) {
@@ -90,6 +104,8 @@ export class GarminClient {
           this.log('warn', '[garmin] Configured session is unavailable; falling back to password login.')
           await this.withRequestTimeout(() => this.gc.login())
         }
+      } else if (this.diSessionSelected) {
+        throw new PublicToolError(DI_SESSION_REJECTED_MESSAGE)
       } else if (this.config.password?.trim()) {
         this.log('info', '[garmin] Logging in with username/password…')
         await this.withRequestTimeout(() => this.gc.login())
@@ -123,7 +139,34 @@ export class GarminClient {
           throw new Error('Invalid token structure')
         }
       } else {
-        const sessionFile = await readSessionTokenFile(this.config.sessionTokenFile!.trim())
+        const sessionPath = resolve(this.config.sessionTokenFile!.trim())
+        const sessionFile = await readSessionTokenFile(sessionPath)
+        if (isDiSessionFile(sessionFile)) {
+          this.diSessionSelected = true
+          const runtime = new GarminDiSessionRuntime({
+            username: this.config.username,
+            region: this.config.region,
+            session: sessionFile,
+            sessionPath,
+            requestTimeoutMs: this.requestTimeoutMs,
+            dependencies: createGarminDiSessionRuntimeDependencies(),
+          })
+          this.diRuntime = runtime
+          runtime.install(this.gc.client.client)
+          let profile: unknown
+          try {
+            profile = await this.gc.getUserProfile()
+          } catch (error) {
+            if (isRecord(error) && error.timedOut === true) {
+              throw new PublicToolError(
+                `Garmin request timed out after ${this.requestTimeoutMs}ms`,
+              )
+            }
+            throw error
+          }
+          runtime.validateProfile(profile)
+          return true
+        }
         if (!sessionFileMatchesAccount(
           sessionFile,
           this.config.username,
@@ -141,7 +184,14 @@ export class GarminClient {
       this.gc.loadToken(tokens.oauth1 as any, tokens.oauth2 as any)
       return true
     } catch (error) {
+      if (error instanceof GarminDiSessionFileError) {
+        this.diSessionSelected = true
+      }
       this.rejectConfiguredSessionToken()
+      if (this.diSessionSelected) {
+        if (error instanceof PublicToolError) throw error
+        throw new PublicToolError(DI_SESSION_REJECTED_MESSAGE)
+      }
       if (!this.config.password?.trim()) {
         if (!inlineToken && error instanceof PublicToolError) throw error
         throw new PublicToolError(
@@ -163,6 +213,7 @@ export class GarminClient {
     this.connected = false
     this.authEpoch += 1
     this.cache.clear()
+    this.diRuntime?.invalidate()
     const upstream = this.gc.client as any
     upstream.oauth1Token = undefined
     upstream.oauth2Token = undefined
@@ -200,6 +251,13 @@ export class GarminClient {
         
         // Session expired -> auto-reconnect
         if (status === 401 || status === 403) {
+          if (this.diSessionSelected) {
+            if (status === 401) {
+              this.rejectConfiguredSessionToken()
+              throw new PublicToolError(DI_SESSION_REJECTED_MESSAGE)
+            }
+            throw err
+          }
           if (this.hasConfiguredSession() && !this.sessionTokenRejected) {
             // A configured token and password can belong to different Garmin
             // accounts. Never carry health data across that identity boundary.
@@ -385,6 +443,7 @@ export class GarminClient {
     } catch (error) {
       const status = getHttpStatus(error)
       if (status === 401 || status === 403) {
+        if (this.diSessionSelected && status === 403) throw error
         if (this.hasConfiguredSession() && !this.sessionTokenRejected) {
           this.rejectConfiguredSessionToken()
         } else {
@@ -407,6 +466,11 @@ export class GarminClient {
   /** Export a session token so it can be stored securely for future logins. */
   async exportSession(): Promise<string> {
     await this.ensureConnected()
+    if (this.diSessionSelected) {
+      throw new PublicToolError(
+        'Garmin DI sessions remain in the configured session token file',
+      )
+    }
     return JSON.stringify(this.gc.exportToken())
   }
 }
