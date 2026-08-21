@@ -9,7 +9,7 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**[English](README.md)** | 中文 | **[测试报告](TEST_REPORT.zh-CN.md)**
+**[English](README.md)** | 中文 | **[测试报告](TEST_REPORT.zh-CN.md)** | **[更新日志](CHANGELOG.md)**
 
 > [!WARNING]
 > **0.1.5 状态：** Garmin 两步验证尚未完成，不属于本次发布支持的能力。下文浏览器
@@ -99,7 +99,7 @@ Garmin 活动；它只建议先取得医疗专业人员许可，不自行诊断�
   不是必须精确凑出的比例。
 
 近期 Garmin 跑步数据只能补充上述问询，不能代替用户回答。方法来源、证据边界和
-适用限制见[训练方法研究说明](docs/research/running-training-methods.md)。
+适用限制见[训练方法研究说明](https://github.com/Likenttt/garmin-connect-plugin-for-dsh/blob/main/docs/research/running-training-methods.md)。
 每条训练理念和课型卡还会把相应内容标成 `system_principle`（体系理念）、
 `research_evidence`（研究证据）或 `application_inference`（应用推断），避免把
 方法定义误写成优越性证据。
@@ -107,10 +107,6 @@ Garmin 活动；它只建议先取得医疗专业人员许可，不自行诊断�
 ---
 
 ## 快速开始
-
-> **测试当前未发布源码：** `Unreleased` 中的加固改动尚未发布，也没有提升版本号。
-> 如需测试这些改动，请使用下方“本地源码调试”方式；registry 命令安装的仍是已发布的
-> `0.1.4`。
 
 ### 1. 安装本插件 — 从 npm registry(推荐)
 
@@ -216,18 +212,16 @@ garmin-connect-auth login --browser --account personal --region cn
 ```
 
 直接运行裸命令的前提是 npm 可执行文件已进入 `PATH`，通常需要全局安装；
-dsh 的嵌套依赖或普通本地依赖不会自动暴露这个系统命令。如需在当前源码上测试系统
-命令，可先在仓库目录中显式执行 `npm install -g .`。未来包含该命令的版本发布后，
-可全局安装该版本，或在用户自己的终端中按以下格式运行，并替换
-`PUBLISHED_VERSION`：
+dsh 的嵌套依赖或普通本地依赖不会自动暴露这个系统命令。可以全局安装已发布版本，
+也可以直接通过 `npx` 运行：
 
 ```bash
-npx -y --package dsh-plugin-garmin-connect@PUBLISHED_VERSION \
+npm install -g dsh-plugin-garmin-connect@0.1.5
+npx -y --package dsh-plugin-garmin-connect@0.1.5 \
   garmin-connect-auth login --browser --account personal --region global
 ```
 
-当前 npm registry 上的 `0.1.4` 早于这个可执行命令；在后续包含该命令的预发布版或
-正式版安装前，请继续使用上方源码方式
+源码 checkout 仍可使用 `npm install -g .` 或
 `npm run auth:setup -- --browser ...`。无论使用哪种入口，命令都会打开隔离、可见的系统
 Google Chrome。邮箱、密码、MFA 验证码和 CAPTCHA 只能在 Garmin 页面中输入；CLI
 不会读取这些表单值，也不接受通过命令行参数、环境变量、MCP 工具参数或模型输入传入。
@@ -445,8 +439,7 @@ username、region 和 `profileIdHash`；为兼容旧版本，无绑定的 `oauth
 
 本插件同时提供了一个独立的 **MCP (Model Context Protocol) 服务器**，让你可以在 OpenAI Codex、Claude Code、Claude Desktop、Cursor、Windsurf、WorkBuddy、ZCode 等任何支持 MCP 的客户端中使用相同的 Garmin 工具 — **无需安装 DeepSeek Harness**。
 
-> **当前可用性：** npm `0.1.4` 早于 MCP 入口加入。新的 MCP 版本发布前，
-> 请使用本地源码；下文 registry `npx` 命令明确仅供未来发布后使用。
+> **当前可用性：** npm `0.1.5` 及之后版本已包含独立 MCP 入口；本地源码方式仍适合开发。
 
 先构建本地服务器：
 
@@ -666,8 +659,7 @@ session 文件路径，但不会保存 session 内容、密码或 MFA 验证码�
 仍留在 MCP 主机；只有活动 ID、文件名、大小和 hash 会进入模型上下文。请按自己配置的
 父目录和文档中的账号目录规则定位文件。
 
-等包含 MCP 可执行入口的版本发布到 npm 后，可以把本地的 `node …/lib/mcp.js`
-替换为：
+使用 npm `0.1.5` 或之后版本时，可以把本地的 `node …/lib/mcp.js` 替换为：
 
 ```bash
 npx -y --package dsh-plugin-garmin-connect garmin-connect-mcp

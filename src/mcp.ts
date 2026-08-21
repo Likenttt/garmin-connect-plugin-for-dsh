@@ -87,11 +87,13 @@ const WRITE_ANNOTATIONS = {
   openWorldHint: true,
 }
 
+const MCP_SERVER_VERSION = (require('../package.json') as { version: string }).version
+
 /** Build an MCP adapter around the same service used by the DSH plugin. */
 export function createMcpServer(service: ToolService): McpServer {
   const server = new McpServer({
     name: 'garmin-connect',
-    version: '0.1.4',
+    version: MCP_SERVER_VERSION,
   })
 
   // Casting at this boundary keeps the SDK's recursive Zod overloads from

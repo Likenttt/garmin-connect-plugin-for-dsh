@@ -2,11 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.1.5] - 2026-08-21
 
-> This section compares the current checkout with the npm-published `0.1.4`
-> package. The package version has not been changed or published. Browser-based
-> Garmin two-step verification remains unfinished and is not release-supported.
+> This release compares against npm `0.1.4`. Browser-based Garmin two-step
+> verification remains unfinished and is not release-supported.
 
 ### Added
 - A standalone `garmin-connect-mcp` server exposing the same 10 Garmin tools as the dsh plugin to Codex, Claude Code/Desktop, Cursor, Windsurf, WorkBuddy, ZCode, and other stdio MCP clients.
@@ -34,7 +33,7 @@ All notable changes to this project will be documented in this file.
 - The minimum supported Node.js version is now 20 instead of 18.
 - `get_running_skill_advice` now requires `mode` (`explain` or `personalized`) and returns the selected language instead of the previous always-bilingual response.
 - Direct TypeScript consumers of `Config` must provide `fitDownloadDir`; an empty string keeps FIT download disabled.
-- This set of changes is not a drop-in patch for every `0.1.4` consumer. Restore compatibility before publishing as `0.1.5`, or use a minor-version release boundary.
+- This release is not a drop-in replacement for every `0.1.4` consumer; review these compatibility changes before upgrading.
 
 ### Removed — breaking
 - Removed the AI-callable `export_garmin_session` tool. Authentication material must now be handled through trusted local configuration and files.
@@ -60,7 +59,7 @@ All notable changes to this project will be documented in this file.
 - Published package contents now include `.env.example` and bilingual test reports.
 
 ### Experimental — not release-supported
-- Browser `garmin-connect-auth login --browser` and `garmin-connect-auth canary` remain developer diagnostics. Garmin two-step verification is unfinished and must not be presented as a supported next-release capability.
+- Browser `garmin-connect-auth login --browser` and `garmin-connect-auth canary` remain developer diagnostics. Garmin two-step verification is unfinished and must not be presented as a supported `0.1.5` capability.
 - DI runtime loading is implemented for valid DI v2 files, but browser-generated persistence followed by dsh/MCP restart and refresh, and the International-region flow, are not verified end to end.
 
 ### Known limitations

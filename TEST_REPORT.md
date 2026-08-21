@@ -2,24 +2,24 @@
 
 [简体中文](./TEST_REPORT.zh-CN.md)
 
-This page is a static verification snapshot intended to accompany the next
-release. It records what was tested, what was deliberately excluded, and which
-gaps still require manual verification.
+This page is the static verification snapshot for the `0.1.5` release. It
+records what was tested, what was deliberately excluded, and which gaps still
+require manual verification.
 
-> **Not a current release certificate:** the figures below are the last recorded
-> snapshot and predate the final 0.1.5 candidate. The clean candidate must rerun
-> every automated check and replace these numbers before publication.
+> **Release scope:** the automated checks below were rerun from a clean `0.1.5`
+> candidate. Garmin two-step verification remains explicitly excluded from the
+> supported release scope.
 
 ## Snapshot
 
 | Item | Result |
 | --- | --- |
 | Test date | 2026-08-21 |
-| Package manifest | `0.1.4`; intended next release `0.1.5` |
-| Release readiness | **Not ready** — two-step verification deferred; clean-candidate checks pending |
-| Last recorded automated snapshot | **Passed historically** — 20 suites, 456 tests; rerun required |
+| Package manifest | `0.1.5` |
+| Release readiness | **Ready within documented scope** — two-step verification deferred |
+| Clean-candidate automated snapshot | **Passed** — 20 suites, 456 tests |
 | TypeScript build | **Passed** |
-| npm package smoke test | **Passed** — 88 files; 172.9 kB packed; 676.1 kB unpacked |
+| npm package smoke test | **Passed** — 89 files; 176.1 kB packed; 686.8 kB unpacked |
 | Real Garmin integration | **Passed** — 8/8 read-only checks against the `global` region |
 | Two-step verification | **Incomplete / not release-ready** — partial China-region browser, ticket exchange, and profile evidence only |
 
@@ -41,14 +41,15 @@ npm run pack:smoke
 | --- | ---: |
 | Test suites | 20 passed |
 | Tests | 456 passed |
-| Statements | 85.21% |
+| Statements | 85.22% |
 | Branches | 78.97% |
 | Functions | 83.99% |
-| Lines | 87.46% |
+| Lines | 87.47% |
 
 `npm run build` completed successfully. `npm run pack:smoke` also completed
-successfully and inspected a tarball containing 88 files, including both test
-report pages, with a packed size of 172.9 kB and an unpacked size of 676.1 kB.
+successfully and inspected a tarball containing 89 files, including the
+changelog and both test-report pages, with a packed size of 176.1 kB and an
+unpacked size of 686.8 kB.
 
 ## Real Garmin read-only integration
 
@@ -137,9 +138,9 @@ These are documented limitations of this snapshot, not passing test results.
   path, activity detail, or health value is included here.
 - No Garmin data write operation was performed. The browser MFA canary did not
   persist a session file.
-- The manifest has not yet been bumped to `0.1.5`; this development snapshot
-  and the related local changes have not been published.
+- The package manifest, MCP server handshake, changelog, and documentation are
+  aligned to `0.1.5`.
 
-Before the next release, rerun the automated commands above. Real MFA, FIT, and
-client smoke tests should be added only with the account owner's explicit
-consent and with the same privacy safeguards.
+Future release candidates should rerun the automated commands above. Real MFA,
+FIT, and client smoke tests should be added only with the account owner's
+explicit consent and with the same privacy safeguards.

@@ -9,7 +9,7 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-English | **[简体中文](README.zh-CN.md)** | **[Test Report](TEST_REPORT.md)**
+English | **[简体中文](README.zh-CN.md)** | **[Test Report](TEST_REPORT.md)** | **[Changelog](CHANGELOG.md)**
 
 > [!WARNING]
 > **0.1.5 status:** Garmin two-step verification is unfinished and is not a
@@ -101,7 +101,7 @@ The compact philosophy layer contains:
 
 Recent Garmin runs may supplement this intake but never replace the athlete's
 answers. The method notes and evidence boundaries are summarized in
-[the training-method research note](docs/research/running-training-methods.md).
+[the training-method research note](https://github.com/Likenttt/garmin-connect-plugin-for-dsh/blob/main/docs/research/running-training-methods.md).
 Each philosophy and workout-card output labels its statements as
 `system_principle`, `research_evidence`, or `application_inference` so a method
 definition or coaching inference is not misrepresented as comparative proof.
@@ -109,11 +109,6 @@ definition or coaching inference is not misrepresented as comparative proof.
 ---
 
 ## Quick Start
-
-> **Testing this unreleased checkout:** the hardening changes in `Unreleased`
-> have intentionally not been published or version-bumped. Use the local
-> checkout install below to test them; the registry command installs the
-> currently published `0.1.4` package.
 
 ### 1. Install this plugin — from the npm registry (recommended)
 
@@ -227,22 +222,20 @@ garmin-connect-auth login --browser --account personal --region cn
 
 Direct invocation requires an installation that places npm executables on
 `PATH`, normally a global install; a nested dsh dependency or an ordinary local
-dependency does not do that. To test the current checkout as a system command,
-you can explicitly run `npm install -g .` from the repository first. After a
-future package version is published, either install that version globally or
-use this pattern from your own terminal, replacing `PUBLISHED_VERSION`:
+dependency does not do that. Install the published executable globally, or use
+the package directly with `npx`:
 
 ```bash
-npx -y --package dsh-plugin-garmin-connect@PUBLISHED_VERSION \
+npm install -g dsh-plugin-garmin-connect@0.1.5
+npx -y --package dsh-plugin-garmin-connect@0.1.5 \
   garmin-connect-auth login --browser --account personal --region global
 ```
 
-The currently published npm `0.1.4` package predates this executable. Until a
-later prerelease or release containing it is installed, use the source-checkout
-`npm run auth:setup -- --browser ...` command above. In either form, the command
-opens an isolated, visible system Google Chrome context. Enter the email,
-password, MFA code, and any CAPTCHA only on Garmin's page; the CLI does not read
-those form values, and none may be supplied through flags, environment
+For a source checkout, `npm install -g .` or
+`npm run auth:setup -- --browser ...` remains available. In every form, the
+command opens an isolated, visible system Google Chrome context. Enter the
+email, password, MFA code, and any CAPTCHA only on Garmin's page; the CLI does
+not read those form values, and none may be supplied through flags, environment
 variables, MCP tool arguments, or model input.
 
 After the browser closes, the CLI exchanges the short-lived service ticket and
@@ -499,9 +492,8 @@ across dsh, Codex, Claude Code, or other processes.
 
 This plugin also ships as a standalone **MCP (Model Context Protocol) server**, so you can use the same Garmin tools with OpenAI Codex, Claude Code, Claude Desktop, Cursor, Windsurf, WorkBuddy, ZCode, and any other MCP-compatible client — no DeepSeek Harness required.
 
-> **Current availability:** npm `0.1.4` predates the MCP entry point. Until a
-> newer MCP-capable version is published, use a local checkout; the registry
-> `npx` command shown below is intentionally marked as future use.
+> **Current availability:** the standalone MCP entry point is included in npm
+> `0.1.5` and later. A local checkout remains useful for development.
 
 Build the local server first:
 
@@ -748,8 +740,8 @@ FIT bytes and the complete local/account path remain on the MCP host. Only the
 activity ID, file name, size, and hash enter model context; locate the file
 using your configured parent and the documented account-directory rule.
 
-After a version containing the MCP executable is published to npm, the local
-`node …/lib/mcp.js` command can be replaced with:
+With npm `0.1.5` or later, the local `node …/lib/mcp.js` command can be replaced
+with:
 
 ```bash
 npx -y --package dsh-plugin-garmin-connect garmin-connect-mcp
