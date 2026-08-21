@@ -18,6 +18,8 @@
     ".env.example",
     "README.md",
     "README.zh-CN.md",
+    "TEST_REPORT.md",
+    "TEST_REPORT.zh-CN.md",
     "cordis.patch.yml"
   ],
   "repository": {

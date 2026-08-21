@@ -1,9 +1,21 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 describe('maintenance scripts', () => {
+  it('ships both test-report pages in the published package', () => {
+    const manifest = JSON.parse(readFileSync(
+      path.resolve(__dirname, '../package.json'),
+      'utf8',
+    )) as { files?: string[] }
+
+    expect(manifest.files).toEqual(expect.arrayContaining([
+      'TEST_REPORT.md',
+      'TEST_REPORT.zh-CN.md',
+    ]))
+  })
+
   it('keeps weekly workout creation in dry-run mode unless explicitly confirmed', () => {
     const script = path.resolve(__dirname, '../scripts/create-week-workouts.cjs')
     const cwd = mkdtempSync(path.join(tmpdir(), 'garmin-script-test-'))
