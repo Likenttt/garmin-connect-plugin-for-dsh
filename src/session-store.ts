@@ -2,7 +2,6 @@ import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import {
-  chmod,
   lstat,
   mkdir,
   open,
@@ -45,13 +44,22 @@ export interface GarminDiSessionTokens {
 
 export interface GarminDiSessionFile {
   kind: 'di-oauth'
-  schemaVersion: 1
+  schemaVersion: 2
   clientId: typeof GARMIN_DI_CLIENT_ID
   tokens: Omit<GarminDiSessionTokens, 'clientId'>
   account: GarminDiSessionAccountBinding
 }
 
 export type GarminSessionFile = GarminLegacySessionFile | GarminDiSessionFile
+
+/** A recognized pre-release DI shape that must never fall back to password login. */
+export class ObsoleteGarminDiSessionError extends PublicToolError {
+  override name = 'ObsoleteGarminDiSessionError'
+
+  constructor() {
+    super('Garmin DI session format is obsolete; run browser authentication again')
+  }
+}
 
 /** Read one strictly validated legacy OAuth or DI OAuth session file. */
 export async function readSessionTokenFile(path: string): Promise<GarminSessionFile> {
@@ -80,9 +88,11 @@ export async function readSessionTokenFile(path: string): Promise<GarminSessionF
   }
   try {
     const parsed = JSON.parse(source) as unknown
+    if (isObsoleteDiSessionFile(parsed)) throw new ObsoleteGarminDiSessionError()
     if (!isSessionFile(parsed)) throw new Error('Invalid token structure')
     return parsed
-  } catch {
+  } catch (error) {
+    if (error instanceof ObsoleteGarminDiSessionError) throw error
     throw new PublicToolError('Garmin session token file is invalid')
   }
 }
@@ -126,7 +136,6 @@ export async function writeSessionTokenFile(
       mode: 0o600,
     })
     await rename(temporaryPath, path)
-    if (process.platform !== 'win32') await chmod(path, 0o600)
   } catch {
     try {
       await unlink(temporaryPath)
@@ -160,7 +169,7 @@ export function bindDiSessionTokensToAccount(
   }
   return {
     kind: 'di-oauth',
-    schemaVersion: 1,
+    schemaVersion: 2,
     clientId: tokens.clientId,
     tokens: {
       accessToken: tokens.accessToken,
@@ -241,7 +250,7 @@ export function isDiSessionFile(value: unknown): value is GarminDiSessionFile {
     return false
   }
   if (
-    value.schemaVersion !== 1
+    value.schemaVersion !== 2
     || value.clientId !== GARMIN_DI_CLIENT_ID
     || !isRecord(value.tokens)
     || !isValidDiAccountBinding(value.account)
@@ -300,6 +309,12 @@ function isPositiveTimestamp(value: unknown): value is number {
 
 function isValidProfileId(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+function isObsoleteDiSessionFile(value: unknown): boolean {
+  return isRecord(value)
+    && value.kind === 'di-oauth'
+    && value.schemaVersion === 1
 }
 
 function profileIdHash(profileId: number): string {

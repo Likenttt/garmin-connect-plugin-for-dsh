@@ -74,7 +74,7 @@ describe('session token file store', () => {
     await expect(readSessionTokenFile(path)).resolves.toEqual(session)
     expect(session).toEqual({
       kind: 'di-oauth',
-      schemaVersion: 1,
+      schemaVersion: 2,
       clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
       tokens: {
         accessToken: 'di-access-token',
@@ -97,7 +97,7 @@ describe('session token file store', () => {
 
   it.each([
     ['wrong kind', { kind: 'legacy-oauth' }],
-    ['wrong schema version', { schemaVersion: 2 }],
+    ['unknown schema version', { schemaVersion: 3 }],
     ['unknown client', { clientId: 'UNTRUSTED_CLIENT' }],
     ['missing account binding', { account: undefined }],
     ['unexpected top-level field', { privateNote: 'TOP_SECRET_FRAGMENT' }],
@@ -133,6 +133,21 @@ describe('session token file store', () => {
 
     await expect(readSessionTokenFile(path))
       .rejects.toThrow('Garmin session token file is invalid')
+  })
+
+  it('requires browser reauthentication for an obsolete unbound DI session', async () => {
+    const current = bindDiSessionTokensToAccount({
+      accessToken: 'di-access-token',
+      refreshToken: 'di-refresh-token',
+      clientId: 'GARMIN_CONNECT_MOBILE_ANDROID_DI_2025Q2',
+      accessExpiresAtMs: 1_800_000_000_000,
+      refreshExpiresAtMs: null,
+    }, 'runner@example.com', 'global', 123456789)
+    const path = await sessionPath(JSON.stringify({ ...current, schemaVersion: 1 }))
+
+    await expect(readSessionTokenFile(path)).rejects.toThrow(
+      'Garmin DI session format is obsolete; run browser authentication again',
+    )
   })
 
   it.each([
