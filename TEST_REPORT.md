@@ -6,17 +6,22 @@ This page is a static verification snapshot intended to accompany the next
 release. It records what was tested, what was deliberately excluded, and which
 gaps still require manual verification.
 
+> **Not a current release certificate:** the figures below are the last recorded
+> snapshot and predate the final 0.1.5 candidate. The clean candidate must rerun
+> every automated check and replace these numbers before publication.
+
 ## Snapshot
 
 | Item | Result |
 | --- | --- |
 | Test date | 2026-08-21 |
-| Package version | `0.1.4` (not published) |
-| Automated tests | **Passed** — 20 suites, 456 tests |
+| Package manifest | `0.1.4`; intended next release `0.1.5` |
+| Release readiness | **Not ready** — two-step verification deferred; clean-candidate checks pending |
+| Last recorded automated snapshot | **Passed historically** — 20 suites, 456 tests; rerun required |
 | TypeScript build | **Passed** |
 | npm package smoke test | **Passed** — 88 files; 172.9 kB packed; 676.1 kB unpacked |
 | Real Garmin integration | **Passed** — 8/8 read-only checks against the `global` region |
-| China-region browser MFA / DI probe | **Passed** — browser MFA, one-time ticket exchange, and profile probe; no session persisted |
+| Two-step verification | **Incomplete / not release-ready** — partial China-region browser, ticket exchange, and profile evidence only |
 
 ## Automated verification
 
@@ -72,20 +77,21 @@ workouts or other Garmin data. Verbose output was explicitly disabled, so the
 run printed only status/count information rather than account identifiers,
 activity details, or health values.
 
-## China-region browser MFA / DI verification
+## China-region browser MFA / DI partial verification
 
-With the account owner's explicit consent, a visible isolated Chrome session
-completed the real China-region MFA flow on 2026-08-21. The diagnostic caught
-one short-lived Garmin service ticket before the browser consumed it, exchanged
-it once at the China-region DI endpoint, and successfully probed the China-region
+With the account owner's explicit consent, a visible Chrome session completed
+the Garmin-hosted China-region login and produced one short-lived service
+ticket on 2026-08-21. A guarded diagnostic separately exchanged a one-time
+ticket at the China-region DI endpoint and successfully probed the China-region
 profile API. Only fixed stage names were reported; no email, password, MFA code,
 cookie, ticket, token, profile data, or response body was printed.
 
-This was intentionally a non-persisting canary. It proves the real browser MFA →
-DI exchange → profile-probe chain, but it does not yet prove that a saved DI v2
-session can restart dsh/MCP, refresh a rotated token, and serve normal Garmin
-tools end to end. Those persistence and runtime behaviors are fully covered by
-offline automated tests and remain a separate live verification gate.
+This is partial evidence, not a passing two-step-verification result. The
+current redirect interception can leave the Garmin completion page at
+`ERR_BLOCKED_BY_CLIENT`, and the full capture → DI exchange → confirmed session
+write → dsh/MCP restart/refresh chain has not been revalidated end to end. The
+offline tests cover individual persistence and runtime behaviors, but browser
+MFA remains unfinished and is not a supported 0.1.5 capability.
 
 ## FIT export verification
 
@@ -131,8 +137,8 @@ These are documented limitations of this snapshot, not passing test results.
   path, activity detail, or health value is included here.
 - No Garmin data write operation was performed. The browser MFA canary did not
   persist a session file.
-- The package remains at version `0.1.4`; this verification snapshot and the
-  related local changes have not yet been published.
+- The manifest has not yet been bumped to `0.1.5`; this development snapshot
+  and the related local changes have not been published.
 
 Before the next release, rerun the automated commands above. Real MFA, FIT, and
 client smoke tests should be added only with the account owner's explicit

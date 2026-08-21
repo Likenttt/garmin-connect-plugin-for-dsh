@@ -11,6 +11,12 @@
 
 English | **[简体中文](README.zh-CN.md)** | **[Test Report](TEST_REPORT.md)**
 
+> [!WARNING]
+> **0.1.5 status:** Garmin two-step verification is unfinished and is not a
+> supported release capability. The browser authentication commands documented
+> below are developer previews for local testing only; do not depend on them for
+> production access or session recovery.
+
 ---
 
 ## More Apps
@@ -179,8 +185,9 @@ current directory. The plugin loads the workspace `.env` automatically.
 | `GARMIN_ACTIVITY_DETAIL` | ❌ | `compact` (default) or `full` (expanded fitness plus precise route/location fields; credentials and account/social identifiers are filtered) |
 
 > \* You need one of `GARMIN_PASSWORD`, `GARMIN_SESSION_TOKEN`, or
-> `GARMIN_SESSION_TOKEN_FILE`. The file is recommended, especially for MFA and
-> multiple accounts. If more than one is configured, the inline token takes
+> `GARMIN_SESSION_TOKEN_FILE`. A protected file is safer than an inline token,
+> especially when isolating multiple processes; this does not make the unfinished
+> MFA bootstrap a supported workflow. If more than one is configured, the inline token takes
 > precedence over the file, and a valid session takes precedence over password
 > login.
 >
@@ -193,10 +200,12 @@ current directory. The plugin loads the workspace `.env` automatically.
 > sensitive as a password. Token export is intentionally not AI-callable; never
 > paste a token into an AI conversation.
 
-#### Accounts with two-step verification (unreleased local checkout)
+#### Two-step verification — unfinished developer preview
 
-Run the recommended browser setup yourself in a trusted local terminal, from
-this source checkout. Choose the account's region explicitly:
+The browser setup below is retained for development and diagnosis, but it is
+not a supported 0.1.5 authentication path. If you choose to test it, run it
+yourself in a trusted local terminal from this source checkout and select the
+account's region explicitly:
 
 ```bash
 # Garmin International
@@ -246,8 +255,8 @@ and other agents must never read or copy the session contents or credentials.
 
 The legacy terminal flow without `--browser` remains available for
 compatibility. It reads hidden password/MFA input in the local terminal, but it
-is not the recommended MFA path because it cannot complete browser-only
-challenges such as CAPTCHA.
+cannot reliably complete browser-only challenges such as CAPTCHA and is not a
+supported two-step-verification solution.
 
 For troubleshooting the same browser/DI path without creating credentials,
 this checkout also includes a deliberately non-persisting diagnostic:
@@ -263,17 +272,18 @@ context. Enter email, password, MFA, or CAPTCHA only on Garmin's page. The CLI
 does not read those form values; it captures one short-lived service ticket,
 immediately closes the temporary browser, then performs one region-bound DI
 token exchange and verifies the profile API. It does not save cookies, tokens,
-screenshots, traces, video, HAR, or a session file. A passing canary therefore
-validates the login path only. Use `auth:setup -- --browser ...`, not the
-canary, when you intend to create a session for dsh or MCP.
+screenshots, traces, video, HAR, or a session file. A passing canary provides
+partial diagnostic evidence only; 0.1.5 does not provide a supported
+browser-MFA session-creation workflow.
 
 The canary requires system Google Chrome plus the optional `playwright-core`
 driver installed by a normal dependency install. If dependencies were installed
 with `--omit=optional`, the canary is unavailable; normal login, dsh, and MCP
 operation remain unaffected.
 
-After browser setup and explicit profile confirmation, the command saves only
-the DI v2 session and prints its path. On POSIX it uses owner-only mode `0600`;
+The unfinished setup command is designed to save only a DI v2 session after
+browser login and explicit profile confirmation, then print its path. On POSIX
+it uses owner-only mode `0600`;
 on Windows it uses the current user's config directory but does not yet validate
 Windows ACLs. It does not save the password or MFA code. Configure the runtime
 with the printed path, then omit `GARMIN_PASSWORD`:
@@ -295,8 +305,8 @@ other write requests are never replayed automatically.
 
 For backward compatibility, legacy session files containing only the two
 `oauth1` and `oauth2` fields are still accepted. They have no profile binding;
-regenerate them with `auth:setup -- --browser ...` when practical to gain the
-DI v2 mismatch guard.
+the intended replacement is a validated DI v2 session with the mismatch guard,
+but the unfinished browser command is not yet a supported way to generate one.
 On POSIX, a legacy file must still pass the current owner-only file-permission
 check (normally mode `0600`).
 
@@ -306,28 +316,29 @@ On POSIX systems, an existing parent directory must grant no permissions to
 group or other users (normally mode `0700`); a missing parent is created
 owner-only. The command refuses an unsafe parent instead of weakening it.
 
-This MFA bootstrap uses Garmin's private SSO/DI flow and remains experimental.
-On 2026-08-21, the real China-region browser MFA → DI exchange → profile probe
-chain was verified. Writing the persisted session and then exercising it through
-the runtime still awaits another explicitly authorized browser verification;
-the Global-region browser path has not yet been verified. Keep this checkout
-unpublished while those checks remain open.
+This MFA bootstrap uses Garmin's private SSO/DI flow and is unfinished. On
+2026-08-21, a real China-region browser login produced a short-lived service
+ticket and the DI exchange/profile probe was verified separately. The current
+browser interception can leave the redirected Garmin page at
+`ERR_BLOCKED_BY_CLIENT`, and the complete capture → exchange → confirmed
+session write → dsh/MCP restart/refresh path has not been revalidated end to
+end. The Global-region browser path is also unverified. These commands remain a
+developer preview and are not part of the supported 0.1.5 feature set.
 
 #### Multiple accounts: one isolated process per account
 
-The supported model is one account per process and one independently initialized
-session per process. Run browser setup separately for every dsh, Codex, Claude
-Code, or other MCP process, using a distinct `--account` alias and, when needed,
-a distinct `--output` file. Give each process its own `GARMIN_USERNAME`,
-`GARMIN_REGION`, and `GARMIN_SESSION_TOKEN_FILE`.
+The supported runtime model is one account per process and one independently
+initialized session per process. Give each dsh, Codex, Claude Code, or other MCP
+process its own `GARMIN_USERNAME`, `GARMIN_REGION`, and
+`GARMIN_SESSION_TOKEN_FILE`. The unfinished browser bootstrap cannot yet be
+relied on to create those sessions for MFA accounts.
 
 Do not copy one session file to another process, and do not let simultaneous
 processes share one file. Garmin refresh tokens may rotate; concurrent writers
 can otherwise invalidate or overwrite each other's credentials. For example,
-use aliases such as `personal-dsh`, `personal-codex`, and `personal-claude`, and
-complete a fresh browser setup for each one. Use the direct path printed by the
-setup command; do not point another runtime at the same file through a symbolic
-link or a differently cased path alias.
+use aliases such as `personal-dsh`, `personal-codex`, and `personal-claude`, with
+an independently initialized session for each one. Do not point another runtime
+at the same file through a symbolic link or a differently cased path alias.
 
 The processes may share one `GARMIN_FIT_DOWNLOAD_DIR` parent: the plugin creates
 a separate account subdirectory from each configured region and email. This also
@@ -460,7 +471,7 @@ explicitly want normalized details in your local terminal output.
 | Environment-variable and secret-marked configuration are supported | ✅ |
 | `.env` is in `.gitignore` | ✅ |
 | Account identifier and credentials marked with `role('secret')` in Cordis schema | ✅ |
-| Browser MFA bootstrap stores only a confirmed DI v2 session (`0600` on POSIX) | ✅ (experimental DI) |
+| Browser MFA bootstrap | ⚠️ Unfinished developer preview; not supported for 0.1.5 |
 | DI v2 sessions bind username, region, and `profileIdHash`; legacy two-field sessions remain compatible | ✅ |
 | Independently initialized per-process session files support isolated multi-account setups | ✅ |
 | Access refresh is preemptive; idempotent GET replay is limited to once and writes are never replayed | ✅ |
@@ -473,12 +484,14 @@ explicitly want normalized details in your local terminal output.
 Session-token authentication remains supported, but tokens are credentials and
 must not appear in agent output or trajectory logs. For that reason this plugin
 does not expose authentication, MFA submission, or token export as AI-callable
-tools. Use the local browser `auth:setup` command above, then let dsh/MCP read
-its owner-only DI v2 file through `GARMIN_SESSION_TOKEN_FILE`; the runtime does
-not need the account password. The file binds normalized username and region as
-well as `profileIdHash`; legacy unbound `oauth1`/`oauth2` files remain readable
-for compatibility. Because Garmin refresh tokens may rotate, never concurrently
-share or copy one session file across dsh, Codex, Claude Code, or other processes.
+tools. If you already have a validated owner-only DI v2 or compatible legacy
+session file, dsh/MCP can read it through `GARMIN_SESSION_TOKEN_FILE`; the
+runtime does not need the account password. The DI file binds normalized
+username and region as well as `profileIdHash`; legacy unbound
+`oauth1`/`oauth2` files remain readable for compatibility. Creating a new MFA
+session with the browser commands above is still unfinished. Because Garmin
+refresh tokens may rotate, never concurrently share or copy one session file
+across dsh, Codex, Claude Code, or other processes.
 
 ---
 
@@ -502,11 +515,11 @@ npm run build
 Replace `/absolute/path/to/garmin-connect-plugin-for-dsh` in the examples with
 the checkout's actual absolute path.
 
-For an MFA account, first run the local browser `auth:setup` flow described above.
-Then make the non-secret account/region plus the session-file path and FIT parent
-directory available to the client process. These placeholders work with the
-Codex, Claude Code, WorkBuddy, and ZCode examples below after you replace them
-with absolute paths on your machine:
+The following examples show how to wire an **already validated** session file
+into an MCP client. They do not make the unfinished browser MFA bootstrap a
+supported 0.1.5 workflow. Make the non-secret account/region plus the
+session-file path and FIT parent directory available to the client process,
+then replace these placeholders with absolute paths on your machine:
 
 ```bash
 export GARMIN_USERNAME='your@email.com'
@@ -516,7 +529,7 @@ export GARMIN_FIT_DOWNLOAD_DIR='/absolute/path/to/garmin-fit-parent'
 ```
 
 Do not put a password or MFA code in these variables. The MCP server never
-prompts for MFA; it starts from the confirmed DI v2 session. Protect both the
+prompts for MFA; it can only start from an existing valid session. Protect both the
 session file and the FIT directory because downloaded activities may contain
 precise location and health data. Each simultaneously running client process
 needs a separately initialized session file; do not copy or concurrently share
@@ -539,12 +552,12 @@ env_vars = ["GARMIN_USERNAME", "GARMIN_REGION", "GARMIN_SESSION_TOKEN_FILE", "GA
 default_tools_approval_mode = "writes"
 ```
 
-This entry consumes the DI v2 session created for this Codex process by browser
-`auth:setup`; Codex never receives or prompts for the password/MFA code. Do not
+This entry consumes a DI v2 session assigned only to this Codex process; Codex
+never receives or prompts for the password/MFA code. Do not
 reuse a session already assigned to dsh, Claude Code, or another running process.
 For a second account, add another server table such as
-`[mcp_servers.garmin-family]` and perform a separate browser setup with a distinct
-alias/output file. It may reuse the same FIT parent directory; output is
+`[mcp_servers.garmin-family]` and provide a distinct independently initialized
+session file. It may reuse the same FIT parent directory; output is
 automatically isolated under that account's region-and-normalized-email
 subdirectory.
 
@@ -579,12 +592,11 @@ claude mcp add-json --scope user garmin-connect \
   '{"type":"stdio","command":"node","args":["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],"env":{"GARMIN_USERNAME":"${GARMIN_USERNAME}","GARMIN_REGION":"${GARMIN_REGION:-global}","GARMIN_SESSION_TOKEN_FILE":"${GARMIN_SESSION_TOKEN_FILE}","GARMIN_FIT_DOWNLOAD_DIR":"${GARMIN_FIT_DOWNLOAD_DIR}"}}'
 ```
 
-This server reads the DI v2 session produced specifically for this Claude Code
-process by the local browser setup; Claude Code never receives or prompts for
-the password/MFA code. Register a differently named server and perform a separate
-browser setup with a distinct alias/output file for each additional process or
-account. Do not copy another process's session. The servers may reuse the same
-FIT parent directory.
+This server reads a DI v2 session assigned specifically to this Claude Code
+process; Claude Code never receives or prompts for the password/MFA code.
+Register a differently named server and provide a distinct independently
+initialized session file for each additional process or account. Do not copy
+another process's session. The servers may reuse the same FIT parent directory.
 
 Use `--scope local` instead if the server should be available only in the
 current project. Keep the path variables available whenever you launch Claude
@@ -679,8 +691,8 @@ escape each backslash as `\\`. Leave out `type` in WorkBuddy's local-command
 format. Save the file and confirm that the server status turns green, then start
 with a read-only request. See the [official WorkBuddy MCP guide](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide).
 
-The session file in this entry must come from a separate browser `auth:setup` flow;
-WorkBuddy never receives the password/MFA code. Add another named
+The session file in this entry must be an independently initialized, validated
+file; WorkBuddy never receives the password/MFA code. Add another named
 `mcpServers` entry with a separate session file per account. Entries may share
 the same FIT parent directory because region-and-email account subdirectories
 are automatic.
@@ -716,9 +728,9 @@ ZCode can also import an existing Codex or Claude Code MCP entry. Its generic
 `.zcode` config contains any MCP server, ZCode skips that `.agents` file rather
 than merging it. See the [official ZCode MCP guide](https://zcode.z.ai/en/docs/mcp-services).
 
-The session file in this entry must come from a separate browser `auth:setup` flow;
-ZCode never receives the password/MFA code. Add another named server with a
-separate session file per account. Servers may share the same FIT parent
+The session file in this entry must be an independently initialized, validated
+file; ZCode never receives the password/MFA code. Add another named server with
+a separate session file per account. Servers may share the same FIT parent
 directory because region-and-email account subdirectories are automatic.
 
 These configurations have been checked against both clients' published schemas;
@@ -746,7 +758,7 @@ npx -y --package dsh-plugin-garmin-connect garmin-connect-mcp
 ### Manual Run
 
 ```bash
-# Run the MCP server (stdin/stdout) after browser auth:setup
+# Run the MCP server (stdin/stdout) with an existing validated session file
 GARMIN_USERNAME=xxx \
 GARMIN_SESSION_TOKEN_FILE=/absolute/path/to/personal.session.json \
 GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
@@ -881,7 +893,7 @@ Distribution notes:
 - [x] **Workout Creation** — safely preview and create structured workout-library entries
 - [x] **MCP Server** — use with Codex, Claude Code/Desktop, Cursor, Windsurf, WorkBuddy, ZCode
 - [x] **Running Coach** — 8 workout types, 4 training philosophies, and mandatory personalized intake
-- [x] **Browser MFA Bootstrap (experimental)** — isolated Chrome input, terminal profile confirmation, and private DI v2 session (`0600` on POSIX); the 2026-08-21 real China browser → DI → profile chain passed, while persisted-session/runtime and Global verification remain open
+- [ ] **Browser MFA Bootstrap** — finish redirect-ticket capture without a blocked completion page, then verify confirmed DI v2 persistence, dsh/MCP restart, refresh, and both CN/Global flows end to end
 - [x] **Process-isolated Accounts** — one independently initialized session file per dsh/MCP process; concurrent file sharing is unsupported
 - [x] **FIT Download** — safely extract one FIT from the original archive into an automatic region-and-normalized-email subdirectory under a user-selected parent
 - [ ] **Training Status** — VO2 Max, training load, recovery time

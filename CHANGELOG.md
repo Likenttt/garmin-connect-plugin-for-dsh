@@ -5,17 +5,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 > These changes are not included in the published npm `0.1.4` package. The
-> package version remains unchanged and this checkout is not ready for a stable
-> release until persisted browser-session/runtime use and the Global-region MFA
-> path receive their remaining real-account verification.
+> package version remains unchanged and this checkout is intended for local
+> verification. Garmin two-step verification remains an unfinished developer
+> preview and is not a supported 0.1.5 capability.
 
 ### Added
 - Shared tool-service behavior for the dsh plugin and standalone MCP server, so both interfaces expose the same 10 tools and argument semantics.
 - Four compact running-training philosophy cards covering Hansons, Jack Daniels, Norwegian controlled threshold/double-threshold boundaries, and polarized training.
 - Evidence classifications on philosophy material distinguish system principles, research evidence, and application inferences.
 - A mandatory six-part coaching intake for personalized running advice: goal, current performance/basis, training background, availability, health/recovery constraints plus an explicit warning-symptom flag, and preferred steady vs hard/easy vs mixed load pattern plus quality-session/intensity-guidance preferences. Missing answers produce questions instead of a plan or Garmin activity fetch; warning symptoms produce a safety stop.
-- Experimental browser `auth:setup` flow for Garmin two-step verification: an isolated visible system Chrome handles email, password, MFA, and CAPTCHA on Garmin's page; after Chrome closes and the DI profile probe passes, a trusted local terminal displays a sanitized profile label beside the account alias/configured username and requires an exact `yes` before writing an owner-only DI v2 session (`0600` on POSIX; Windows ACL validation remains a limitation). The legacy hidden-terminal flow without `--browser` remains available but is not the recommended MFA path.
-- Experimental non-persisting `auth:canary` browser probe: it opens an isolated visible system Chrome context, lets the user complete Garmin password/MFA/CAPTCHA directly on Garmin's page, performs a single region-bound DI exchange and profile check, and saves no browser storage, token, trace, screenshot, or session.
+- Unfinished developer-preview browser `auth:setup` flow for Garmin two-step verification. It is retained for local diagnosis but is not part of the supported 0.1.5 feature set.
+- Unfinished, non-persisting `auth:canary` browser probe for debugging the private Garmin SSO/DI path; it is not a release-supported login workflow.
 - `GARMIN_SESSION_TOKEN_FILE` DI v2 runtime authentication, including pre-expiry access-token refresh, profile verification, atomic refresh-token writeback, at-most-once replay for idempotent GET authentication failures, and no automatic write replay.
 - Account-bound DI v2 session files: new browser auth output binds one-way hashes for normalized username, region, and Garmin profile (`profileIdHash`); the runtime rejects mismatches before publishing refreshed credentials. Legacy files with only `oauth1` and `oauth2` remain readable for compatibility.
 - Process-isolated multi-account operation: initialize a distinct session for each dsh/MCP process and account. Because Garmin refresh tokens may rotate, Codex, Claude Code, dsh, and other concurrent processes must not share or copy one session file.
@@ -58,7 +58,7 @@ All notable changes to this project will be documented in this file.
 - Made integration-test output hide account identifiers and health/activity details by default; detailed output now requires `GARMIN_INTEGRATION_VERBOSE=true`.
 
 ### Known limitations
-- Garmin's private SSO/DI implementation remains experimental. On 2026-08-21, a real China-region browser MFA → DI exchange → profile probe succeeded; persisted-session/runtime end-to-end use still awaits another explicitly authorized browser verification, and the Global-region browser path remains unverified.
+- Garmin's private SSO/DI implementation remains unfinished. A real China-region login produced a short-lived service ticket and the DI exchange/profile probe was verified separately on 2026-08-21, but redirect capture currently may leave `ERR_BLOCKED_BY_CLIENT`; confirmed session persistence, dsh/MCP restart/refresh, and the Global-region path remain unverified end to end.
 - Garmin refresh tokens may rotate. Cross-process locking and physical-path alias canonicalization are not implemented, so every concurrently running Codex, Claude Code, dsh, or other client process needs a separately initialized session file; do not copy or share one file, or address it through a symlink/differently cased path alias.
 - Multiple accounts remain isolated per account and per process; switching accounts inside one conversation, automatic cross-account sync, and multi-tenant authorization/ACL remain roadmap work.
 - Garmin's original activity archive is not guaranteed to contain a FIT file; FIT download fails safely when there is no single valid FIT entry.

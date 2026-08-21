@@ -100,6 +100,9 @@ describe('Garmin interactive auth CLI', () => {
       'garmin-connect-auth login --browser --region <global|cn> [options]',
     )
     expect(result.stdout).toContain('--browser')
+    expect(result.stdout).toContain(
+      'Two-step verification is an unfinished developer preview',
+    )
     expect(result.stderr).toBe('')
   })
 

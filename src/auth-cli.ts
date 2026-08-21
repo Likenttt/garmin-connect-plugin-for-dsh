@@ -115,7 +115,7 @@ Usage:
   garmin-connect-auth canary --region <global|cn>
 
 Login options:
-  --browser               Enter password, MFA, and CAPTCHA on Garmin's page
+  --browser               Unfinished preview: use Garmin's page for credentials
   --account <alias>       Account alias (default: default)
   --region <global|cn>    Region (default: global; required with --browser)
   --output <path>         OAuth session file path
@@ -130,8 +130,9 @@ General options:
 Passwords and MFA codes are requested interactively with terminal echo disabled.
 Never pass either secret as a command-line option, environment variable, or model input.
 
-The experimental canary opens an isolated system Chrome window. Enter credentials
-only on Garmin's page. It validates browser + DI authentication but saves no session.
+Two-step verification is an unfinished developer preview and is not supported
+for the 0.1.5 release. The canary provides partial diagnostics only and saves no
+session; a successful probe is not a supported authentication workflow.
 `
 
 const AUTH_CLI_VERSION = (require('../package.json') as { version: string }).version
