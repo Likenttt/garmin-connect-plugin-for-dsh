@@ -795,6 +795,41 @@ describe('GarminDiSessionRuntime', () => {
     expect(businessRequests).toBe(0)
   })
 
+  it('rejects an in-flight Connect API success that returns after invalidate', async () => {
+    let finishRequest!: () => void
+    let requestDispatched = false
+    const client = axios.create({
+      adapter: config => new Promise(resolveResponse => {
+        requestDispatched = true
+        finishRequest = () => resolveResponse({
+          config,
+          data: { privateHealthData: 'PRIVATE_SUCCESS_BODY' },
+          headers: {},
+          status: 200,
+          statusText: 'OK',
+        })
+      }),
+    })
+    const runtime = new GarminDiSessionRuntime({
+      username: 'runner@example.test',
+      region: 'global',
+      session: session(),
+      sessionPath: '/private/invalidate-after-dispatch/session.json',
+      dependencies: dependencies(),
+    })
+    runtime.install(client)
+
+    const request = client.get('https://connectapi.garmin.com/activitylist-service/activities')
+    while (!requestDispatched) await Promise.resolve()
+    runtime.invalidate()
+    finishRequest()
+
+    await expect(request).rejects.toThrow(
+      'Garmin DI session was rejected; run garmin-connect-auth login --browser again',
+    )
+    await expect(request).rejects.not.toThrow('PRIVATE_SUCCESS_BODY')
+  })
+
   it('keeps the current refresh token when Garmin does not rotate it', async () => {
     const writeSession = jest.fn()
     const runtime = new GarminDiSessionRuntime({

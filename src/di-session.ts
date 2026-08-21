@@ -150,7 +150,15 @@ export class GarminDiSessionRuntime {
       return config
     })
     client.interceptors.response.use(
-      (response: unknown) => response,
+      (response: any) => {
+        if (
+          requestOrigin(response?.config?.url, response?.config?.baseURL)
+          === this.connectApiOrigin
+        ) {
+          this.assertActive()
+        }
+        return response
+      },
       async (error: unknown) => {
         if (error instanceof PublicToolError) throw error
         const request = errorRequest(error)
