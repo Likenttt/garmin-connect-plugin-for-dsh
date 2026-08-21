@@ -1,4 +1,5 @@
 import {
+  runCapturedServiceTicketDiCanary,
   runBrowserDiAuthCanary,
   type BrowserDiAuthCanaryDependencies,
   type BrowserDiAuthCanaryStage,
@@ -60,6 +61,130 @@ function successfulFixture(region: 'global' | 'cn' = 'global') {
 }
 
 describe('experimental browser DI authentication canary', () => {
+  it('probes DI from an already captured ticket without exposing secrets', async () => {
+    const { http } = successfulFixture('cn')
+    const stages: BrowserDiAuthCanaryStage[] = []
+
+    const result = await runCapturedServiceTicketDiCanary(
+      {
+        region: 'cn',
+        serviceTicket: 'ST-ego-browser-ticket',
+        onStage: stage => stages.push(stage),
+      },
+      { http },
+    )
+
+    expect(result).toEqual({ ok: true, region: 'cn', persisted: false })
+    expect(JSON.stringify(result)).not.toMatch(/ego-browser|access|refresh|token/i)
+    expect(stages).toEqual([
+      'ticket_captured',
+      'di_exchange_started',
+      'di_exchange_succeeded',
+      'profile_probe_started',
+      'profile_probe_succeeded',
+    ])
+    expect(http.request).toHaveBeenCalledTimes(2)
+    expect(http.request.mock.calls.filter(
+      ([request]) => request.method === 'POST',
+    )).toHaveLength(1)
+    expect(http.request).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      method: 'POST',
+      url: 'https://diauth.garmin.cn/di-oauth2-service/oauth/token',
+      body: expect.stringContaining('service_ticket=ST-ego-browser-ticket'),
+      retry: false,
+      followRedirects: false,
+    }))
+    expect(http.request).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      method: 'GET',
+      url: 'https://connectapi.garmin.cn/userprofile-service/socialProfile',
+      retry: false,
+      followRedirects: false,
+    }))
+  })
+
+  it.each([
+    undefined,
+    '',
+    'ticket-without-prefix',
+    'ST-',
+    'ST-ticket/with-forbidden-character',
+    `ST-${'a'.repeat(2046)}`,
+  ])('rejects an unusable captured ticket before any HTTP request', async (
+    serviceTicket,
+  ) => {
+    const { http } = successfulFixture()
+
+    await expect(runCapturedServiceTicketDiCanary(
+      {
+        region: 'global',
+        serviceTicket,
+      } as Parameters<typeof runCapturedServiceTicketDiCanary>[0],
+      { http },
+    )).rejects.toThrow(
+      'Garmin browser authentication did not return a usable service ticket',
+    )
+
+    expect(http.request).not.toHaveBeenCalled()
+  })
+
+  it('rejects an invalid captured-ticket region before HTTP', async () => {
+    const { http } = successfulFixture()
+
+    await expect(runCapturedServiceTicketDiCanary(
+      {
+        region: 'staging' as 'global',
+        serviceTicket: 'ST-valid-shape',
+      },
+      { http },
+    )).rejects.toThrow('Garmin browser authentication region is invalid')
+
+    expect(http.request).not.toHaveBeenCalled()
+  })
+
+  it('fails closed on a pre-aborted captured-ticket probe', async () => {
+    const { http } = successfulFixture()
+    const controller = new AbortController()
+    const stages: BrowserDiAuthCanaryStage[] = []
+    controller.abort(new Error('service_ticket=ST-secret abort reason'))
+
+    await expect(runCapturedServiceTicketDiCanary(
+      {
+        region: 'global',
+        serviceTicket: 'ST-one-time-ticket',
+        signal: controller.signal,
+        onStage: stage => stages.push(stage),
+      },
+      { http },
+    )).rejects.toThrow('Garmin browser authentication was cancelled')
+
+    expect(stages).toEqual([])
+    expect(http.request).not.toHaveBeenCalled()
+  })
+
+  it('does not retry or fall back after a captured-ticket exchange failure', async () => {
+    const { http } = successfulFixture()
+    const stages: BrowserDiAuthCanaryStage[] = []
+    http.request.mockReset().mockRejectedValueOnce(
+      new Error('service_ticket=ST-one-time-ticket token=private'),
+    )
+
+    await expect(runCapturedServiceTicketDiCanary(
+      {
+        region: 'global',
+        serviceTicket: 'ST-one-time-ticket',
+        onStage: stage => stages.push(stage),
+      },
+      { http },
+    )).rejects.toThrow('Garmin DI token exchange canary failed')
+
+    expect(http.request).toHaveBeenCalledTimes(1)
+    expect(http.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'POST',
+      retry: false,
+    }))
+    expect(stages).toEqual(['ticket_captured', 'di_exchange_started'])
+  })
+
   it('reports a fixed successful stage sequence without carrying response data', async () => {
     const { dependencies } = successfulFixture('cn')
     const stages: BrowserDiAuthCanaryStage[] = []

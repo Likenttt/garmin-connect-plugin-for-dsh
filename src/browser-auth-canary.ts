@@ -130,6 +130,17 @@ export interface BrowserDiAuthCanaryOptions {
   onStage?: (stage: BrowserDiAuthCanaryStage) => void
 }
 
+export interface CapturedServiceTicketDiCanaryOptions {
+  region: GarminRegion
+  serviceTicket: string
+  signal?: AbortSignal
+  onStage?: (stage: BrowserDiAuthCanaryStage) => void
+}
+
+export interface CapturedServiceTicketDiCanaryDependencies {
+  http: BrowserDiAuthCanaryHttp
+}
+
 export interface BrowserDiAuthCanaryResult {
   ok: true
   region: GarminRegion
@@ -145,68 +156,115 @@ export async function runBrowserDiAuthCanary(
   options: BrowserDiAuthCanaryOptions,
   dependencies: BrowserDiAuthCanaryDependencies,
 ): Promise<BrowserDiAuthCanaryResult> {
-  if (options.region !== 'global' && options.region !== 'cn') {
-    throw new PublicToolError('Garmin browser authentication region is invalid')
-  }
+  assertCanaryRegion(options.region)
   const endpoints = endpointsFor(options.region)
   const reportStage = createStageReporter(options.onStage)
   let serviceTicket: string | undefined
 
   try {
-    await dependencies.browser.openAndCapture({
-      portalUrl: endpoints.portalUrl,
-      serviceUrl: endpoints.serviceUrl,
-      allowedResponseUrls: endpoints.allowedResponseUrls,
-      blockedTicketRedirect: endpoints.blockedTicketRedirect,
-      maxObservedResponseBytes: MAX_OBSERVED_RESPONSE_BYTES,
-      ...(options.signal ? { signal: options.signal } : {}),
-      ...(options.onStage ? { onStage: reportStage } : {}),
-      onResponse: async (response) => {
-        if (serviceTicket) return true
-        if (!isAllowedPortalResponseUrl(
-          response.url,
-          endpoints.allowedResponseUrls,
-          endpoints.serviceUrl,
-        )) return false
-        const responseStage = portalResponseStage(response.url)
-        if (responseStage) reportStage(responseStage)
-        if (!isSuccessful(response.status) || !isJson(response.contentType)) return false
+    try {
+      await dependencies.browser.openAndCapture({
+        portalUrl: endpoints.portalUrl,
+        serviceUrl: endpoints.serviceUrl,
+        allowedResponseUrls: endpoints.allowedResponseUrls,
+        blockedTicketRedirect: endpoints.blockedTicketRedirect,
+        maxObservedResponseBytes: MAX_OBSERVED_RESPONSE_BYTES,
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.onStage ? { onStage: reportStage } : {}),
+        onResponse: async (response) => {
+          if (serviceTicket) return true
+          if (!isAllowedPortalResponseUrl(
+            response.url,
+            endpoints.allowedResponseUrls,
+            endpoints.serviceUrl,
+          )) return false
+          const responseStage = portalResponseStage(response.url)
+          if (responseStage) reportStage(responseStage)
+          if (!isSuccessful(response.status) || !isJson(response.contentType)) return false
 
-        let body: unknown
-        try {
-          body = await response.json()
-        } catch {
-          return false
-        }
-        if (!isSuccessfulTicketResponse(body)) return false
-        if (serviceTicket) return true
-        serviceTicket = body.serviceTicketId
-        reportStage('ticket_captured')
-        return true
-      },
-    })
-  } catch (error) {
-    if (error instanceof BrowserCanaryControlError) throw error
-    throw new PublicToolError(BROWSER_FAILED_MESSAGE)
-  }
+          let body: unknown
+          try {
+            body = await response.json()
+          } catch {
+            return false
+          }
+          if (!isSuccessfulTicketResponse(body)) return false
+          if (serviceTicket) return true
+          serviceTicket = body.serviceTicketId
+          reportStage('ticket_captured')
+          return true
+        },
+      })
+    } catch (error) {
+      if (error instanceof BrowserCanaryControlError) throw error
+      throw new PublicToolError(BROWSER_FAILED_MESSAGE)
+    }
 
-  if (!serviceTicket) throw new PublicToolError(TICKET_MISSING_MESSAGE)
-
-  let accessToken: string | undefined
-  try {
-    reportStage('di_exchange_started')
-    accessToken = await exchangeServiceTicket(
+    if (!serviceTicket) throw new PublicToolError(TICKET_MISSING_MESSAGE)
+    return await runCapturedServiceTicketDiCanaryWithReporter(
+      options.region,
       serviceTicket,
       endpoints,
       dependencies.http,
       options.signal,
+      reportStage,
+    )
+  } finally {
+    serviceTicket = undefined
+  }
+}
+
+/**
+ * Probe DI using a one-time service ticket captured by a trusted browser seam.
+ * No ticket, token, or profile data is retained or returned.
+ */
+export async function runCapturedServiceTicketDiCanary(
+  options: CapturedServiceTicketDiCanaryOptions,
+  dependencies: CapturedServiceTicketDiCanaryDependencies,
+): Promise<BrowserDiAuthCanaryResult> {
+  assertCanaryRegion(options.region)
+  if (!isUsableServiceTicket(options.serviceTicket)) {
+    throw new PublicToolError(TICKET_MISSING_MESSAGE)
+  }
+  throwIfAborted(options.signal)
+
+  return runCapturedServiceTicketDiCanaryWithReporter(
+    options.region,
+    options.serviceTicket,
+    endpointsFor(options.region),
+    dependencies.http,
+    options.signal,
+    createStageReporter(options.onStage),
+  )
+}
+
+async function runCapturedServiceTicketDiCanaryWithReporter(
+  region: GarminRegion,
+  capturedTicket: string,
+  endpoints: RegionEndpoints,
+  http: BrowserDiAuthCanaryHttp,
+  signal: AbortSignal | undefined,
+  reportStage: (stage: BrowserDiAuthCanaryStage) => void,
+): Promise<BrowserDiAuthCanaryResult> {
+  let serviceTicket: string | undefined = capturedTicket
+  let accessToken: string | undefined
+  try {
+    reportStage('ticket_captured')
+    throwIfAborted(signal)
+    reportStage('di_exchange_started')
+    accessToken = await exchangeServiceTicket(
+      serviceTicket,
+      endpoints,
+      http,
+      signal,
     )
     reportStage('di_exchange_succeeded')
     serviceTicket = undefined
+    throwIfAborted(signal)
     reportStage('profile_probe_started')
-    await probeProfile(accessToken, endpoints, dependencies.http, options.signal)
+    await probeProfile(accessToken, endpoints, http, signal)
     reportStage('profile_probe_succeeded')
-    return { ok: true, region: options.region, persisted: false }
+    return { ok: true, region, persisted: false }
   } finally {
     // Strings cannot be zeroized in JavaScript, but release our references as
     // soon as the one-shot probe finishes and never retain them in the result.
@@ -457,8 +515,23 @@ function isSuccessfulTicketResponse(
   const ticket = value.serviceTicketId
   return value.responseStatus.type === 'SUCCESSFUL'
     && typeof ticket === 'string'
+    && isUsableServiceTicket(ticket)
+}
+
+function isUsableServiceTicket(ticket: unknown): ticket is string {
+  return typeof ticket === 'string'
     && ticket.length <= 2048
     && SERVICE_TICKET_PATTERN.test(ticket)
+}
+
+function assertCanaryRegion(region: unknown): asserts region is GarminRegion {
+  if (region !== 'global' && region !== 'cn') {
+    throw new PublicToolError('Garmin browser authentication region is invalid')
+  }
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new BrowserCanaryControlError('CANCELLED')
 }
 
 function isSuccessful(status: number): boolean {
