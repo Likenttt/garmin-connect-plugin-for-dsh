@@ -241,8 +241,33 @@ variables, MCP tool arguments, or model input. Run this command directly; do
 not ask Codex, Claude Code, or another agent to type the secrets through its
 terminal tool.
 
-On success, the command prints the path to an OAuth session file and saves only
-that session. On POSIX it uses owner-only mode `0600`; on Windows it uses the
+If Garmin requires an in-browser challenge (for example CAPTCHA or a newer MFA
+page), this checkout also includes a deliberately non-persisting diagnostic:
+
+```bash
+# Choose the account's region explicitly.
+npm run auth:canary -- --region global
+npm run auth:canary -- --region cn
+```
+
+The experimental canary opens an isolated, visible system Google Chrome
+context. Enter email, password, MFA, or CAPTCHA only on Garmin's page. The CLI
+does not read those form values; it captures one short-lived service ticket,
+immediately closes the temporary browser, then performs one region-bound DI
+token exchange and verifies the profile API. It does not save cookies, tokens,
+screenshots, traces, video, HAR, or a session file. A passing canary therefore
+validates the new login path only—it does **not yet** make the dsh/MCP runtime
+use DI tokens.
+The normal `auth:setup` session remains required until DI runtime support is
+implemented and separately verified.
+
+The canary requires system Google Chrome plus the optional `playwright-core`
+driver installed by a normal dependency install. If dependencies were installed
+with `--omit=optional`, the canary is unavailable; normal login, dsh, and MCP
+operation remain unaffected.
+
+When the normal `login` / `auth:setup` flow succeeds, it saves only an OAuth
+session file and prints its path. On POSIX it uses owner-only mode `0600`; on Windows it uses the
 current user's config directory but does not yet validate Windows ACLs. It does
 not save the password or MFA code. Configure the runtime with the printed path, then omit
 `GARMIN_PASSWORD`:

@@ -229,8 +229,29 @@ session 文件；Codex、Claude Code、模型及其他代理不得读取或复�
 模型输入。请直接在自己的终端运行，不要让 Codex、Claude Code 或其他代理通过其
 终端工具代为输入凭据。
 
-成功后，命令只保存 OAuth session，并输出文件路径；POSIX 上 session 文件权限为仅文件
-所有者可读写的 `0600`；Windows 上使用当前用户配置目录，但尚未显式校验 Windows ACL。
+如果 Garmin 要求在浏览器中完成额外验证（例如 CAPTCHA 或新版 MFA 页面），当前
+源码还提供一个明确“不落盘”的实验诊断命令：
+
+```bash
+# 必须显式选择账号所属区域。
+npm run auth:canary -- --region global
+npm run auth:canary -- --region cn
+```
+
+该 canary 会打开隔离、可见的系统 Google Chrome 窗口。邮箱、密码、MFA 或 CAPTCHA
+只在 Garmin 页面中输入，CLI 不读取这些表单值。程序只捕获一张短期 service ticket，
+随后立即关闭临时浏览器，再执行一次严格绑定区域的 DI token 交换并验证 profile API；
+不会保存 Cookie、Token、截图、trace、视频、HAR 或 session 文件。因此 canary 通过
+只代表新版登录链路可用，**目前还不会**让 dsh/MCP 运行时使用 DI token。在 DI 运行时
+支持完成并单独验证前，插件仍需要普通 `auth:setup` 生成的 session。
+
+Canary 需要系统 Google Chrome，以及普通依赖安装时提供的可选 `playwright-core` 驱动。
+如果安装依赖时使用了 `--omit=optional`，canary 将不可用，但普通登录、dsh 和 MCP
+运行不受影响。
+
+普通 `login` / `auth:setup` 流程成功后，命令只保存 OAuth session 并输出文件路径；
+POSIX 上 session 文件权限为仅文件所有者可读写的 `0600`；Windows 上使用当前用户配置
+目录，但尚未显式校验 Windows ACL。
 它不会保存密码或 MFA 验证码。运行时使用该路径并删除
 `GARMIN_PASSWORD`：
 

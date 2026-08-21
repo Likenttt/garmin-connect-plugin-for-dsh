@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - Evidence classifications on philosophy material distinguish system principles, research evidence, and application inferences.
 - A mandatory six-part coaching intake for personalized running advice: goal, current performance/basis, training background, availability, health/recovery constraints plus an explicit warning-symptom flag, and preferred steady vs hard/easy vs mixed load pattern plus quality-session/intensity-guidance preferences. Missing answers produce questions instead of a plan or Garmin activity fetch; warning symptoms produce a safety stop.
 - Experimental local `auth:setup` flow for Garmin two-step verification: password and MFA code are entered with echo disabled in a trusted local TTY, never through CLI flags, environment variables, MCP tools, or model input; only a private OAuth session file is persisted (`0600` on POSIX; Windows ACL validation remains a limitation).
+- Experimental non-persisting `auth:canary` browser probe: it opens an isolated visible system Chrome context, lets the user complete Garmin password/MFA/CAPTCHA directly on Garmin's page, performs a single region-bound DI exchange and profile check, and saves no browser storage, token, trace, screenshot, or session.
 - `GARMIN_SESSION_TOKEN_FILE` runtime authentication, allowing dsh/MCP to restart without storing the Garmin password.
 - Account-bound session files: new auth CLI output stores a one-way SHA-256 digest of the trimmed, NFKC-normalized, lower-cased username plus region and rejects mismatched runtime configuration before loading OAuth tokens. Legacy files with only `oauth1` and `oauth2` remain readable for compatibility.
 - Process-isolated multi-account operation: generate one session file per account and run a separate dsh profile or MCP server/process for each account.
@@ -55,6 +56,7 @@ All notable changes to this project will be documented in this file.
 
 ### Known limitations
 - The MFA implementation uses Garmin's private SSO flow and has not yet completed an end-to-end test with a real MFA-enabled global or China account.
+- A passing browser canary currently validates only the newer DI login path; the dsh/MCP runtime does not yet consume or persist DI tokens.
 - Multiple accounts are isolated by separate processes; a single-process account selector and multi-tenant authorization/ACL are not implemented.
 - Garmin's original activity archive is not guaranteed to contain a FIT file; FIT download fails safely when there is no single valid FIT entry.
 
