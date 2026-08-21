@@ -9,9 +9,18 @@ import { PublicToolError } from './utils/errors'
 
 const CSRF_PATTERN = /name=["']_csrf["']\s+value=["'](.+?)["']/i
 const TICKET_PATTERN = /(?:[?&]|&amp;)ticket=(ST-[^"&\s<]+)/i
-const TITLE_PATTERN = /<title>([^<]*)<\/title>/i
 const MFA_VARIABLE_PATTERN =
-  /var\s+(customerGuid|mfaMethod|locale|clientId|codeSentTo)\s*=\s*["']([^"']*)["']\s*;/gi
+  /(?:var|let|const)\s+(customerGuid|mfaMethod|locale|clientId|codeSentTo)\s*=\s*["']([^"']*)["']\s*;?/gi
+const MFA_CODE_INPUT_PATTERN =
+  /<input\b[^>]*\bname\s*=\s*["']mfa-code["'][^>]*>/i
+const MFA_FORM_ACTION_PATTERN =
+  /<form\b[^>]*\baction\s*=\s*["'][^"']*verifyMFA[^"']*["'][^>]*>/i
+const BROWSER_VERIFICATION_PATTERN =
+  /(?:g-recaptcha|h-captcha|hcaptcha|cf-turnstile|cf-chl-|challenge-platform|recaptcha\/api)/i
+const BROWSER_VERIFICATION_MESSAGE =
+  'Open Garmin Connect in a browser and complete the verification, then retry; automatic browser authentication is not yet supported'
+const MFA_REJECTED_MESSAGE =
+  'Garmin did not accept the MFA code; request a new code and try again'
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
   'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
@@ -151,68 +160,92 @@ export async function authenticateGarminSession(
     )
 
     let responseHtml = requireHtml(loginResponse.data)
-    const mfaVariables = parseMfaVariables(responseHtml)
-    const title = TITLE_PATTERN.exec(responseHtml)?.[1]?.trim() ?? ''
-    const titleLower = title.toLowerCase()
-    const mfaMethod = (mfaVariables.mfaMethod ?? '').toLowerCase()
-    const needsMfa = titleLower.includes('mfa')
-      || titleLower.includes('authentication application')
-      || mfaMethod.length > 0
+    let ticket = TICKET_PATTERN.exec(responseHtml)?.[1]
     let usedMfa = false
 
-    if (needsMfa) {
-      usedMfa = true
-      if (
-        (mfaMethod === 'email' || mfaMethod === 'sms')
-        && !mfaVariables.codeSentTo
-      ) {
-        await sso.post(
-          `${ssoBase}/verifyMFA/mfaCode`,
-          {
-            customerGuid: mfaVariables.customerGuid ?? '',
-            mfaMethod: mfaVariables.mfaMethod ?? '',
-            locale: mfaVariables.locale ?? '',
-          },
-          {
-            params: { clientId: mfaVariables.clientId ?? '' },
-            headers: {
-              ...commonHeaders,
-              'Content-Type': 'application/json',
-              Accept: 'application/json, text/plain, */*',
-              Referer: signinUrl,
-            },
-          },
-        )
-      }
+    if (!ticket) {
+      throwIfBrowserVerification(responseHtml)
 
-      const mfaCode = (await options.promptMfa({ method: mfaMethod || 'unknown' })).trim()
-      if (!mfaCode) throw new PublicToolError('MFA code is required')
-      if (mfaCode.length > 32) throw new PublicToolError('MFA code is invalid')
-      const mfaCsrf = extractRequired(CSRF_PATTERN, responseHtml)
-      const mfaResponse = await sso.post(
-        `${ssoBase}/verifyMFA/loginEnterMfaCode`,
-        new URLSearchParams({
-          'mfa-code': mfaCode,
-          embed: 'true',
-          _csrf: mfaCsrf,
-          fromPage: 'setupEnterMfaCode',
-        }).toString(),
-        {
-          params: signinParams,
-          headers: {
-            ...commonHeaders,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Origin: ssoOrigin,
-            Referer: signinUrl,
-            Dnt: '1',
-          },
-        },
-      )
-      responseHtml = requireHtml(mfaResponse.data)
+      const mfaVariables = parseMfaVariables(responseHtml)
+      const mfaMethod = (mfaVariables.mfaMethod ?? '').toLowerCase()
+      const needsMfa = hasMfaChallenge(responseHtml, mfaVariables)
+
+      if (needsMfa) {
+        usedMfa = true
+        if (
+          (mfaMethod === 'email' || mfaMethod === 'sms')
+          && !mfaVariables.codeSentTo
+        ) {
+          if (
+            !mfaVariables.customerGuid
+            || !mfaVariables.clientId
+            || !mfaVariables.locale
+          ) {
+            throw new Error('Garmin MFA delivery metadata is incomplete')
+          }
+          await sso.post(
+            `${ssoBase}/verifyMFA/mfaCode`,
+            {
+              customerGuid: mfaVariables.customerGuid,
+              mfaMethod: mfaVariables.mfaMethod,
+              locale: mfaVariables.locale,
+            },
+            {
+              params: { clientId: mfaVariables.clientId },
+              headers: {
+                ...commonHeaders,
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/plain, */*',
+                Referer: signinUrl,
+              },
+            },
+          )
+        }
+
+        const mfaCode = (await options.promptMfa({
+          method: mfaMethod || 'verification',
+        })).trim()
+        if (!mfaCode) throw new PublicToolError('MFA code is required')
+        if (mfaCode.length > 32) throw new PublicToolError('MFA code is invalid')
+        const mfaCsrf = extractRequired(CSRF_PATTERN, responseHtml)
+        let mfaResponse: { data: unknown }
+        try {
+          mfaResponse = await sso.post(
+            `${ssoBase}/verifyMFA/loginEnterMfaCode`,
+            new URLSearchParams({
+              'mfa-code': mfaCode,
+              embed: 'true',
+              _csrf: mfaCsrf,
+              fromPage: 'setupEnterMfaCode',
+            }).toString(),
+            {
+              params: signinParams,
+              headers: {
+                ...commonHeaders,
+                'Content-Type': 'application/x-www-form-urlencoded',
+                Origin: ssoOrigin,
+                Referer: signinUrl,
+                Dnt: '1',
+              },
+            },
+          )
+        } catch (error) {
+          const status = httpStatus(error)
+          if (status === 400 || status === 401 || status === 403) {
+            throw new PublicToolError(MFA_REJECTED_MESSAGE)
+          }
+          throw error
+        }
+        responseHtml = requireHtml(mfaResponse.data)
+        ticket = TICKET_PATTERN.exec(responseHtml)?.[1]
+      }
     }
 
-    const ticket = TICKET_PATTERN.exec(responseHtml)?.[1]
-    if (!ticket) throw new Error('Garmin SSO did not return a service ticket')
+    if (!ticket) {
+      throwIfBrowserVerification(responseHtml)
+      if (usedMfa) throw new PublicToolError(MFA_REJECTED_MESSAGE)
+      throw new Error('Garmin SSO did not return a service ticket')
+    }
 
     // Reuse the pinned library's OAuth exchange so the resulting token remains
     // byte-for-byte compatible with GarminClient.loadToken().
@@ -272,6 +305,21 @@ function parseMfaVariables(html: string): Record<string, string> {
     values[match[1]] = match[2]
   }
   return values
+}
+
+function hasMfaChallenge(
+  html: string,
+  variables: Record<string, string> = parseMfaVariables(html),
+): boolean {
+  return Boolean(variables.mfaMethod)
+    || MFA_CODE_INPUT_PATTERN.test(html)
+    || MFA_FORM_ACTION_PATTERN.test(html)
+}
+
+function throwIfBrowserVerification(html: string): void {
+  if (BROWSER_VERIFICATION_PATTERN.test(html)) {
+    throw new PublicToolError(BROWSER_VERIFICATION_MESSAGE)
+  }
 }
 
 function extractRequired(pattern: RegExp, html: string): string {

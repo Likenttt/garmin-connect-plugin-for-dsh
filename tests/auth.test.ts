@@ -102,6 +102,27 @@ describe('interactive Garmin authentication', () => {
     expect(garmin.exportToken).toHaveBeenCalledTimes(1)
   })
 
+  it('accepts a returned ticket before considering stale MFA page markers', async () => {
+    const { dependencies, post, upstream } = fixture([
+      '<title>Enter MFA code for login</title>',
+      '<input name="_csrf" value="stale-csrf">',
+      '<script>var mfaMethod = "email"; var codeSentTo = "***";</script>',
+      '<a href="embed?ticket=ST-ALREADY-AUTHENTICATED">continue</a>',
+    ].join(''))
+    const promptMfa = jest.fn().mockResolvedValue('123456')
+
+    await expect(authenticateGarminSession({
+      username: 'runner@example.test',
+      password: 'password-secret',
+      region: 'global',
+      promptMfa,
+    }, dependencies)).resolves.toMatchObject({ usedMfa: false })
+
+    expect(promptMfa).not.toHaveBeenCalled()
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(upstream.getOauth1Token).toHaveBeenCalledWith('ST-ALREADY-AUTHENTICATED')
+  })
+
   it('requests an email code when Garmin has not sent one, then submits manual input', async () => {
     const mfaPage = [
       '<title>GARMIN Authentication Application</title>',
@@ -179,6 +200,123 @@ describe('interactive Garmin authentication', () => {
     )
   })
 
+  it('does not mistake the generic Garmin authentication page for an MFA challenge', async () => {
+    const { dependencies, post } = fixture([
+      '<title>GARMIN Authentication Application</title>',
+      '<form action="/sso/signin">',
+      '<input name="username">',
+      '<input name="password">',
+      '</form>',
+    ].join(''))
+    const promptMfa = jest.fn().mockResolvedValue('123456')
+
+    await expect(authenticateGarminSession({
+      username: 'runner@example.test',
+      password: 'password-secret',
+      region: 'cn',
+      promptMfa,
+    }, dependencies)).rejects.toThrow('Garmin authentication failed')
+
+    expect(promptMfa).not.toHaveBeenCalled()
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports browser verification without prompting for an MFA code', async () => {
+    const { dependencies, post } = fixture([
+      '<title>GARMIN Authentication Application</title>',
+      '<div class="g-recaptcha" data-sitekey="public-site-key"></div>',
+    ].join(''))
+    const promptMfa = jest.fn().mockResolvedValue('123456')
+
+    await expect(authenticateGarminSession({
+      username: 'runner@example.test',
+      password: 'password-secret',
+      region: 'cn',
+      promptMfa,
+    }, dependencies)).rejects.toThrow(
+      'Open Garmin Connect in a browser and complete the verification, then retry; automatic browser authentication is not yet supported',
+    )
+
+    expect(promptMfa).not.toHaveBeenCalled()
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not infer a browser challenge from an unused CAPTCHA variable', async () => {
+    const { dependencies } = fixture([
+      '<title>GARMIN Authentication Application</title>',
+      '<script>const captchaToken = "";</script>',
+    ].join(''))
+
+    await expect(authenticateGarminSession({
+      username: 'runner@example.test',
+      password: 'password-secret',
+      region: 'global',
+      promptMfa: async () => '123456',
+    }, dependencies)).rejects.toThrow('Garmin authentication failed')
+  })
+
+  it('does not trust an MFA-looking title without challenge fields', async () => {
+    const { dependencies, post, upstream } = fixture(
+      '<title>MFA service unavailable</title><p>Please try again later.</p>',
+    )
+    const promptMfa = jest.fn().mockResolvedValue('123456')
+
+    await expect(authenticateGarminSession({
+      username: 'runner@example.test',
+      password: 'password-secret',
+      region: 'global',
+      promptMfa,
+    }, dependencies)).rejects.toThrow('Garmin authentication failed')
+
+    expect(promptMfa).not.toHaveBeenCalled()
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(upstream.getOauth1Token).not.toHaveBeenCalled()
+  })
+
+  it('recognizes MFA metadata declared with modern JavaScript syntax', async () => {
+    const mfaPage = [
+      '<title>GARMIN Authentication Application</title>',
+      '<input name="_csrf" value="mfa-csrf">',
+      '<script>const mfaMethod = "totp"</script>',
+    ].join('')
+    const { dependencies, post } = fixture(
+      mfaPage,
+      '<title>Success</title><a href="?ticket=ST-MODERN-MFA">continue</a>',
+    )
+    const promptMfa = jest.fn().mockResolvedValue('123456')
+
+    await expect(authenticateGarminSession({
+      username: 'runner@example.test',
+      password: 'password-secret',
+      region: 'global',
+      promptMfa,
+    }, dependencies)).resolves.toMatchObject({ usedMfa: true })
+
+    expect(promptMfa).toHaveBeenCalledWith({ method: 'totp' })
+    expect(post).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not request an email code with incomplete delivery metadata', async () => {
+    const mfaPage = [
+      '<title>GARMIN Authentication Application</title>',
+      '<input name="_csrf" value="mfa-csrf">',
+      '<script>var mfaMethod = "email"; var codeSentTo = "";</script>',
+    ].join('')
+    const { dependencies, post, upstream } = fixture(mfaPage)
+    const promptMfa = jest.fn().mockResolvedValue('123456')
+
+    await expect(authenticateGarminSession({
+      username: 'runner@example.test',
+      password: 'password-secret',
+      region: 'global',
+      promptMfa,
+    }, dependencies)).rejects.toThrow('Garmin authentication failed')
+
+    expect(promptMfa).not.toHaveBeenCalled()
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(upstream.getOauth1Token).not.toHaveBeenCalled()
+  })
+
   it('rejects empty MFA input without sending it', async () => {
     const mfaPage = [
       '<title>Enter MFA code for login</title>',
@@ -195,6 +333,83 @@ describe('interactive Garmin authentication', () => {
     }, dependencies)).rejects.toThrow('MFA code is required')
 
     expect(post).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a rejected MFA code without exposing the returned page', async () => {
+    const marker = 'PRIVATE_MFA_RESPONSE'
+    const mfaPage = [
+      '<title>Enter MFA code for login</title>',
+      '<input name="_csrf" value="mfa-csrf">',
+      '<input name="mfa-code">',
+      `<p>${marker}</p>`,
+    ].join('')
+    const { dependencies, upstream } = fixture(mfaPage, mfaPage)
+
+    const promise = authenticateGarminSession({
+      username: 'runner@example.test',
+      password: 'password-secret',
+      region: 'global',
+      promptMfa: async () => '123456',
+    }, dependencies)
+
+    await expect(promise).rejects.toThrow(
+      'Garmin did not accept the MFA code; request a new code and try again',
+    )
+    await expect(promise).rejects.not.toThrow(marker)
+    expect(upstream.getOauth1Token).not.toHaveBeenCalled()
+  })
+
+  it('reports a rejected MFA code when Garmin returns a generic sign-in page', async () => {
+    const mfaPage = [
+      '<title>Enter MFA code for login</title>',
+      '<input name="_csrf" value="mfa-csrf">',
+      '<input name="mfa-code">',
+    ].join('')
+    const genericPage = [
+      '<title>GARMIN Authentication Application</title>',
+      '<form action="/sso/signin"><input name="username"></form>',
+    ].join('')
+    const { dependencies, upstream } = fixture(mfaPage, genericPage)
+
+    await expect(authenticateGarminSession({
+      username: 'runner@example.test',
+      password: 'password-secret',
+      region: 'global',
+      promptMfa: async () => '123456',
+    }, dependencies)).rejects.toThrow(
+      'Garmin did not accept the MFA code; request a new code and try again',
+    )
+
+    expect(upstream.getOauth1Token).not.toHaveBeenCalled()
+  })
+
+  it('reports a rejected MFA code when Garmin rejects the verification request', async () => {
+    const mfaPage = [
+      '<title>Enter MFA code for login</title>',
+      '<input name="_csrf" value="mfa-csrf">',
+      '<input name="mfa-code">',
+    ].join('')
+    const { dependencies, post, upstream } = fixture(mfaPage)
+    post.mockReset()
+      .mockResolvedValueOnce({ data: mfaPage })
+      .mockRejectedValueOnce({
+        response: { status: 401, data: 'PRIVATE_REJECTION_RESPONSE' },
+        config: { data: 'mfa-code=123456' },
+      })
+
+    const promise = authenticateGarminSession({
+      username: 'runner@example.test',
+      password: 'password-secret',
+      region: 'global',
+      promptMfa: async () => '123456',
+    }, dependencies)
+
+    await expect(promise).rejects.toThrow(
+      'Garmin did not accept the MFA code; request a new code and try again',
+    )
+    await expect(promise).rejects.not.toThrow('PRIVATE_REJECTION_RESPONSE')
+    await expect(promise).rejects.not.toThrow('123456')
+    expect(upstream.getOauth1Token).not.toHaveBeenCalled()
   })
 
   it('returns a fixed public failure without echoing credentials or Garmin HTML', async () => {
