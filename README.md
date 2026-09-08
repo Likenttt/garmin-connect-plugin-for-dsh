@@ -1,4 +1,5 @@
 # dsh-plugin-garmin-connect
+[![DSH Insights health](https://dsh-insights.com/badge/Likenttt/garmin-connect-plugin-for-dsh.svg)](https://dsh-insights.com/p/Likenttt/garmin-connect-plugin-for-dsh/)
 
 > A TypeScript-based Garmin Connect plugin and MCP server with **secure browser-based MFA**, built for DeepSeek Harness and designed to work with other AI agents.
 
