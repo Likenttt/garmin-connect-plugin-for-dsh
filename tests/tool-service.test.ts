@@ -198,6 +198,38 @@ describe('GarminToolService', () => {
     ])
   })
 
+  it('uses full configured activity detail by default and allows a compact request', async () => {
+    const getActivities = jest.fn(async () => [{
+      activityId: 7,
+      activityName: 'Run',
+      activityType: { typeKey: 'running' },
+      distance: 5000,
+      duration: 1800,
+      lapCount: 2,
+      splitSummaries: [{ distance: 1000, duration: 360 }],
+      ownerId: 42,
+    }])
+    const service = new GarminToolService(clientWith({ getActivities }), {
+      activityDetail: 'full',
+      fitDownloadDir: '/tmp/garmin-fit-service-test-output',
+      accountUsername: 'runner@example.com',
+      accountRegion: 'global',
+    })
+
+    const [defaultResult] = await service.getActivities({}) as Record<string, unknown>[]
+    const [compactResult] = await service.getActivities({ detail: 'compact' }) as Record<string, unknown>[]
+
+    expect(defaultResult).toMatchObject({
+      id: 7,
+      lapCount: 2,
+      splitSummaries: [{ distance: 1000, duration: 360 }],
+    })
+    expect(defaultResult.ownerId).toBeUndefined()
+    expect(compactResult).toMatchObject({ id: 7, distanceMeters: 5000 })
+    expect(compactResult.lapCount).toBeUndefined()
+    expect(compactResult.splitSummaries).toBeUndefined()
+  })
+
   it('downloads, validates, and saves one FIT file without returning binary data', async () => {
     const root = await mkdtemp(join(tmpdir(), 'garmin-fit-service-test-'))
     const fitDownloadDir = join(root, 'exports')

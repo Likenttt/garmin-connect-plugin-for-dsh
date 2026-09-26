@@ -98,6 +98,20 @@ describe('Config environment defaults', () => {
     expect(Config({}).requestTimeoutMs).toBe(4321)
   })
 
+  it('defaults activity detail to full and accepts explicit compact choices', () => {
+    const { Config } = require('../src/config') as typeof import('../src/config')
+
+    expect(Config({}).activityDetail).toBe('full')
+    expect(Config({ activityDetail: 'compact' }).activityDetail).toBe('compact')
+  })
+
+  it('accepts GARMIN_ACTIVITY_DETAIL=compact as an environment default', () => {
+    process.env.GARMIN_ACTIVITY_DETAIL = 'compact'
+    const { Config } = require('../src/config') as typeof import('../src/config')
+
+    expect(Config({}).activityDetail).toBe('compact')
+  })
+
   it('falls back safely when enum environment values are invalid', () => {
     process.env.GARMIN_REGION = 'mars'
     process.env.GARMIN_LOG_LEVEL = 'verbose'
@@ -107,7 +121,7 @@ describe('Config environment defaults', () => {
     expect(Config({})).toMatchObject({
       region: 'global',
       logLevel: 'info',
-      activityDetail: 'compact',
+      activityDetail: 'full',
     })
   })
 

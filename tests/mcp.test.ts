@@ -426,6 +426,15 @@ describe('standalone MCP config', () => {
     process.env = { ...original }
   })
 
+  it('defaults activity detail to full and honors a compact environment override', () => {
+    process.env.GARMIN_USERNAME = 'fixture@example.test'
+    delete process.env.GARMIN_ACTIVITY_DETAIL
+    expect(standaloneConfig().activityDetail).toBe('full')
+
+    process.env.GARMIN_ACTIVITY_DETAIL = 'compact'
+    expect(standaloneConfig().activityDetail).toBe('compact')
+  })
+
   it('honors allow-listed GARMIN_LOG_LEVEL values and rejects unknown ones', () => {
     process.env.GARMIN_USERNAME = 'fixture@example.test'
     process.env.GARMIN_PASSWORD = 'fixture-password'
