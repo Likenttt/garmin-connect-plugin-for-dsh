@@ -47,9 +47,9 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
     name: 'get_garmin_activities',
     description:
       'Retrieve the user\'s recent Garmin fitness activities (runs, rides, swims, hikes, etc.). ' +
-      'Returns activities with distance, duration, pace, heart rate, and calories by default. ' +
-      'Pass detail="full" only when the user asks for expanded data; it can include ' +
-      'precise route/location fields but filters credentials and account/social identifiers. ' +
+      'Returns available expanded activity fields by default, including split summaries when Garmin supplies them. ' +
+      'Pass detail="compact" for a smaller response. Full can include precise route/location fields ' +
+      'but filters credentials and account/social identifiers. ' +
       'Example user query: "Show me my last 5 runs"',
     parameters: {
       type: 'object',
@@ -69,7 +69,7 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
         detail: {
           type: 'string',
           enum: ['compact', 'full'],
-          description: 'compact (default) returns curated fields; full adds expanded fitness and precise location/route fields while filtering credentials and account/social identifiers.',
+          description: 'full (default) preserves available expanded activity fields, possibly including precise location/route data; compact returns curated fields. Credentials and account/social identifiers are filtered.',
         },
       },
     },

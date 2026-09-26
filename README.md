@@ -68,7 +68,7 @@ The plugin registers **10 tools**. Eight return Garmin data without writing;
 
 | Tool | Description | Example Args |
 |---|---|---|
-| `get_garmin_activities` | Fetch recent activities (runs, rides, swims…) with compact or full detail | `{"limit": 5, "detail": "compact"}` |
+| `get_garmin_activities` | Fetch recent activities (runs, rides, swims…) with full detail by default; `compact` is optional | `{"limit": 5}` |
 | `get_garmin_sleep` | Sleep score, duration, and stage breakdown for a date or range | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
 | `get_garmin_steps` | Step totals for a date or range; goal/distance appear only when Garmin supplies them | `{"startDate": "2023-10-01"}` |
 | `get_garmin_heart_rate` | Resting, max, and min heart rate for a date or range | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
@@ -205,7 +205,7 @@ current directory. The plugin loads the workspace `.env` automatically.
 | `GARMIN_CACHE_TTL` | ❌ | Cache duration in seconds (default: `300`) |
 | `GARMIN_REQUEST_TIMEOUT_MS` | ❌ | Garmin request timeout in milliseconds (default: `15000`) |
 | `GARMIN_LOG_LEVEL` | ❌ | `debug` \| `info` \| `warn` \| `error` |
-| `GARMIN_ACTIVITY_DETAIL` | ❌ | `compact` (default) or `full` (expanded fitness plus precise route/location fields; credentials and account/social identifiers are filtered) |
+| `GARMIN_ACTIVITY_DETAIL` | ❌ | `full` (default; preserves available expanded activity-list fields, including lap counts and split summaries when Garmin supplies them; may include precise route/location) or `compact` (smaller output). Credentials and unrelated account/social identifiers are filtered. |
 
 > \* Normal data access needs one of `GARMIN_PASSWORD`, `GARMIN_SESSION_TOKEN`,
 > or `GARMIN_SESSION_TOKEN_FILE`. The local Web, `auth:serve`, and
@@ -902,8 +902,9 @@ the sensitive session-file path in their client configuration, but not the
 session contents, password, or MFA code. Restrict those files' permissions and
 never commit them. The Codex and Claude Code examples forward path variables
 instead. MCP results can place sleep, heart-rate, weight, activity, and location
-data in the selected model's context; review that client's data controls and
-keep activity detail at `compact` unless precise expanded data is necessary.
+data in the selected model's context; review that client's data controls. Full
+activity detail is the default and may include precise route/location data;
+choose `compact` per call or through `GARMIN_ACTIVITY_DETAIL` for smaller output.
 FIT bytes and the complete local/account path remain on the MCP host. Only the
 activity ID, file name, size, and hash enter model context; locate the file
 using your configured parent and the documented account-directory rule.

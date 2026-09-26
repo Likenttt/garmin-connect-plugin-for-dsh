@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-09-26
+
+### Changed
+- `get_garmin_activities` now defaults to `full` in both the DeepSeek Harness plugin and standalone MCP server. The formatter also defaults to `full`, preserving the expanded fields Garmin supplies in the activity list, including split summaries when present.
+- `compact` remains available through the per-call `detail` argument or `GARMIN_ACTIVITY_DETAIL=compact`. Full responses may contain precise route and location data; credential and unrelated account/social fields remain filtered.
+
 ## [0.1.7] - 2026-09-09
 
 ### Added

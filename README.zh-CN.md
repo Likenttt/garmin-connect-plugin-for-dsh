@@ -72,7 +72,7 @@
 
 | 工具名 | 用途 | 参数示例 |
 |---|---|---|
-| `get_garmin_activities` | 获取近期运动记录，可选择精简或完整详情 | `{"limit": 5, "detail": "compact"}` |
+| `get_garmin_activities` | 获取近期运动记录，默认返回完整详情；可选 `compact` 精简模式 | `{"limit": 5}` |
 | `get_garmin_sleep` | 获取指定日期或日期范围的睡眠评分、时长与阶段分布 | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
 | `get_garmin_steps` | 获取指定日期或日期范围的步数；仅当 Garmin 上游提供时才包含目标与步行距离 | `{"startDate": "2023-10-01"}` |
 | `get_garmin_heart_rate` | 查询指定日期或日期范围的静息、最高与最低心率 | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
@@ -200,7 +200,7 @@ cp .env.example .env
 | `GARMIN_CACHE_TTL` | ❌ | 缓存有效期，单位秒（默认 `300`） |
 | `GARMIN_REQUEST_TIMEOUT_MS` | ❌ | Garmin 请求超时，单位毫秒（默认 `15000`） |
 | `GARMIN_LOG_LEVEL` | ❌ | 日志级别：`debug` \| `info` \| `warn` \| `error` |
-| `GARMIN_ACTIVITY_DETAIL` | ❌ | `compact`（默认）或 `full`（扩展运动数据，可能包含精确路线/位置；凭据及账号/社交标识会被过滤） |
+| `GARMIN_ACTIVITY_DETAIL` | ❌ | `full`（默认，保留活动列表中可用的扩展字段；仅当 Garmin 提供时才包含圈数和分段摘要，且可能包含精确路线/位置）或 `compact`（精简输出）。凭据及无关账号/社交标识会被过滤。 |
 
 > \* 正常读取数据时，`GARMIN_PASSWORD`、`GARMIN_SESSION_TOKEN`、
 > `GARMIN_SESSION_TOKEN_FILE` 三选一即可；本机 Web、`auth:serve` 和独立 MCP
@@ -786,8 +786,9 @@ WorkBuddy/ZCode 端到端冒烟测试。
 Claude Desktop、Cursor、Windsurf、WorkBuddy 与 ZCode 的 JSON 示例会保存敏感的
 session 文件路径，但不会保存 session 内容、密码或 MFA 验证码。请限制配置文件权限，
 且不要提交它们。上面的 Codex 与 Claude Code 示例只转发路径变量。MCP 结果可能把睡眠、
-心率、体重、运动及位置数据送入所选模型的上下文；请检查客户端的数据处理设置，非必要
-保持 `compact`，只有确需精确扩展数据时才使用 `full`。FIT 二进制与完整本地/账号路径
+心率、体重、运动及位置数据送入所选模型的上下文；请检查客户端的数据处理设置。运动详情
+默认使用 `full`，可能包含精确路线/位置；如需减少输出，可在单次调用中选择 `compact`，
+或设置 `GARMIN_ACTIVITY_DETAIL=compact`。FIT 二进制与完整本地/账号路径
 仍留在 MCP 主机；只有活动 ID、文件名、大小和 hash 会进入模型上下文。请按自己配置的
 父目录和文档中的账号目录规则定位文件。
 

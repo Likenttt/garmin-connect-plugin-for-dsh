@@ -95,8 +95,7 @@ DOWNLOAD_DIR="$(mktemp -d)"
         "GARMIN_USERNAME": "user@example.com",
         "GARMIN_REGION": "cn",
         "GARMIN_ACCOUNT": "workbuddy-cn",
-        "GARMIN_SESSION_TOKEN_FILE": "/absolute/private/path/workbuddy-cn.session.json",
-        "GARMIN_ACTIVITY_DETAIL": "compact"
+        "GARMIN_SESSION_TOKEN_FILE": "/absolute/private/path/workbuddy-cn.session.json"
       }
     }
   }
@@ -107,6 +106,10 @@ DOWNLOAD_DIR="$(mktemp -d)"
 使用只有当前用户可访问、且仅供这个 WorkBuddy MCP 进程使用的本地路径。邮箱
 会保存在本地 WorkBuddy 配置中，保存前应向用户说明。不要配置
 `GARMIN_PASSWORD`、MFA 验证码或内联令牌。
+
+活动查询默认返回 `full` 详情，包含 Garmin 活动列表中可用的扩展字段，可能包含
+精确路线或位置；圈数和分段摘要只在 Garmin 提供时出现。如需精简输出，可在单次调用
+中设置 `detail="compact"`，或在 `env` 中设置 `GARMIN_ACTIVITY_DETAIL=compact`。
 
 在 macOS/Linux 上，只创建确切的会话文件父目录，并限制为仅所有者可访问：
 

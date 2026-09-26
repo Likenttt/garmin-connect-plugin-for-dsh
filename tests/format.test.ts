@@ -2,7 +2,42 @@ import { formatActivity, formatSleep, formatSteps, formatHeartRate, formatWeight
 
 describe('Format Utils', () => {
   describe('formatActivity', () => {
-    it('should return a compact curated subset by default', () => {
+    it('preserves split data by default while filtering private fields recursively', () => {
+      const raw = {
+        activityId: 123,
+        activityName: 'Morning Run',
+        activityType: { typeKey: 'running' },
+        distance: 5000,
+        duration: 1800,
+        lapCount: 2,
+        splitSummaries: [
+          { distance: 1000, duration: 360, accessToken: 'split-secret' },
+          { distance: 1000, duration: 350, ownerId: 42 },
+        ],
+        ownerFullName: 'Private Runner',
+      }
+
+      const formatted = formatActivity(raw)
+
+      expect(formatted).toMatchObject({
+        id: 123,
+        name: 'Morning Run',
+        distanceMeters: 5000,
+        lapCount: 2,
+        splitSummaries: [
+          { distance: 1000, duration: 360 },
+          { distance: 1000, duration: 350 },
+        ],
+      })
+      expect(formatted.ownerFullName).toBeUndefined()
+      expect(formatted.splitSummaries).toEqual([
+        { distance: 1000, duration: 360 },
+        { distance: 1000, duration: 350 },
+      ])
+      expect(JSON.stringify(formatted)).not.toContain('split-secret')
+    })
+
+    it('should return a compact curated subset when requested', () => {
       const raw = {
         activityId: 123,
         activityName: 'Morning Run',
@@ -19,7 +54,7 @@ describe('Format Utils', () => {
         steps: 4321
       }
 
-      const formatted = formatActivity(raw)
+      const formatted = formatActivity(raw, 'compact')
       expect(formatted).toEqual({
         id: 123,
         name: 'Morning Run',

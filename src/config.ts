@@ -31,7 +31,7 @@ export interface Config {
   requestTimeoutMs?: number
   /** Logging verbosity */
   logLevel: 'debug' | 'info' | 'warn' | 'error'
-  /** Default activity detail: compact, or expanded full data with private fields filtered */
+  /** Default activity detail: full data with private fields filtered, or compact */
   activityDetail: 'compact' | 'full'
   /** User-selected FIT parent; output is separated by Garmin region and account */
   fitDownloadDir: string
@@ -95,9 +95,9 @@ export const Config = z.object({
     .default(envChoice(
       process.env.GARMIN_ACTIVITY_DETAIL,
       ['compact', 'full'] as const,
-      'compact',
+      'full',
     ))
-    .description('Activity detail: compact, or full with expanded fitness/location data and private fields filtered. Env: GARMIN_ACTIVITY_DETAIL'),
+    .description('Activity detail: full by default with available expanded fitness/location fields and private fields filtered; compact for a smaller response. Env: GARMIN_ACTIVITY_DETAIL'),
 
   fitDownloadDir: z.string()
     .default('')

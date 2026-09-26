@@ -178,7 +178,7 @@ export function createMcpServer(
 
   register(
     'get_garmin_activities',
-    'Fetch recent Garmin activities with compact or full detail.',
+    'Fetch recent Garmin activities with full detail by default; request compact for a smaller response. Full preserves expanded fields supplied by Garmin and may include precise locations.',
     {
       limit: z.number().int().min(1).max(100).optional(),
       offset: z.number().int().min(0).optional(),
@@ -394,7 +394,7 @@ export function standaloneConfig(): Config {
     throw new PublicToolError('GARMIN_REGION must be exactly global or cn')
   }
   const region = configuredRegion ?? 'global'
-  const activityDetail = process.env.GARMIN_ACTIVITY_DETAIL === 'full' ? 'full' : 'compact'
+  const activityDetail = process.env.GARMIN_ACTIVITY_DETAIL === 'compact' ? 'compact' : 'full'
   return {
     username,
     password,

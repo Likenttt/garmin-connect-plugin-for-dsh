@@ -1,9 +1,9 @@
 /**
  * Data formatting utilities.
  *
- * Garmin API responses are deeply nested and contain many fields the LLM
- * doesn't need.  These helpers extract only the meaningful metrics so we
- * conserve context-window tokens and keep tool outputs readable.
+ * Garmin API responses are deeply nested. Most helpers summarize their
+ * metrics; full activity detail preserves available fields after filtering
+ * private account and credential data.
  */
 
 // ---- Activity ----
@@ -40,15 +40,14 @@ export type ActivityDetail = 'compact' | 'full'
 /**
  * Format an activity.
  *
- * `compact` (default) returns a curated subset of the most useful metrics to
- * save context tokens. `full` returns expanded fitness/location fields with
+ * `full` (default) preserves available expanded activity fields with
  * normalized conveniences, while filtering credentials and unrelated
- * account/social identifiers. Request it explicitly because routes can reveal
- * precise locations.
+ * account/social identifiers. It can include precise locations. `compact`
+ * returns a curated subset when a smaller response is preferred.
  */
 export function formatActivity(
   raw: Record<string, unknown>,
-  detail: ActivityDetail = 'compact',
+  detail: ActivityDetail = 'full',
 ): FormattedActivity {
   return detail === 'full' ? fullActivity(raw) : compactActivity(raw)
 }
