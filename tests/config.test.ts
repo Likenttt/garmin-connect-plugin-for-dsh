@@ -17,12 +17,13 @@ describe('Config environment defaults', () => {
       const scalar = () => {
         let fallback: unknown
         let minimum: number | undefined
+        let volatile = false
         const schema = ((value?: unknown) => {
           const resolved = value ?? fallback
           if (typeof resolved === 'number' && minimum !== undefined && resolved < minimum) {
             throw new TypeError(`Expected a value greater than or equal to ${minimum}`)
           }
-          return resolved
+          return volatile ? { get: () => resolved } : resolved
         }) as any
         schema.default = (value: unknown) => {
           fallback = value
@@ -30,6 +31,10 @@ describe('Config environment defaults', () => {
         }
         schema.description = () => schema
         schema.role = () => schema
+        schema.volatile = () => {
+          volatile = true
+          return schema
+        }
         schema.min = (value: number) => {
           minimum = value
           return schema
@@ -116,9 +121,9 @@ describe('Config environment defaults', () => {
     process.env.GARMIN_REGION = 'mars'
     process.env.GARMIN_LOG_LEVEL = 'verbose'
     process.env.GARMIN_ACTIVITY_DETAIL = 'everything'
-    const { Config } = require('../src/config') as typeof import('../src/config')
+    const { Config, resolveConfig } = require('../src/config') as typeof import('../src/config')
 
-    expect(Config({})).toMatchObject({
+    expect(resolveConfig(Config({}))).toMatchObject({
       region: 'global',
       logLevel: 'info',
       activityDetail: 'full',
@@ -132,8 +137,10 @@ describe('Config environment defaults', () => {
     process.env.GARMIN_SESSION_TOKEN_FILE = '/private/session-token.json'
     const { Config } = require('../src/config') as typeof import('../src/config')
 
-    expect(Config({})).toMatchObject({
-      username: '',
+    const parsed = Config({})
+    expect(parsed.username.get()).toBe('')
+    expect(parsed.region.get()).toBe('global')
+    expect(parsed).toMatchObject({
       password: '',
       sessionToken: '',
       sessionTokenFile: '',
@@ -152,6 +159,30 @@ describe('Config environment defaults', () => {
       password: 'environment-password',
       sessionToken: 'environment-session',
       sessionTokenFile: '/environment/session-token.json',
+    })
+  })
+
+  it('reads the latest account references while leaving install-time email optional', () => {
+    const { Config, resolveConfig } = require('../src/config') as typeof import('../src/config')
+    const parsed = Config({})
+    expect(resolveConfig(parsed).username).toBe('')
+
+    let email = 'first@example.test'
+    let region: 'global' | 'cn' = 'global'
+    const refs = {
+      ...parsed,
+      username: { get: () => email },
+      region: { get: () => region },
+    }
+    expect(resolveConfig(refs)).toMatchObject({
+      username: 'first@example.test',
+      region: 'global',
+    })
+    email = 'second@example.test'
+    region = 'cn'
+    expect(resolveConfig(refs)).toMatchObject({
+      username: 'second@example.test',
+      region: 'cn',
     })
   })
 

@@ -136,12 +136,15 @@ describe('EmbeddedAuthController', () => {
     expect(flows.start).not.toHaveBeenCalled()
   })
 
-  it('rejects a requested login region that differs from GARMIN_REGION', async () => {
-    const { controller, flows, server } = createController({ region: 'cn' })
+  it.each([
+    ['cn', 'global'],
+    ['global', 'cn'],
+  ] as const)('rejects a %s-configured account when %s is selected as a region mismatch', async (configuredRegion, requestedRegion) => {
+    const { controller, flows, server } = createController({ region: configuredRegion })
 
-    await expect(controller.begin(undefined, 'global')).resolves.toEqual({
+    await expect(controller.begin(undefined, requestedRegion)).resolves.toEqual({
       success: false,
-      code: 'configuration',
+      code: 'region_mismatch',
     })
     expect(server.start).not.toHaveBeenCalled()
     expect(flows.start).not.toHaveBeenCalled()

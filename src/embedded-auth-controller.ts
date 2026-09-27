@@ -42,7 +42,7 @@ export type EmbeddedAuthBeginResult =
   }
   | {
     success: false
-    code: 'configuration' | 'busy' | 'unavailable'
+    code: 'configuration' | 'region_mismatch' | 'busy' | 'unavailable'
   }
 
 export type EmbeddedAuthStatusResult =
@@ -102,7 +102,7 @@ export class EmbeddedAuthController {
       requestedRegion !== undefined
       && requestedRegion !== configuration.region
     ) {
-      return configurationFailure()
+      return regionMismatchFailure()
     }
     if (this.closed || isAborted(signal)) return unavailableFailure()
     if (this.beginning) return busyFailure()
@@ -374,6 +374,10 @@ function isSafeBridgeUrl(
 
 function configurationFailure(): EmbeddedAuthBeginResult {
   return { success: false, code: 'configuration' }
+}
+
+function regionMismatchFailure(): EmbeddedAuthBeginResult {
+  return { success: false, code: 'region_mismatch' }
 }
 
 function busyFailure(): EmbeddedAuthBeginResult {

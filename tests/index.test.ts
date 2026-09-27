@@ -14,11 +14,13 @@ const mockGetAuthenticationRequirement = jest.fn().mockReturnValue({
   region: 'global',
   revision: 2,
 })
+const mockDeactivate = jest.fn()
 const mockClient = {
   connect: mockConnect,
   getAuthenticatedAccount: mockGetAuthenticatedAccount,
   getAuthenticationRequirement: mockGetAuthenticationRequirement,
   replacePersistedSession: mockReplacePersistedSession,
+  deactivate: mockDeactivate,
 }
 const mockRegisterTools = jest.fn()
 const mockRegisterEmbeddedAuthRpc = jest.fn()
@@ -57,12 +59,35 @@ const config: Config = {
 }
 
 describe('plugin activation', () => {
+  function createContext() {
+    let onVolatileUpdate: (paths: readonly (readonly string[])[]) => void = () => undefined
+    let disposeClient: () => void = () => undefined
+    const restart = jest.fn().mockResolvedValue(undefined)
+    const ctx = {
+      on: jest.fn((_name: string, listener: typeof onVolatileUpdate) => {
+        onVolatileUpdate = listener
+      }),
+      effect: jest.fn((execute: () => () => void) => {
+        disposeClient = execute()
+      }),
+      fiber: { uid: 1, restart },
+      logger: { error: jest.fn() },
+    } as unknown as Context
+    return {
+      ctx,
+      emitVolatileUpdate: (paths: readonly (readonly string[])[]) => onVolatileUpdate(paths),
+      disposeClient: () => disposeClient(),
+      restart,
+    }
+  }
+
   beforeEach(() => {
     jest.clearAllMocks()
   })
 
   it('registers embedded auth even when eager Garmin connection is unavailable', async () => {
-    apply({} as Context, config)
+    const { ctx } = createContext()
+    apply(ctx, config)
     await Promise.resolve()
 
     expect(GarminClient).toHaveBeenCalledWith(
@@ -99,5 +124,25 @@ describe('plugin activation', () => {
     await options.replaceSession(writer)
     expect(mockReplacePersistedSession).toHaveBeenCalledWith(writer)
     expect(writer).toHaveBeenCalledTimes(1)
+  })
+
+  it('coalesces account changes into one whole-plugin restart', async () => {
+    const { ctx, emitVolatileUpdate, restart } = createContext()
+    apply(ctx, config)
+
+    emitVolatileUpdate([['cacheTtl']])
+    expect(restart).not.toHaveBeenCalled()
+    emitVolatileUpdate([['username']])
+    emitVolatileUpdate([['region']])
+    expect(restart).not.toHaveBeenCalled()
+    await Promise.resolve()
+    expect(restart).toHaveBeenCalledTimes(1)
+  })
+
+  it('deactivates the old client when its fiber is unloaded', () => {
+    const { ctx, disposeClient } = createContext()
+    apply(ctx, config)
+    disposeClient()
+    expect(mockDeactivate).toHaveBeenCalledTimes(1)
   })
 })

@@ -173,29 +173,41 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh web
 
 The web UI starts at `http://127.0.0.1:3080` by default. If you launch Harness via `npx`, keep using the same prefix for the commands below (`npx --legacy-peer-deps=false @deepseek-ai/dsh …`); if you have `dsh` installed globally, you can drop the `npx @deepseek-ai/` prefix.
 
-### 3. Configure Credentials
+### 3. Configure the Garmin account when you are ready to sign in
 
-Normal runtime credentials come from environment variables (or a secret store
-provided by your launcher); keep `.env` out of version control. The local Web
-MFA flow is the narrow exception: after explicit profile confirmation, the
-Host atomically saves an owner-only DI session file. It never saves the password,
-MFA code, or CAPTCHA response.
+The Harness plugin can be installed and started without a Garmin email. In the
+local Harness **Plugins** page, open **dsh-plugin-garmin-connect** and use
+**Garmin 账号配置** to choose **China (cn)** or **International (global)** and save
+that region's account email. Wait for the plugin to reload, then click the
+matching Garmin login button and enter your password and MFA code on Garmin's
+official page. The saved email is not filled back into the settings form. The
+plugin uses one active account and region at a time; switching regions requires
+saving that region's email in this form first. If an International login says
+the email is not configured, configure the **global** account here and retry.
+
+For CLI, MCP, or headless use, configure the account through environment
+variables (or your launcher's secret store). Keep `.env` out of version control.
+The local Web MFA flow saves an owner-only DI session file after explicit
+profile confirmation. It never saves the password, MFA code, or CAPTCHA
+response.
 
 ```bash
 # Source checkout only: copy the bundled template
 cp .env.example .env
 
-# Edit .env and fill in your Garmin credentials
+# Edit .env only if using CLI/MCP or environment-based configuration
 ```
 
-For a registry installation, create `.env` directly in the directory where you
-run `dsh` (your workspace root), then add the variables from the table below;
-the package's template is inside the installed dependency rather than your
-current directory. The plugin loads the workspace `.env` automatically.
+For environment-based configuration with a registry installation, create `.env`
+in the directory where you run `dsh` (your workspace root), then add the
+variables from the table below. The package's template is inside the installed
+dependency rather than your current directory. The plugin loads the workspace
+`.env` automatically. An explicitly saved plugin email takes precedence over
+`GARMIN_USERNAME`.
 
 | Variable | Required | Description |
 |---|---|---|
-| `GARMIN_USERNAME` | ✅ | Your Garmin account email |
+| `GARMIN_USERNAME` | CLI/MCP | Garmin account email; Harness users can instead save it in the plugin settings after installation |
 | `GARMIN_ACCOUNT` | ❌ | Lowercase local alias used for the implicit Web/CLI/MCP session path (`default` when omitted) |
 | `GARMIN_PASSWORD` | ✅* | Legacy direct-login password; do not use this for the interactive MFA setup below |
 | `GARMIN_SESSION_TOKEN` | ✅* | Inline pre-authenticated token (supported, but the session file is safer) |
@@ -210,7 +222,8 @@ current directory. The plugin loads the workspace `.env` automatically.
 > \* Normal data access needs one of `GARMIN_PASSWORD`, `GARMIN_SESSION_TOKEN`,
 > or `GARMIN_SESSION_TOKEN_FILE`. The local Web, `auth:serve`, and
 > standalone MCP flows may start without one and create the implicit account
-> session file. A protected file is safer than an inline token,
+> session file. The account email is still needed before starting authentication;
+> Harness users can enter it in the plugin settings after installation. A protected file is safer than an inline token,
 > especially when isolating multiple processes. If more than one is configured, the inline token takes
 > precedence over the file until Garmin explicitly rejects it; a newly written,
 > account-matching session file can then take over on retry. A valid session
@@ -228,16 +241,19 @@ current directory. The plugin loads the workspace `.env` automatically.
 #### Two-step verification — browser-based MFA
 
 When dsh and its Web UI are running together on the same local machine, use the
-**China account** or **International account** Garmin button in the top bar. The
-selected button must match the process's configured `GARMIN_REGION`; a mismatch
-fails before any Garmin page is opened. A matching selection opens a custom bridge on an ephemeral
+**China account** or **International account** Garmin button in the top bar after
+saving the matching region and email in the plugin's **Garmin 账号配置** form. The
+selected button must match the configured region; a mismatch fails before any
+Garmin page is opened and prompts you to configure that region's account. A
+matching selection opens a custom bridge on an ephemeral
 `127.0.0.1` port; that bridge, rather than the dsh page itself, embeds Garmin's
-official GAuth page. Email, password, MFA code, and any CAPTCHA are entered only
-inside the Garmin iframe.
+official GAuth page. The configured account email is stored in the local
+Harness plugin settings; any email entry on Garmin's sign-in page, password,
+MFA code, and CAPTCHA remain inside the Garmin iframe.
 
 Making this safe and reliable required more than adding a verification-code
 field. We first kept Garmin's official GAuth page inside a local iframe so the
-email, password, and MFA code stayed on Garmin's origin, then worked through
+Garmin sign-in fields stayed on Garmin's origin, then worked through
 cross-origin messaging, missing vendor styles, browser CSP/Trusted Types,
 third-party-frame policy, MFA redirects, and exact ticket/service binding.
 Inspired by Zhitao's [DailySync](https://dailysync.cn) approach of completing
@@ -259,9 +275,10 @@ loopback host, port, path, query, or region before contacting DI. It never
 rewrites or retries the one-time ticket with a fallback service. The Host probes the Garmin profile, shows a sanitized profile to
 the user, and asks them to confirm that it corresponds to the configured email.
 Only then does it atomically save an owner-only session bound to the configured
-account and region. The outer dsh page receives only
-public progress states: the dsh page, model context, and AI-callable tool results
-never receive the ticket, DI token, password, MFA code, or CAPTCHA response.
+account and region. The outer dsh page receives public login progress and the
+email explicitly entered in the local plugin settings; the dsh page, model
+context, and AI-callable tool results never receive the ticket, DI token,
+password, MFA code, or CAPTCHA response.
 
 After the Host verifies the account through password login, a profile-bound DI
 session, or a newly confirmed Web login, the matching region button subtitle
@@ -280,8 +297,9 @@ network errors, and MFA-looking titles do not trigger browser authentication.
 While unauthenticated, the page polls this coarse data-free state once per
 second; after login it returns to the 15-second account refresh.
 
-Configure `GARMIN_USERNAME` and the correct `GARMIN_REGION` before opening the
-dialog. `GARMIN_SESSION_TOKEN_FILE` is optional for this Web flow: when omitted,
+Save the Garmin email and correct region in the plugin settings (or configure
+`GARMIN_USERNAME` and `GARMIN_REGION` through the environment) before opening
+the dialog. `GARMIN_SESSION_TOKEN_FILE` is optional for this Web flow: when omitted,
 the Host uses `GARMIN_ACCOUNT` (default `default`) and writes
 `~/.config/dsh-plugin-garmin-connect/accounts/<alias>.session.json` on the usual
 POSIX configuration path (or the platform configuration root). After a confirmed
@@ -550,7 +568,7 @@ explicitly want normalized details in your local terminal output.
 ### Credential Resolution Order
 
 ```
-1. Plugin config values (set on the plugin row in a profile patch / `--patch` overlay)
+1. Plugin config values (saved through the local Garmin settings form, a profile patch, or a `--patch` overlay)
    ↓ fallback
 2. Environment variables (.env / shell)
    ↓ fallback
@@ -995,7 +1013,7 @@ authentication runtime while keeping Garmin credentials out of AI conversations:
                                │ embeds the exact regional page
                                ▼
           official Garmin GAuth iframe (cn / global)
-          email, password, MFA, and CAPTCHA stay here
+          Garmin sign-in inputs stay here
                                │
                                │ one-time ticket + original exact service
                                ▼
@@ -1017,10 +1035,11 @@ authentication runtime while keeping Garmin credentials out of AI conversations:
 
 The non-negotiable boundaries are:
 
-- The outer dsh page, MCP client, and model see only a one-time local URL,
-  completion notification, or coarse non-sensitive status. Tickets, DI tokens,
-  session contents, and session paths never enter model context or AI tool
-  arguments/results.
+- During authentication, the outer dsh page receives a one-time local URL and
+  coarse progress; its separate local settings form handles the account email.
+  MCP clients and the model receive only a URL, completion notification, or
+  coarse non-sensitive status. Tickets, DI tokens, session contents, and session
+  paths never enter model context or AI tool arguments/results.
 - The bridge accepts only the expected Garmin SSO origin, iframe window, CSRF,
   and an exactly matched `ticket/service` pair. It never rewrites the service,
   follows a redirect, or retries a one-time ticket against a fallback.
@@ -1108,7 +1127,7 @@ The package is a standard dsh bundle: `package.json` declares `dsh.bundle.patch`
 
 ```bash
 npm run build   # prepublishOnly also runs this automatically
-npm publish
+npm publish --registry=https://registry.npmjs.org/ --access public
 ```
 
 After publishing, users install with a single command:
