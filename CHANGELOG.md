@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-09-27
+
+### Fixed
+- Restore the local DeepSeek Harness Garmin login buttons on newer Hosts by registering the four authentication endpoints on the Host's guarded `/api` fetch routes. The client retains a 404-only fallback to the older `/garmin-auth` RPC channel, so browser-based MFA also remains available on older Hosts.
+
 ## [0.1.8] - 2026-09-26
 
 ### Changed

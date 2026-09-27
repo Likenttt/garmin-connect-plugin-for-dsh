@@ -3,7 +3,11 @@ import {
   parseGarminAuthStatusRpcResult,
 } from './protocol'
 
-const RPC_CHANNEL = '/garmin-auth'
+const API_CHANNEL = '/api'
+const LEGACY_CHANNEL = '/garmin-auth'
+
+type GarminAuthEndpoint = 'account' | 'begin' | 'status' | 'cancel'
+type GarminAuthChannel = typeof API_CHANNEL | typeof LEGACY_CHANNEL
 
 interface RpcCaller {
   call(
@@ -12,6 +16,54 @@ interface RpcCaller {
     payload: unknown,
     signal?: AbortSignal,
   ): Promise<unknown>
+}
+
+const preferredChannel = new WeakMap<RpcCaller, GarminAuthChannel>()
+
+/**
+ * Current Hosts expose exact Garmin routes under /api. Older Hosts expose the
+ * dedicated /garmin-auth channel. A 404 means the selected route is absent;
+ * other transport and business failures must not replay a stateful call.
+ */
+export async function callGarminAuthRpc(
+  rpc: RpcCaller,
+  endpoint: GarminAuthEndpoint,
+  payload: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const channel = preferredChannel.get(rpc) ?? API_CHANNEL
+  try {
+    const result = await callChannel(rpc, channel, endpoint, payload, signal)
+    preferredChannel.set(rpc, channel)
+    return result
+  } catch (error) {
+    if (signal?.aborted || !isMissingRoute(error, channel, endpoint)) throw error
+    const fallback = channel === API_CHANNEL ? LEGACY_CHANNEL : API_CHANNEL
+    const result = await callChannel(rpc, fallback, endpoint, payload, signal)
+    preferredChannel.set(rpc, fallback)
+    return result
+  }
+}
+
+function callChannel(
+  rpc: RpcCaller,
+  channel: GarminAuthChannel,
+  endpoint: GarminAuthEndpoint,
+  payload: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const method = channel === API_CHANNEL ? `garmin-auth/${endpoint}` : endpoint
+  return rpc.call(channel, method, payload, signal)
+}
+
+function isMissingRoute(
+  error: unknown,
+  channel: GarminAuthChannel,
+  endpoint: GarminAuthEndpoint,
+): boolean {
+  if (!(error instanceof Error)) return false
+  const method = channel === API_CHANNEL ? `garmin-auth/${endpoint}` : endpoint
+  return error.message === `transport failure for ${channel}/${method}: HTTP 404`
 }
 
 /**
@@ -26,7 +78,7 @@ export async function releaseGarminAuthFlow(
 ): Promise<boolean> {
   try {
     const cancelled = parseGarminAuthCancelRpcResult(
-      await rpc.call(RPC_CHANNEL, 'cancel', { flowId }, signal),
+      await callGarminAuthRpc(rpc, 'cancel', { flowId }, signal),
     )
     if (cancelled.success) return true
   } catch {
@@ -35,7 +87,7 @@ export async function releaseGarminAuthFlow(
 
   try {
     const status = parseGarminAuthStatusRpcResult(
-      await rpc.call(RPC_CHANNEL, 'status', { flowId }, signal),
+      await callGarminAuthRpc(rpc, 'status', { flowId }, signal),
     )
     return status.success && status.status !== 'in_progress'
   } catch {

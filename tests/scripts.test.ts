@@ -138,7 +138,7 @@ describe('maintenance scripts', () => {
     }
     let completeFirstAccountRequest: ((value: unknown) => void) | undefined
     const rpcCall = jest.fn().mockImplementation((_channel, method) => {
-      if (method !== 'account') {
+      if (method !== 'garmin-auth/account') {
         return Promise.resolve({
           ok: true,
           value: { success: false, code: 'unavailable' },
@@ -175,8 +175,8 @@ describe('maintenance scripts', () => {
     await Promise.resolve()
 
     expect(rpcCall).toHaveBeenCalledWith(
-      '/garmin-auth',
-      'account',
+      '/api',
+      'garmin-auth/account',
       {},
       expect.any(AbortSignal),
     )
@@ -200,8 +200,8 @@ describe('maintenance scripts', () => {
     timeoutCallbacks[0]()
     await Promise.resolve()
     expect(rpcCall).toHaveBeenCalledWith(
-      '/garmin-auth',
-      'account',
+      '/api',
+      'garmin-auth/account',
       {},
       expect.any(AbortSignal),
     )
@@ -227,8 +227,8 @@ describe('maintenance scripts', () => {
     await Promise.resolve()
     await new Promise(resolve => setImmediate(resolve))
     expect(rpcCall).toHaveBeenCalledWith(
-      '/garmin-auth',
-      'begin',
+      '/api',
+      'garmin-auth/begin',
       { region: 'cn' },
       expect.any(AbortSignal),
     )
@@ -238,8 +238,8 @@ describe('maintenance scripts', () => {
     await Promise.resolve()
     await new Promise(resolve => setImmediate(resolve))
     expect(rpcCall).toHaveBeenLastCalledWith(
-      '/garmin-auth',
-      'begin',
+      '/api',
+      'garmin-auth/begin',
       { region: 'global' },
       expect.any(AbortSignal),
     )

@@ -21,6 +21,8 @@ import {
 } from './auth-requirement'
 
 const RPC_CHANNEL = '/garmin-auth'
+const FETCH_RPC_CHANNEL = '/api/garmin-auth'
+const RPC_ENDPOINTS = ['account', 'begin', 'status', 'cancel'] as const
 const RPC_EFFECT_LABEL = 'garmin-connect: embedded auth rpc'
 
 type Environment = Readonly<Record<string, string | undefined>>
@@ -30,6 +32,19 @@ type EmbeddedAuthRpcResult =
   | EmbeddedAuthBeginResult
   | EmbeddedAuthStatusResult
   | EmbeddedAuthCancelResult
+
+interface HostFetchRpcRoute {
+  path: string
+  methods: string[]
+  requestBody: 'buffered'
+  fetch(request: Request): Promise<Response>
+}
+
+interface HostConnectionWithFetch extends HostConnectionHandle {
+  fetch?: {
+    register(route: HostFetchRpcRoute): () => void | Promise<void>
+  }
+}
 
 export type EmbeddedAuthAccountResult = {
   success: true
@@ -111,7 +126,9 @@ export function resolveEmbeddedAuthConfig(
  * Register the private Host half of embedded Garmin authentication.
  *
  * Connection is intentionally optional: older DSH hosts can still load the
- * plugin, while compatible hosts expose this channel only to loopback pages.
+ * plugin. New Hosts mount authenticated Fetch routes; older Hosts use the
+ * private loopback-only RPC channel. The Host admits Fetch requests before
+ * invoking these route callbacks.
  */
 export function registerEmbeddedAuthRpc(
   ctx: Context,
@@ -131,27 +148,79 @@ export function registerEmbeddedAuthRpc(
     }))
   ctx.inject(['connection'], (connectionCtx) => {
     const controller = createController(config)
-    const connection = connectionCtx.connection as HostConnectionHandle
-    const disposeRpc = connection.rpc.handle(
-      RPC_CHANNEL,
-      createRpcHandler(
-        controller,
-        registration.getAuthenticatedAccount,
-        registration.getAuthenticationRequirement,
-      ),
-      { authority: 'loopback' },
+    const connection = connectionCtx.connection as HostConnectionWithFetch
+    const handler = createRpcHandler(
+      controller,
+      registration.getAuthenticatedAccount,
+      registration.getAuthenticationRequirement,
     )
+    const fetch = connection.fetch
+    const disposeRoutes = fetch?.register
+      ? RPC_ENDPOINTS.map(endpoint => fetch.register({
+        path: `${FETCH_RPC_CHANNEL}/${endpoint}`,
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: request => handleFetchRpc(endpoint, request, handler),
+      }))
+      : [connection.rpc.handle(
+        RPC_CHANNEL,
+        handler,
+        { authority: 'loopback' },
+      )]
 
     connectionCtx.effect(
       () => async () => {
         try {
-          await disposeRpc()
+          for (const disposeRoute of disposeRoutes.reverse()) {
+            await disposeRoute()
+          }
         } finally {
           await controller.close()
         }
       },
       RPC_EFFECT_LABEL,
     )
+  })
+}
+
+/** Adapt Connection's authenticated exact Fetch routes to its RPC envelope. */
+async function handleFetchRpc(
+  endpoint: typeof RPC_ENDPOINTS[number],
+  request: Request,
+  handler: ConnectionRpcHandler,
+): Promise<Response> {
+  if (request.method !== 'POST') {
+    return new Response('method not allowed', { status: 405 })
+  }
+  if (request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
+    !== 'application/json') {
+    return new Response('content type must be application/json', { status: 415 })
+  }
+
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return new Response('body is not JSON', { status: 400 })
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return new Response('invalid request', { status: 400 })
+  }
+  const envelope = body as Record<string, unknown>
+  if (envelope.type !== 'client-request'
+    || typeof envelope.rpcId !== 'string'
+    || !envelope.rpcId
+    || envelope.rpcId.length > 128
+    || envelope.method !== `garmin-auth/${endpoint}`
+    || !Object.hasOwn(envelope, 'payload')) {
+    return new Response('invalid request', { status: 400 })
+  }
+
+  const result = await handler(endpoint, envelope.payload, request.signal)
+  return Response.json({
+    type: 'server-response',
+    rpcId: envelope.rpcId,
+    result,
   })
 }
 
