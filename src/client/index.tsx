@@ -14,6 +14,7 @@ import {
 } from './protocol'
 import { nextAutomaticGarminAuthentication } from './auto-auth'
 import {
+  callGarminAuthRpc,
   releaseGarminAuthFlow,
   retainUnreleasedGarminAuthFlowId,
 } from './flow-control'
@@ -22,7 +23,6 @@ import {
   type GarminLoginRegion,
 } from './view'
 
-const RPC_CHANNEL = '/garmin-auth'
 const AUTHENTICATED_ACCOUNT_REFRESH_MS = 15_000
 const UNAUTHENTICATED_ACCOUNT_REFRESH_MS = 1_000
 const STATUS_POLL_MS = 750
@@ -93,8 +93,8 @@ function GarminAuthOverlay({ ctx }: { ctx: GarminClientContext }): ReactElement 
       }
       if (generation.current !== current || controller.signal.aborted) return
       const result = parseGarminAuthBeginRpcResult(
-        await ctx.connection.rpc.call(
-          RPC_CHANNEL,
+        await callGarminAuthRpc(
+          ctx.connection.rpc,
           'begin',
           { region },
           controller.signal,
@@ -164,8 +164,8 @@ function GarminAuthOverlay({ ctx }: { ctx: GarminClientContext }): ReactElement 
     accountRequest.current = controller
     try {
       const result = parseGarminAuthAccountRpcResult(
-        await ctx.connection.rpc.call(
-          RPC_CHANNEL,
+        await callGarminAuthRpc(
+          ctx.connection.rpc,
           'account',
           {},
           controller.signal,
@@ -269,8 +269,8 @@ function GarminAuthOverlay({ ctx }: { ctx: GarminClientContext }): ReactElement 
     const poll = async (): Promise<void> => {
       try {
         const result = parseGarminAuthStatusRpcResult(
-          await ctx.connection.rpc.call(
-            RPC_CHANNEL,
+          await callGarminAuthRpc(
+            ctx.connection.rpc,
             'status',
             { flowId },
             controller.signal,

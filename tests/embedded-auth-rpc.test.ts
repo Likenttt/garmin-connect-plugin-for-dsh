@@ -97,6 +97,86 @@ describe('DSH embedded Garmin authentication RPC', () => {
     )
   })
 
+  it('can register authentication routes when the Host no longer supports custom RPC channels', () => {
+    const subject = fixture()
+    const register = jest.fn().mockReturnValue(jest.fn().mockResolvedValue(undefined))
+    subject.handle.mockImplementation(() => {
+      throw new Error('cannot get property "webServer" without inject')
+    })
+    Object.assign(subject.child.connection, { fetch: { register } })
+
+    expect(() => registerEmbeddedAuthRpc(
+      subject.ctx as unknown as Context,
+      {} as never,
+      subject.factory,
+    )).not.toThrow()
+    expect(register.mock.calls.map(([route]) => route.path)).toEqual([
+      '/api/garmin-auth/account',
+      '/api/garmin-auth/begin',
+      '/api/garmin-auth/status',
+      '/api/garmin-auth/cancel',
+    ])
+    for (const [route] of register.mock.calls) {
+      expect(route).toEqual(expect.objectContaining({
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: expect.any(Function),
+      }))
+    }
+    expect(subject.handle).not.toHaveBeenCalled()
+  })
+
+  it('dispatches a browser RPC envelope through a loopback-only Fetch route', async () => {
+    const subject = fixture()
+    const register = jest.fn().mockReturnValue(jest.fn().mockResolvedValue(undefined))
+    Object.assign(subject.child.connection, { fetch: { register } })
+    registerEmbeddedAuthRpc(
+      subject.ctx as unknown as Context,
+      {} as never,
+      subject.factory,
+    )
+    const beginRoute = register.mock.calls
+      .map(([route]) => route)
+      .find(route => route.path === '/api/garmin-auth/begin')
+    const request = (url: string, method = 'garmin-auth/begin') => ({
+      url,
+      method: 'POST',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      signal: new AbortController().signal,
+      json: async () => ({
+        type: 'client-request',
+        rpcId: 'request-123',
+        method,
+        payload: { region: 'cn' },
+      }),
+    }) as unknown as Request
+
+    const response = await beginRoute.fetch(request(
+      'http://127.0.0.1:19387/api/garmin-auth/begin',
+    ))
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      type: 'server-response',
+      rpcId: 'request-123',
+      result: {
+        ok: true,
+        value: expect.objectContaining({ success: true, flowId: 'a'.repeat(64) }),
+      },
+    })
+    expect(subject.controller.begin).toHaveBeenCalledWith(expect.any(AbortSignal), 'cn')
+
+    const remote = await beginRoute.fetch(request(
+      'https://remote.example.test/api/garmin-auth/begin',
+    ))
+    expect(remote.status).toBe(403)
+    const mismatched = await beginRoute.fetch(request(
+      'http://127.0.0.1:19387/api/garmin-auth/begin',
+      'garmin-auth/status',
+    ))
+    expect(mismatched.status).toBe(400)
+    expect(subject.controller.begin).toHaveBeenCalledTimes(1)
+  })
+
   it('dispatches only the closed account/begin/status/cancel endpoints', async () => {
     const subject = fixture()
     registerEmbeddedAuthRpc(
