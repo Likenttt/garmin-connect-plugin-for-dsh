@@ -3,24 +3,18 @@ import type {
   GarminAuthBeginResult,
   GarminAuthClientErrorCode,
   GarminAuthPublicStatus,
-  GarminAuthenticatedAccount,
 } from './protocol'
-import { regionLoginSubtitle } from './presentation'
 import {
   CLIENT_STYLES,
   backdropStyle,
-  badgeWrapStyle,
   bodyStyle,
   brandMarkStyle,
-  chinaButtonStyle,
   closeStyle,
   dialogStyle,
-  disabledButtonStyle,
   errorIconStyle,
   frameDomainStyle,
   frameShellStyle,
   frameToolbarStyle,
-  globalButtonStyle,
   headerActionsStyle,
   headerIdentityStyle,
   headerStyle,
@@ -28,12 +22,6 @@ import {
   officialBadgeStyle,
   officialDotStyle,
   regionBadgeStyle,
-  regionButtonStyle,
-  regionCopyStyle,
-  regionDomainStyle,
-  regionMarkStyle,
-  regionNameStyle,
-  retryButtonStyle,
   securityBadgeStyle,
   spinnerStyle,
   statusHintStyle,
@@ -47,31 +35,25 @@ import {
 
 export type GarminLoginRegion = 'cn' | 'global'
 
-const LOGIN_REGIONS = ['cn', 'global'] as const
 const REGION_DETAILS: Record<GarminLoginRegion, {
-  accountLabel: string
   domain: string
   label: string
 }> = {
   cn: {
-    accountLabel: '国内账号',
     domain: 'garmin.cn',
     label: '中国区',
   },
   global: {
-    accountLabel: '国际账号',
     domain: 'garmin.com',
     label: '国际区',
   },
 }
 
 export interface GarminAuthViewProps {
-  authenticatedAccount?: GarminAuthenticatedAccount
   begin?: GarminAuthBeginResult
   busy: boolean
   isLoopback: boolean
   onClose(): void
-  onLogin(region: GarminLoginRegion): Promise<void>
   open: boolean
   selectedRegion?: GarminLoginRegion
   showFrame: boolean
@@ -79,41 +61,21 @@ export interface GarminAuthViewProps {
 }
 
 export function GarminAuthView({
-  authenticatedAccount,
   begin,
   busy,
   isLoopback,
   onClose,
-  onLogin,
   open,
   selectedRegion,
   showFrame,
   status,
 }: GarminAuthViewProps): ReactElement {
-  if (!isLoopback) {
-    return (
-      <div className="gca-launcher" style={badgeWrapStyle}>
-        <style>{CLIENT_STYLES}</style>
-        {LOGIN_REGIONS.map(region => renderRegionLoginButton(
-          region,
-          true,
-        ))}
-      </div>
-    )
-  }
-
   const selected = selectedRegion ? REGION_DETAILS[selectedRegion] : undefined
 
   return (
-    <div className="gca-launcher" style={badgeWrapStyle}>
+    <div className="gca-launcher">
       <style>{CLIENT_STYLES}</style>
-      {LOGIN_REGIONS.map(region => renderRegionLoginButton(
-        region,
-        false,
-        value => void onLogin(value),
-        authenticatedAccount,
-      ))}
-      {open && (
+      {isLoopback && open && (
         <div className="gca-backdrop" role="presentation" style={backdropStyle} onMouseDown={event => {
           if (event.currentTarget === event.target) onClose()
         }}>
@@ -164,7 +126,6 @@ export function GarminAuthView({
               {begin?.success === false && (
                 <ErrorStatus
                   code={begin.code}
-                  onRetry={() => onLogin(selectedRegion ?? 'global')}
                   selectedRegion={selectedRegion}
                 />
               )}
@@ -188,11 +149,11 @@ export function GarminAuthView({
                 <Status text="登录成功，会话已安全保存到本机。" variant="success" />
               )}
               {status === 'failed' && (
-                <Status text="Garmin 登录失败，请重新选择区域后再试。" variant="error" />
+                <Status text="Garmin 登录失败，请在账号卡片中重试。" variant="error" />
               )}
               {status === 'cancelled' && <Status text="登录已取消。" />}
               {status === 'expired' && (
-                <Status text="登录页面已过期，请重新选择区域。" variant="error" />
+                <Status text="登录页面已过期，请在账号卡片中重试。" variant="error" />
               )}
             </div>
           </section>
@@ -202,60 +163,11 @@ export function GarminAuthView({
   )
 }
 
-function renderRegionLoginButton(
-  region: GarminLoginRegion,
-  disabled: boolean,
-  onLogin?: (region: GarminLoginRegion) => void,
-  authenticatedAccount?: GarminAuthenticatedAccount,
-): ReactElement {
-  const details = REGION_DETAILS[region]
-  const isChina = region === 'cn'
-  const accountMatches = authenticatedAccount?.region === region
-  const subtitle = regionLoginSubtitle(
-    region,
-    details.domain,
-    authenticatedAccount,
-  )
-  return (
-    <button
-      aria-label={`登录 Garmin ${details.label}`}
-      className="gca-region-button"
-      disabled={disabled}
-      data-authenticated={accountMatches ? 'true' : undefined}
-      key={region}
-      onClick={onLogin ? () => onLogin(region) : undefined}
-      style={{
-        ...regionButtonStyle,
-        ...(isChina ? chinaButtonStyle : globalButtonStyle),
-        ...(disabled ? disabledButtonStyle : {}),
-      }}
-      title={disabled
-        ? 'Garmin 登录仅支持本机 DSH'
-        : accountMatches
-          ? `已登录 Garmin ${details.label}账号：${authenticatedAccount.email}`
-          : `登录 Garmin ${details.label}账号`}
-    >
-      {isChina ? <span style={regionMarkStyle}>CN</span> : <GlobeIcon />}
-      <span className="gca-region-copy" style={regionCopyStyle}>
-        <strong style={regionNameStyle}>{details.accountLabel}</strong>
-        <small style={{
-          ...regionDomainStyle,
-          ...(!isChina ? { color: 'rgba(255,255,255,.72)' } : {}),
-        }} title={accountMatches ? subtitle : undefined}>
-          {subtitle}
-        </small>
-      </span>
-    </button>
-  )
-}
-
 function ErrorStatus({
   code,
-  onRetry,
   selectedRegion,
 }: {
   code: GarminAuthClientErrorCode
-  onRetry(): Promise<void>
   selectedRegion?: GarminLoginRegion
 }): ReactElement {
   const selectedLabel = selectedRegion
@@ -264,9 +176,9 @@ function ErrorStatus({
   const message = code === 'not_local'
     ? '此功能只能在本机 DSH 页面使用。'
     : code === 'region_mismatch'
-      ? `所选${selectedLabel}与当前插件配置的账号区域不一致。请先在插件中配置${selectedLabel}账号，然后重试。`
+      ? `请先在设置页的${selectedLabel}账号卡片中保存账号，然后重试。`
       : code === 'configuration'
-        ? '请先在插件中配置 Garmin 账号邮箱和区域。'
+        ? `请先在设置页的${selectedLabel}账号卡片中保存 Garmin 账号邮箱。`
         : code === 'busy'
           ? '已有一个 Garmin 登录正在进行。'
           : '暂时无法启动 Garmin 登录。'
@@ -274,9 +186,7 @@ function ErrorStatus({
     <div style={statusStyle}>
       <div aria-hidden="true" style={errorIconStyle}>!</div>
       <p>{message}</p>
-      <button className="gca-retry" onClick={() => void onRetry()} style={retryButtonStyle}>
-        重试
-      </button>
+      <p>关闭后可在对应账号卡片中重试。</p>
     </div>
   )
 }
@@ -316,15 +226,6 @@ function Status({
       <strong style={statusTextStyle}>{text}</strong>
       <span style={statusHintStyle}>你可以随时关闭此窗口，凭据不会保存到 DSH 页面。</span>
     </div>
-  )
-}
-
-function GlobeIcon(): ReactElement {
-  return (
-    <svg aria-hidden="true" height="20" viewBox="0 0 24 24" width="20">
-      <circle cx="12" cy="12" fill="none" r="9" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M3.5 12h17M12 3c2.2 2.45 3.3 5.45 3.3 9S14.2 18.55 12 21M12 3C9.8 5.45 8.7 8.45 8.7 12S9.8 18.55 12 21" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
-    </svg>
   )
 }
 

@@ -1,5 +1,6 @@
 import {
   parseGarminAuthAccountRpcResult,
+  parseGarminAuthAccountsRpcResult,
   parseGarminAuthBeginRpcResult,
   parseGarminAuthCancelRpcResult,
   parseGarminAuthStatusRpcResult,
@@ -8,6 +9,159 @@ import {
 const flowId = 'a'.repeat(64)
 
 describe('DSH Garmin authentication client protocol', () => {
+  it('accepts an exact public list with multiple accounts in one region', () => {
+    expect(parseGarminAuthAccountsRpcResult({
+      ok: true,
+      value: {
+        success: true,
+        accounts: [
+          { accountId: 'legacy-cn', slot: 1, region: 'cn', configured: true, authenticated: false },
+          { accountId: 'a0123456789abcdefabcd', slot: 3, region: 'cn', alias: '第二个', configured: true, authenticated: true },
+        ],
+      },
+    })).toEqual({
+      success: true,
+      accounts: [
+        { accountId: 'legacy-cn', slot: 1, region: 'cn', configured: true, authenticated: false },
+        { accountId: 'a0123456789abcdefabcd', slot: 3, region: 'cn', alias: '第二个', configured: true, authenticated: true },
+      ],
+    })
+  })
+
+  it('rejects private fields, duplicate IDs, and duplicate slots in the public list', () => {
+    const base = { accountId: 'a0123456789abcdefabcd', slot: 1, region: 'global', configured: true, authenticated: false }
+    for (const accounts of [
+      [{ ...base, email: 'runner@example.test' }],
+      [base, { ...base, slot: 2 }],
+      [base, { ...base, accountId: 'another' }],
+    ]) {
+      expect(parseGarminAuthAccountsRpcResult({
+        ok: true,
+        value: { success: true, accounts },
+      })).toEqual({ success: false, code: 'unavailable' })
+    }
+  })
+
+  it('accepts exact selected-account detail without exposing an email before login', () => {
+    expect(parseGarminAuthAccountRpcResult({
+      ok: true,
+      value: {
+        success: true,
+        accountId: 'legacy-cn',
+        slot: 1,
+        region: 'cn',
+        configured: false,
+        authenticated: false,
+      },
+    })).toEqual({
+      success: true,
+      accountId: 'legacy-cn',
+      slot: 1,
+      region: 'cn',
+      configured: false,
+      authenticated: false,
+    })
+
+    expect(parseGarminAuthAccountRpcResult({
+      ok: true,
+      value: {
+        success: true,
+        accountId: 'a0123456789abcdefabcd',
+        slot: 3,
+        region: 'cn',
+        alias: '第二个',
+        configured: true,
+        authenticated: false,
+      },
+    })).toEqual({
+      success: true,
+      accountId: 'a0123456789abcdefabcd',
+      slot: 3,
+      region: 'cn',
+      alias: '第二个',
+      configured: true,
+      authenticated: false,
+    })
+  })
+
+  it('accepts exact regional account summaries without rehydrating a saved email', () => {
+    expect(parseGarminAuthAccountRpcResult({
+      ok: true,
+      value: { success: true, configured: false, authenticated: false, region: 'cn' },
+    })).toEqual({ success: true, configured: false, authenticated: false, region: 'cn' })
+
+    expect(parseGarminAuthAccountRpcResult({
+      ok: true,
+      value: {
+        success: true,
+        configured: true,
+        authenticated: false,
+        region: 'global',
+        alias: '训练账号',
+      },
+    })).toEqual({
+      success: true,
+      configured: true,
+      authenticated: false,
+      region: 'global',
+      alias: '训练账号',
+    })
+
+    expect(parseGarminAuthAccountRpcResult({
+      ok: true,
+      value: {
+        success: true,
+        configured: true,
+        authenticated: false,
+        region: 'cn',
+        authenticationRequired: true,
+        reason: 'expired',
+        revision: 3,
+      },
+    })).toEqual({
+      success: true,
+      configured: true,
+      authenticated: false,
+      region: 'cn',
+      authenticationRequired: true,
+      reason: 'expired',
+      revision: 3,
+    })
+
+    expect(parseGarminAuthAccountRpcResult({
+      ok: true,
+      value: {
+        success: true,
+        configured: true,
+        authenticated: true,
+        region: 'cn',
+        alias: '训练账号',
+        email: 'runner@example.test',
+      },
+    })).toEqual({
+      success: true,
+      configured: true,
+      authenticated: true,
+      region: 'cn',
+      alias: '训练账号',
+      email: 'runner@example.test',
+    })
+  })
+
+  it('rejects private or mismatched regional account fields', () => {
+    for (const value of [
+      { success: true, accountId: 'legacy-cn', slot: 1, configured: false, authenticated: false, region: 'cn', email: 'runner@example.test' },
+      { success: true, configured: false, authenticated: false, region: 'cn', email: 'runner@example.test' },
+      { success: true, configured: true, authenticated: false, region: 'cn', token: 'ST-secret' },
+      { success: true, configured: true, authenticated: false, region: 'cn', alias: 'a\nprivate' },
+      { success: true, configured: true, authenticated: true, region: 'cn', email: 'bad\r\nheader' },
+    ]) {
+      const result = parseGarminAuthAccountRpcResult({ ok: true, value })
+      expect(result).toEqual({ success: false, code: 'unavailable' })
+      expect(JSON.stringify(result)).not.toContain('ST-secret')
+    }
+  })
+
   it('accepts exact authenticated and unauthenticated account summaries', () => {
     expect(parseGarminAuthAccountRpcResult({
       ok: true,

@@ -1,10 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
-import { Config, type PluginConfig, resolveConfig } from './config'
+import { Config, type PluginConfig, resolveAccountConfigs, resolveConfig } from './config'
 import { GarminClient } from './client'
-import {
-  registerEmbeddedAuthRpc,
-  resolveEmbeddedAuthConfig,
-} from './embedded-auth-rpc'
+import { registerEmbeddedAuthRpcAccounts } from './embedded-auth-rpc'
 import { registerTools } from './tools'
 
 export const name = 'garmin-connect'
@@ -18,9 +15,9 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export function apply(ctx: Context, config: Config | PluginConfig) {
-  const resolvedConfig = resolveEmbeddedAuthConfig(resolveConfig(config))
-  const client = new GarminClient(ctx, resolvedConfig, {
-    allowUnconfigured: true,
+  const accounts = resolveAccountConfigs(config).map(account => {
+    const client = new GarminClient(ctx, account.config, { allowUnconfigured: true })
+    return { ...account, client }
   })
 
   // Loader commits volatile fields without remounting the plugin. Rebuild the
@@ -29,9 +26,16 @@ export function apply(ctx: Context, config: Config | PluginConfig) {
   ctx.on('loader/volatile-update', paths => {
     if (
       restartQueued
-      || !paths.some(path => path.length === 1 && (
-        path[0] === 'username' || path[0] === 'region'
-      ))
+      || !paths.some(path => path.length === 1 && [
+        'username', 'region',
+        'cnUsername', 'cnAlias', 'cnConfigured',
+        'globalUsername', 'globalAlias', 'globalConfigured',
+        'accounts', 'accountsConfigured',
+        'account1Username', 'account2Username', 'account3Username',
+        'account4Username', 'account5Username',
+        'account1UsernameId', 'account2UsernameId', 'account3UsernameId',
+        'account4UsernameId', 'account5UsernameId',
+      ].includes(path[0]))
     ) return
     restartQueued = true
     queueMicrotask(() => {
@@ -46,24 +50,21 @@ export function apply(ctx: Context, config: Config | PluginConfig) {
   // Kick off the Garmin login in the background. Tool calls auto-connect on
   // first use, so a slow or temporarily failing login never blocks plugin
   // activation (dsh's Cordis fork has no 'ready' lifecycle event).
-  const initialConnection = client.connect().catch(() => undefined)
+  const activeAccounts = accounts.map(account => ({
+    ...account,
+    initialConnection: account.configured
+      ? account.client.connect().catch(() => undefined)
+      : Promise.resolve(),
+  }))
 
   // Register all AI-callable tools
-  registerTools(ctx, client, resolvedConfig)
+  registerTools(ctx, activeAccounts)
 
   // Compatible DSH hosts gain an optional loopback-only browser sign-in UI.
   // The Garmin ticket and resulting session never cross into the web client.
-  registerEmbeddedAuthRpc(ctx, resolvedConfig, {
-    getAuthenticatedAccount: async () => {
-      await initialConnection
-      return client.getAuthenticatedAccount()
-    },
-    getAuthenticationRequirement: async () => {
-      await initialConnection
-      return client.getAuthenticationRequirement()
-    },
-    replaceSession: writer => client.replacePersistedSession(writer),
-  })
+  registerEmbeddedAuthRpcAccounts(ctx, activeAccounts)
 
-  ctx.effect(() => () => client.deactivate(), 'garmin-connect: client lifecycle')
+  ctx.effect(() => () => {
+    for (const { client } of accounts) client.deactivate()
+  }, 'garmin-connect: client lifecycle')
 }

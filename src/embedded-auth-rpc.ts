@@ -8,6 +8,7 @@ import {
   defaultAccountSessionPath,
 } from './account-session'
 import type { Config, GarminRegion } from './config'
+import type { GarminClient } from './client'
 import {
   type EmbeddedAuthBeginResult,
   type EmbeddedAuthCancelResult,
@@ -24,6 +25,8 @@ const RPC_CHANNEL = '/garmin-auth'
 const FETCH_RPC_CHANNEL = '/api/garmin-auth'
 const RPC_ENDPOINTS = ['account', 'begin', 'status', 'cancel'] as const
 const RPC_EFFECT_LABEL = 'garmin-connect: embedded auth rpc'
+const ACCOUNT_ID_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/
+const MAX_CONFIGURED_ACCOUNTS = 5
 
 type Environment = Readonly<Record<string, string | undefined>>
 
@@ -64,6 +67,73 @@ export type EmbeddedAuthAccountResult = {
 } | {
   success: false
   code: 'unavailable'
+}
+
+/** One fixed-region account exposed by the Harness embedded sign-in route. */
+export interface EmbeddedAuthAccountOption {
+  accountId: string
+  slot: number
+  region: GarminRegion
+  config: Config
+  configured: boolean
+  alias?: string
+  client: Pick<GarminClient,
+    'getAuthenticatedAccount' | 'getAuthenticationRequirement' | 'replacePersistedSession'>
+  /** The Host's background session restore, if one is in progress. */
+  initialConnection?: Promise<unknown>
+}
+
+export interface EmbeddedAuthAccountsRegistrationOptions {
+  /** Internal seam for testing the two independent controllers. */
+  createController?: (
+    config: Config,
+    account: EmbeddedAuthAccountOption,
+  ) => EmbeddedAuthRpcController
+}
+
+type MultiAccountResult =
+  | { success: true; accounts: MultiAccountSummary[] }
+  | {
+    success: true
+    accountId: string
+    slot: number
+    configured: false
+    authenticated: false
+    region: GarminRegion
+  }
+  | ({
+    success: true
+    accountId: string
+    slot: number
+    configured: true
+    authenticated: false
+    region: GarminRegion
+    alias?: string
+  } & ({ authenticationRequired?: false } | ({ authenticationRequired: true } &
+    Pick<GarminAuthenticationRequirement, 'reason' | 'revision'>)))
+  | {
+    success: true
+    accountId: string
+    slot: number
+    configured: true
+    authenticated: true
+    region: GarminRegion
+    alias?: string
+    email: string
+  }
+
+interface MultiAccountSummary {
+  accountId: string
+  slot: number
+  region: GarminRegion
+  alias?: string
+  configured: true
+  authenticated: boolean
+}
+
+interface AccountRuntime {
+  account: EmbeddedAuthAccountOption
+  controller?: EmbeddedAuthRpcController
 }
 
 export interface EmbeddedAuthAuthenticatedAccount {
@@ -181,6 +251,305 @@ export function registerEmbeddedAuthRpc(
       RPC_EFFECT_LABEL,
     )
   })
+}
+
+/**
+ * Register one embedded sign-in transport for up to five independently named
+ * accounts. Each configured account owns a distinct controller, bridge, and
+ * session writer. Account IDs remain stable when region or alias changes.
+ * Flow handles are routed only to the controller that issued them.
+ */
+export function registerEmbeddedAuthRpcAccounts(
+  ctx: Context,
+  accounts: readonly EmbeddedAuthAccountOption[],
+  options: EmbeddedAuthAccountsRegistrationOptions = {},
+): void {
+  const accountById = new Map<string, EmbeddedAuthAccountOption>()
+  let configuredCount = 0
+  for (const account of accounts) {
+    if (!account.configured && !account.accountId) continue
+    if (!ACCOUNT_ID_PATTERN.test(account.accountId)
+      || !Number.isInteger(account.slot)
+      || account.slot < 1
+      || account.slot > MAX_CONFIGURED_ACCOUNTS
+      || (account.region !== 'cn' && account.region !== 'global')
+      || accountById.has(account.accountId)) {
+      throw new Error('Garmin embedded auth account IDs must be valid and unique')
+    }
+    if (account.configured) configuredCount += 1
+    accountById.set(account.accountId, account)
+  }
+  if (configuredCount > MAX_CONFIGURED_ACCOUNTS) {
+    throw new Error('Garmin embedded auth supports at most five accounts')
+  }
+
+  ctx.inject(['connection'], (connectionCtx) => {
+    const runtimes = new Map<string, AccountRuntime>()
+    for (const account of accountById.values()) {
+      const controller = account.configured
+        ? (options.createController?.(account.config, account)
+          ?? createEmbeddedAuthController({
+            username: account.config.username,
+            region: account.region,
+            sessionTokenFile: account.config.sessionTokenFile ?? '',
+          }, {
+            replaceSession: writer => account.client.replacePersistedSession(writer),
+          }))
+        : undefined
+      runtimes.set(account.accountId, { account, controller })
+    }
+
+    const connection = connectionCtx.connection as HostConnectionWithFetch
+    const handler = createMultiAccountRpcHandler(runtimes)
+    const fetch = connection.fetch
+    const disposeRoutes = fetch?.register
+      ? RPC_ENDPOINTS.map(endpoint => fetch.register({
+        path: `${FETCH_RPC_CHANNEL}/${endpoint}`,
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: request => handleFetchRpc(endpoint, request, handler),
+      }))
+      : [connection.rpc.handle(
+        RPC_CHANNEL,
+        handler,
+        { authority: 'loopback' },
+      )]
+
+    connectionCtx.effect(
+      () => async () => {
+        try {
+          for (const disposeRoute of disposeRoutes.reverse()) {
+            await disposeRoute()
+          }
+        } finally {
+          await Promise.allSettled(
+            Array.from(runtimes.values(), runtime => runtime.controller?.close()),
+          )
+        }
+      },
+      RPC_EFFECT_LABEL,
+    )
+  })
+}
+
+function createMultiAccountRpcHandler(
+  runtimes: ReadonlyMap<string, AccountRuntime>,
+): ConnectionRpcHandler {
+  const flowOwners = new Map<string, string>()
+  const currentFlowByAccount = new Map<string, string>()
+  const unavailable = () => ({
+    ok: true as const,
+    value: { success: false as const, code: 'unavailable' as const },
+  })
+  const invalid = () => ({
+    ok: true as const,
+    value: { success: false as const, code: 'invalid' as const },
+  })
+
+  return async (endpoint, payload, signal) => {
+    try {
+      if (signal.aborted) return unavailable()
+      if (endpoint === 'account') {
+        if (isExactEmptyObject(payload)) {
+          const accounts = await Promise.all(Array.from(runtimes.values())
+            .filter(runtime => runtime.account.configured)
+            .map(async ({ account }): Promise<MultiAccountSummary> => {
+              let authenticated = false
+              try {
+                await account.initialConnection
+                const rawAccount = await account.client.getAuthenticatedAccount()
+                authenticated = rawAccount !== undefined
+                  && exactAuthenticatedAccount(rawAccount)?.region === account.region
+              } catch {
+                // A temporarily unavailable account must not hide other slots.
+              }
+              const alias = publicAlias(account.alias)
+              return {
+                accountId: account.accountId,
+                slot: account.slot,
+                region: account.region,
+                ...(alias === undefined ? {} : { alias }),
+                configured: true,
+                authenticated,
+              }
+            }))
+          if (signal.aborted) return unavailable()
+          return {
+            ok: true,
+            value: { success: true, accounts } satisfies MultiAccountResult,
+          }
+        }
+        const accountId = exactAccountIdPayload(payload)
+        if (!accountId) return unavailable()
+        const runtime = runtimes.get(accountId)
+        if (!runtime) {
+          return { ok: true, value: { success: false, code: 'configuration' } }
+        }
+        const { account } = runtime
+        const { region } = account
+        if (!runtime?.account.configured) {
+          return {
+            ok: true,
+            value: {
+              success: true,
+              accountId,
+              slot: account.slot,
+              configured: false,
+              authenticated: false,
+              region,
+            } satisfies MultiAccountResult,
+          }
+        }
+
+        await account.initialConnection
+        if (signal.aborted) return unavailable()
+        const alias = publicAlias(account.alias)
+        const rawAccount = await account.client.getAuthenticatedAccount()
+        if (rawAccount !== undefined) {
+          const authenticated = exactAuthenticatedAccount(rawAccount)
+          if (!authenticated || authenticated.region !== region) return unavailable()
+          return {
+            ok: true,
+            value: {
+              success: true,
+              accountId,
+              slot: account.slot,
+              configured: true,
+              authenticated: true,
+              region,
+              ...(alias === undefined ? {} : { alias }),
+              email: authenticated.email,
+            } satisfies MultiAccountResult,
+          }
+        }
+
+        const rawRequirement = await account.client.getAuthenticationRequirement()
+        if (rawRequirement !== undefined) {
+          const requirement = exactAuthenticationRequirement(rawRequirement)
+          if (!requirement || requirement.region !== region) return unavailable()
+          return {
+            ok: true,
+            value: {
+              success: true,
+              accountId,
+              slot: account.slot,
+              configured: true,
+              authenticated: false,
+              region,
+              ...(alias === undefined ? {} : { alias }),
+              authenticationRequired: true,
+              reason: requirement.reason,
+              revision: requirement.revision,
+            } satisfies MultiAccountResult,
+          }
+        }
+        return {
+          ok: true,
+          value: {
+            success: true,
+            accountId,
+            slot: account.slot,
+            configured: true,
+            authenticated: false,
+            region,
+            ...(alias === undefined ? {} : { alias }),
+          } satisfies MultiAccountResult,
+        }
+      }
+      if (endpoint === 'begin') {
+        const accountId = exactAccountIdPayload(payload)
+        if (!accountId) return unavailable()
+        const runtime = runtimes.get(accountId)
+        const controller = runtime?.controller
+        if (!controller) {
+          return {
+            ok: true,
+            value: { success: false, code: 'configuration' },
+          }
+        }
+        const result = await controller.begin(signal, runtime.account.region)
+        if (signal.aborted) {
+          if (result.success) cancelBestEffort(controller, result.flowId)
+          return unavailable()
+        }
+        if (result.success) {
+          const owner = flowOwners.get(result.flowId)
+          if (owner && owner !== accountId) {
+            cancelBestEffort(controller, result.flowId)
+            return unavailable()
+          }
+          const previous = currentFlowByAccount.get(accountId)
+          if (previous && previous !== result.flowId) flowOwners.delete(previous)
+          currentFlowByAccount.set(accountId, result.flowId)
+          flowOwners.set(result.flowId, accountId)
+        }
+        return { ok: true, value: result }
+      }
+      if (endpoint === 'status' || endpoint === 'cancel') {
+        const flowId = exactFlowId(payload)
+        if (!flowId) return invalid()
+        const accountId = flowOwners.get(flowId)
+        const controller = accountId && runtimes.get(accountId)?.controller
+        if (!controller) return invalid()
+        const releaseFlow = () => {
+          flowOwners.delete(flowId)
+          if (currentFlowByAccount.get(accountId) === flowId) {
+            currentFlowByAccount.delete(accountId)
+          }
+        }
+        if (endpoint === 'status') {
+          const result = controller.status(payload)
+          if (result.success && result.status !== 'in_progress') releaseFlow()
+          return { ok: true, value: result }
+        }
+        const result = controller.cancel(payload)
+        if (result.success) releaseFlow()
+        return {
+          ok: true,
+          value: result,
+        }
+      }
+      return unavailable()
+    } catch {
+      return unavailable()
+    }
+  }
+}
+
+function cancelBestEffort(controller: EmbeddedAuthRpcController, flowId: string): void {
+  try {
+    controller.cancel({ flowId })
+  } catch {
+    // The controller remains responsible for its private flow cleanup.
+  }
+}
+
+function publicAlias(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const alias = value.trim()
+  return alias.length > 0
+    && alias.length <= 64
+    && !/[\u0000-\u001f\u007f-\u009f]/.test(alias)
+    ? alias
+    : undefined
+}
+
+function exactFlowId(value: unknown): string | undefined {
+  try {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return undefined
+    }
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) return undefined
+    const keys = Object.keys(value)
+    if (keys.length !== 1 || keys[0] !== 'flowId') return undefined
+    const flowId = (value as Record<string, unknown>).flowId
+    return typeof flowId === 'string' && /^[a-f0-9]{64}$/.test(flowId)
+      ? flowId
+      : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** Adapt Connection's authenticated exact Fetch routes to its RPC envelope. */
@@ -312,6 +681,24 @@ function exactBeginRegion(value: unknown): GarminRegion | undefined {
     if (keys.length !== 1 || keys[0] !== 'region') return undefined
     const region = (value as Record<string, unknown>).region
     return region === 'cn' || region === 'global' ? region : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function exactAccountIdPayload(value: unknown): string | undefined {
+  try {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return undefined
+    }
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) return undefined
+    const keys = Object.keys(value)
+    if (keys.length !== 1 || keys[0] !== 'accountId') return undefined
+    const accountId = (value as Record<string, unknown>).accountId
+    return typeof accountId === 'string' && ACCOUNT_ID_PATTERN.test(accountId)
+      ? accountId
+      : undefined
   } catch {
     return undefined
   }

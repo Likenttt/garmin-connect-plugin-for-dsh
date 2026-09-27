@@ -88,6 +88,7 @@ export class GarminClient {
   private sessionTokenRejected = false
   private selectedSessionFileFingerprint?: string
   private rejectedSessionFileFingerprint?: string
+  private rejectedPreferredDiFingerprint?: string
   private pendingChangedSessionFile?: SessionFileSnapshot
   private diSessionSelected = false
   private diRuntime: GarminDiSessionRuntime | null = null
@@ -259,16 +260,37 @@ export class GarminClient {
 
   private async restoreConfiguredSession(): Promise<SessionRestoreResult> {
     const inlineToken = this.config.sessionToken?.trim()
+    let selectedInlineToken = inlineToken
+    let preferredDiSnapshot: Extract<SessionFileSnapshot, { session: GarminSessionFile }> | undefined
     try {
+      const configuredPath = this.config.sessionTokenFile?.trim()
+      if (selectedInlineToken && configuredPath) {
+        // A successful embedded login writes a profile-bound DI file. Prefer
+        // that file after restart, but keep the old inline token if the file
+        // is missing, unsafe, damaged, expired, or bound to another account.
+        const candidate = this.pendingChangedSessionFile
+          ?? await readSessionFileSnapshot(resolve(configuredPath))
+        if ('session' in candidate
+          && isDiSessionFile(candidate.session)
+          && candidate.fingerprint !== this.rejectedPreferredDiFingerprint
+          && sessionFileIsLocallyUsable(
+            candidate.session,
+            this.config.username,
+            this.config.region,
+          )) {
+          preferredDiSnapshot = candidate
+          selectedInlineToken = ''
+        }
+      }
       let tokens: unknown
-      if (inlineToken) {
-        tokens = JSON.parse(inlineToken) as unknown
+      if (selectedInlineToken) {
+        tokens = JSON.parse(selectedInlineToken) as unknown
         if (!isRecord(tokens) || !isRecord(tokens.oauth1) || !isRecord(tokens.oauth2)) {
           throw new Error('Invalid token structure')
         }
       } else {
         const sessionPath = resolve(this.config.sessionTokenFile!.trim())
-        const snapshot = this.pendingChangedSessionFile
+        const snapshot = preferredDiSnapshot ?? this.pendingChangedSessionFile
           ?? await readSessionFileSnapshot(sessionPath)
         this.pendingChangedSessionFile = undefined
         this.selectedSessionFileFingerprint = snapshot.fingerprint
@@ -317,6 +339,10 @@ export class GarminClient {
             throw error
           }
           runtime.validateProfile(profile)
+          if (preferredDiSnapshot) {
+            this.config = { ...this.config, sessionToken: '' }
+            this.rejectedPreferredDiFingerprint = undefined
+          }
           return 'verified'
         }
         tokens = sessionFile
@@ -327,6 +353,33 @@ export class GarminClient {
       this.gc.loadToken(tokens.oauth1 as any, tokens.oauth2 as any)
       return 'unverified'
     } catch (error) {
+      if (preferredDiSnapshot && inlineToken && canFallbackFromPreferredDi(error)) {
+        this.rejectedPreferredDiFingerprint = preferredDiSnapshot.fingerprint
+        try {
+          const tokens = JSON.parse(inlineToken) as unknown
+          if (isRecord(tokens)
+            && isRecord(tokens.oauth1)
+            && isRecord(tokens.oauth2)) {
+            this.discardLoadedSessionToken()
+            // DI installed bearer interceptors on the old Axios instance.
+            // Recreate the SDK client so its legacy OAuth interceptor and our
+            // quiet response handling are both restored before loading tokens.
+            this.gc = new GarminConnect({
+              username: this.config.username,
+              password: this.config.password ?? '',
+            }, this.config.region === 'cn' ? 'garmin.cn' : 'garmin.com')
+            this.hardenUpstreamClient()
+            this.gc.client.client.defaults.timeout = this.requestTimeoutMs
+            this.gc.client.client.defaults.maxContentLength = MAX_ZIP_BYTES
+            this.gc.loadToken(tokens.oauth1 as any, tokens.oauth2 as any)
+            this.diSessionSelected = false
+            this.selectedSessionFileFingerprint = undefined
+            return 'unverified'
+          }
+        } catch {
+          // Preserve the DI rejection if the older inline token also fails.
+        }
+      }
       if (error instanceof GarminDiSessionFileError) {
         this.discardLoadedSessionToken()
         throw error
@@ -336,7 +389,7 @@ export class GarminClient {
         if (this.config.password?.trim()) return false
         throw error
       }
-      if (inlineToken && !(error instanceof PublicToolError)) {
+      if (selectedInlineToken && !(error instanceof PublicToolError)) {
         this.discardLoadedSessionToken()
         if (this.config.password?.trim()) return false
         throw new PublicToolError('Garmin inline session token is invalid')
@@ -377,7 +430,7 @@ export class GarminClient {
         if (error instanceof GarminSessionTokenFileMissingError) {
           throw new GarminAuthenticationRequiredError('missing')
         }
-        if (!inlineToken && error instanceof PublicToolError) throw error
+        if (!selectedInlineToken && error instanceof PublicToolError) throw error
         throw new GarminAuthenticationRequiredError(
           'rejected',
           `Garmin session token is invalid; run ${GARMIN_BROWSER_AUTH_COMMAND}`,
@@ -416,6 +469,7 @@ export class GarminClient {
     ) return
 
     const snapshot = await readSessionFileSnapshot(resolve(sessionPath))
+    if (snapshot.fingerprint === this.rejectedPreferredDiFingerprint) return
     if (
       !rejectedInlineToken
       && snapshot.fingerprint === this.rejectedSessionFileFingerprint
@@ -510,6 +564,7 @@ export class GarminClient {
       this.rejectedSessionFileFingerprint = undefined
       this.pendingChangedSessionFile = undefined
       this.diSessionSelected = false
+      if (committed) this.rejectedPreferredDiFingerprint = undefined
       this.cache.clear()
       this.config = {
         ...this.config,
@@ -1029,6 +1084,14 @@ function authenticationChangedError(): PublicToolError {
   return new PublicToolError(
     'Garmin authentication changed while the request was in flight; retry the request',
   )
+}
+
+function canFallbackFromPreferredDi(error: unknown): boolean {
+  return getHttpStatus(error) === 401
+    || (error instanceof GarminAuthenticationRequiredError
+      && (error.reason === 'rejected' || error.reason === 'expired'))
+    || (error instanceof PublicToolError
+      && error.message === 'Garmin DI session does not match the authenticated Garmin profile')
 }
 
 async function readSessionFileSnapshot(path: string): Promise<SessionFileSnapshot> {

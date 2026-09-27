@@ -4,13 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.1.11] - 2026-09-27
+## [0.1.11] - 2026-09-28
 
 ### Added
-- Add a visible Garmin account form in the local Harness plugin details. Users can install the plugin without an email, then choose one active region, save that region's email through the Host's protected configuration form, and sign in through the matching Garmin button. Password and MFA input stay on Garmin's official page.
+- Add a Garmin account list in local Harness plugin details. Installation needs no email; users can add up to five accounts with the + button, assign each a China or International region and optional display alias, and keep sessions separate even when accounts share a region. Login starts from the chosen account in settings and stays embedded in Harness. Standalone CLI/MCP clients continue opening the system browser.
+- Add stable account IDs and explicit account selection to Garmin tools when multiple accounts are configured, preventing reads and writes from silently targeting the wrong account.
 
 ### Fixed
-- Explain missing-account and region-mismatch login failures in terms of the account settings users can edit in the plugin.
+- Remove the top-right account buttons and direct missing-account errors to the settings form. Preserve existing single-account and regional account settings when upgrading.
 - Clarify the separate Harness and CLI/MCP setup paths in the bilingual guides and environment template. Document publication to the official npm registry explicitly.
 
 ## [0.1.10] - 2026-09-27

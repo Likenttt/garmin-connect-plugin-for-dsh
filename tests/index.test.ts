@@ -23,11 +23,22 @@ const mockClient = {
   deactivate: mockDeactivate,
 }
 const mockRegisterTools = jest.fn()
-const mockRegisterEmbeddedAuthRpc = jest.fn()
-const mockResolveEmbeddedAuthConfig = jest.fn((config: Config) => ({
-  ...config,
-  sessionTokenFile: '/private/config/accounts/default.session.json',
-}))
+const mockRegisterEmbeddedAuthRpcAccounts = jest.fn()
+const mockResolveAccountConfigs = jest.fn((config: Config) => ([
+  {
+    accountId: 'legacy-cn', slot: 1,
+    region: 'cn', alias: '', configured: false,
+    config: {
+      ...config, username: '', region: 'cn', password: '', sessionToken: '',
+      sessionTokenFile: '/private/config/accounts/region-cn.session.json',
+    },
+  },
+  {
+    accountId: 'legacy-global', slot: 2,
+    region: 'global', alias: '', configured: true,
+    config: { ...config, sessionTokenFile: '/private/config/accounts/default.session.json' },
+  },
+]))
 
 jest.mock('../src/client', () => ({
   GarminClient: jest.fn(() => mockClient),
@@ -35,11 +46,11 @@ jest.mock('../src/client', () => ({
 jest.mock('../src/config', () => ({
   Config: {},
   resolveConfig: (value: Config) => value,
+  resolveAccountConfigs: mockResolveAccountConfigs,
 }))
 jest.mock('../src/tools', () => ({ registerTools: mockRegisterTools }))
 jest.mock('../src/embedded-auth-rpc', () => ({
-  registerEmbeddedAuthRpc: mockRegisterEmbeddedAuthRpc,
-  resolveEmbeddedAuthConfig: mockResolveEmbeddedAuthConfig,
+  registerEmbeddedAuthRpcAccounts: mockRegisterEmbeddedAuthRpcAccounts,
 }))
 
 import { GarminClient } from '../src/client'
@@ -90,6 +101,7 @@ describe('plugin activation', () => {
     apply(ctx, config)
     await Promise.resolve()
 
+    expect(GarminClient).toHaveBeenCalledTimes(2)
     expect(GarminClient).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -98,32 +110,13 @@ describe('plugin activation', () => {
       { allowUnconfigured: true },
     )
     expect(mockRegisterTools).toHaveBeenCalledTimes(1)
-    expect(mockRegisterEmbeddedAuthRpc).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      {
-        getAuthenticatedAccount: expect.any(Function),
-        getAuthenticationRequirement: expect.any(Function),
-        replaceSession: expect.any(Function),
-      },
-    )
-
-    const options = mockRegisterEmbeddedAuthRpc.mock.calls[0][2]
-    await expect(options.getAuthenticatedAccount()).resolves.toEqual({
-      email: 'runner@example.test',
-      region: 'global',
-    })
-    expect(mockGetAuthenticatedAccount).toHaveBeenCalledTimes(1)
-    await expect(options.getAuthenticationRequirement()).resolves.toEqual({
-      reason: 'challenge',
-      region: 'global',
-      revision: 2,
-    })
-    expect(mockGetAuthenticationRequirement).toHaveBeenCalledTimes(1)
-    const writer = jest.fn().mockResolvedValue(undefined)
-    await options.replaceSession(writer)
-    expect(mockReplacePersistedSession).toHaveBeenCalledWith(writer)
-    expect(writer).toHaveBeenCalledTimes(1)
+    expect(mockRegisterEmbeddedAuthRpcAccounts).toHaveBeenCalledTimes(1)
+    const [, accounts] = mockRegisterEmbeddedAuthRpcAccounts.mock.calls[0]
+    expect(accounts).toEqual([
+      expect.objectContaining({ accountId: 'legacy-cn', slot: 1, region: 'cn', configured: false, client: mockClient }),
+      expect.objectContaining({ accountId: 'legacy-global', slot: 2, region: 'global', configured: true, client: mockClient }),
+    ])
+    expect(mockConnect).toHaveBeenCalledTimes(1)
   })
 
   it('coalesces account changes into one whole-plugin restart', async () => {
@@ -132,8 +125,8 @@ describe('plugin activation', () => {
 
     emitVolatileUpdate([['cacheTtl']])
     expect(restart).not.toHaveBeenCalled()
-    emitVolatileUpdate([['username']])
-    emitVolatileUpdate([['region']])
+    emitVolatileUpdate([['accounts']])
+    emitVolatileUpdate([['account3UsernameId']])
     expect(restart).not.toHaveBeenCalled()
     await Promise.resolve()
     expect(restart).toHaveBeenCalledTimes(1)
@@ -143,6 +136,6 @@ describe('plugin activation', () => {
     const { ctx, disposeClient } = createContext()
     apply(ctx, config)
     disposeClient()
-    expect(mockDeactivate).toHaveBeenCalledTimes(1)
+    expect(mockDeactivate).toHaveBeenCalledTimes(2)
   })
 })

@@ -79,6 +79,11 @@ The plugin registers **10 tools**. Eight return Garmin data without writing;
 | `download_garmin_activity_fit` | Download an activity's original archive and safely extract its single FIT file to the account directory under the configured host parent | `{"activityId": 123456789}` |
 | `create_garmin_workout` | Preview a structured workout; create it only after explicit confirmation | `{"name": "Threshold 3×8min", "steps": [...]}` |
 
+When multiple Harness accounts are configured, add the stable account ID shown
+in settings as the tool's `account` argument. With only one configured account,
+the parameter can be omitted. Display aliases and regions help identify
+accounts but do not change their IDs.
+
 Workout creation is a two-call flow. The preview response includes a one-time
 `confirmationId`; after the user approves the unchanged preview, call the tool
 again with the same definition, `confirmed: true`, and that `confirmationId`.
@@ -177,13 +182,15 @@ The web UI starts at `http://127.0.0.1:3080` by default. If you launch Harness v
 
 The Harness plugin can be installed and started without a Garmin email. In the
 local Harness **Plugins** page, open **dsh-plugin-garmin-connect** and use
-**Garmin 账号配置** to choose **China (cn)** or **International (global)** and save
-that region's account email. Wait for the plugin to reload, then click the
-matching Garmin login button and enter your password and MFA code on Garmin's
-official page. The saved email is not filled back into the settings form. The
-plugin uses one active account and region at a time; switching regions requires
-saving that region's email in this form first. If an International login says
-the email is not configured, configure the **global** account here and retry.
+**Garmin 账号配置** and click **+** to add accounts as needed, up to five. Choose
+China (cn) or International (global) for each account; multiple accounts may use
+the same region. Give each an optional display alias. The saved email is not
+filled back into the settings form. After saving an account, click its **Log in**
+action in the same settings page. Harness opens the Garmin sign-in flow inside
+its own window; enter your password and MFA code on Garmin's official page
+there. Every account has an independent session and a stable account ID shown
+in settings. With multiple accounts configured, pass that ID as the tool's
+`account` argument so the plugin reads or writes the intended account.
 
 For CLI, MCP, or headless use, configure the account through environment
 variables (or your launcher's secret store). Keep `.env` out of version control.
@@ -241,11 +248,9 @@ dependency rather than your current directory. The plugin loads the workspace
 #### Two-step verification — browser-based MFA
 
 When dsh and its Web UI are running together on the same local machine, use the
-**China account** or **International account** Garmin button in the top bar after
-saving the matching region and email in the plugin's **Garmin 账号配置** form. The
-selected button must match the configured region; a mismatch fails before any
-Garmin page is opened and prompts you to configure that region's account. A
-matching selection opens a custom bridge on an ephemeral
+matching **Log in** action in the plugin's **Garmin 账号配置** page after saving that
+account's email. Each account has its own login and session. Harness embeds a
+custom bridge on an ephemeral
 `127.0.0.1` port; that bridge, rather than the dsh page itself, embeds Garmin's
 official GAuth page. The configured account email is stored in the local
 Harness plugin settings; any email entry on Garmin's sign-in page, password,
@@ -275,36 +280,24 @@ loopback host, port, path, query, or region before contacting DI. It never
 rewrites or retries the one-time ticket with a fallback service. The Host probes the Garmin profile, shows a sanitized profile to
 the user, and asks them to confirm that it corresponds to the configured email.
 Only then does it atomically save an owner-only session bound to the configured
-account and region. The outer dsh page receives public login progress and the
-email explicitly entered in the local plugin settings; the dsh page, model
-context, and AI-callable tool results never receive the ticket, DI token,
+account and region. The outer dsh page receives public login progress; plugin
+settings may display the account email after identity verification. The model
+context and AI-callable tool results never receive the ticket, DI token,
 password, MFA code, or CAPTCHA response.
 
-After the Host verifies the account through password login, a profile-bound DI
-session, or a newly confirmed Web login, the matching region button subtitle
-shows the verified account email as signed in; the other region keeps its
-domain. Merely loading an identity-unverified legacy OAuth token does not show
-this state, and the status endpoint never returns a ticket or token. The local
-page refreshes this state every 15 seconds and whenever the window regains focus,
-so later credential rejection or a successful lazy login updates the subtitle.
+After the Host verifies an account through password login, a profile-bound DI
+session, or a newly confirmed Web login, that account's status in plugin settings
+shows it as signed in. Merely loading an identity-unverified legacy OAuth token
+does not show this state, and the status endpoint never returns a ticket or token.
+The login dialog opens only when the user clicks that account's action in
+settings. A missing or expired session does not automatically open it.
 
-When the Host reports a missing, expired, or rejected session, or password
-login returns positive MFA/CAPTCHA page evidence, the local page automatically
-opens the configured region's auth dialog once. Closing it does not reopen the
-same requirement revision; only a new state can trigger another automatic open.
-The SDK's ambiguous no-ticket text, a password HTTP 401, generic sign-in HTML,
-network errors, and MFA-looking titles do not trigger browser authentication.
-While unauthenticated, the page polls this coarse data-free state once per
-second; after login it returns to the 15-second account refresh.
-
-Save the Garmin email and correct region in the plugin settings (or configure
-`GARMIN_USERNAME` and `GARMIN_REGION` through the environment) before opening
-the dialog. `GARMIN_SESSION_TOKEN_FILE` is optional for this Web flow: when omitted,
-the Host uses `GARMIN_ACCOUNT` (default `default`) and writes
-`~/.config/dsh-plugin-garmin-connect/accounts/<alias>.session.json` on the usual
-POSIX configuration path (or the platform configuration root). After a confirmed
-write, the running plugin clears any earlier rejected-session state; the next
-tool call reads the new file without requiring a dsh restart.
+Save the Garmin email in the matching account card before opening its dialog.
+`GARMIN_SESSION_TOKEN_FILE` is optional for this Web flow. The Host keeps each
+account in a separate owner-only session file, preserving the existing session
+path for a migrated account. After a confirmed write, the running plugin clears
+any earlier rejected-session state; the next tool call reads the new file
+without requiring a dsh restart.
 
 This supported Web flow is intentionally limited to the loopback dsh Web UI. It is not a
 remote, hosted, or tunneled login endpoint. Browser third-party-cookie and iframe
@@ -434,14 +427,15 @@ credential bytes are written, and the entire directory chain plus file ACL is
 verified again when a session is read. Marker-only directories from earlier
 implementations are not trusted; migrate to a fresh dedicated subtree.
 
-#### Multiple accounts: one isolated process per account
+#### Multiple accounts in other coding agents
 
-The supported runtime model is one account per process and one independently
-initialized session per process. Give each dsh, Codex, Claude Code, or other MCP
-process its own `GARMIN_USERNAME`, `GARMIN_REGION`, and `GARMIN_ACCOUNT` (or an
-explicit `GARMIN_SESSION_TOKEN_FILE`). Each process can lazily use its implicit
-account session path and use the supported browser MFA bootstrap. The real
-China-region account chain has been verified end to end.
+Harness supports up to five accounts in the same plugin, including multiple
+accounts in one region, with separate sessions. Standalone CLI/MCP integrations
+use one account and one independently initialized session per process. Give
+each Codex, Claude Code, or other MCP process its own `GARMIN_USERNAME`, `GARMIN_REGION`, and
+`GARMIN_ACCOUNT` (or an explicit `GARMIN_SESSION_TOKEN_FILE`). These integrations
+complete Garmin login in the system default browser. The real China-region
+account chain has been verified end to end.
 
 Do not copy one session file to another process, and do not let simultaneous
 processes share one file. Garmin refresh tokens may rotate; concurrent writers
@@ -1000,8 +994,8 @@ authentication runtime while keeping Garmin credentials out of AI conversations:
 
 ```text
 ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│ dsh Web          │  │ MCP tool call    │  │ CLI serve        │
-│ region/auth state│  │ URL elicitation  │  │ system browser   │
+│ Harness settings │  │ MCP tool call    │  │ CLI serve        │
+│ account login    │  │ URL elicitation  │  │ system browser   │
 └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘
          └─────────────────────┼─────────────────────┘
                                ▼

@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { GarminClient } from '../client'
-import type { Config } from '../config'
-import { publicErrorMessage } from '../utils/errors'
+import type { Config, GarminRegion } from '../config'
+import { PublicToolError, publicErrorMessage } from '../utils/errors'
 import {
   GarminToolService,
   INTENSITY_GUIDANCE_PREFERENCES,
@@ -23,6 +23,26 @@ import type {
 
 export { getDatesInRange, todayLocal } from '../tool-service'
 
+export interface GarminToolAccount {
+  accountId: string
+  slot: number
+  region: GarminRegion
+  alias?: string
+  configured: boolean
+  client: GarminClient
+  config: Config
+}
+
+interface AccountArgs {
+  account?: string
+}
+
+const accountParameter = {
+  type: 'string',
+  pattern: '^[a-z][a-z0-9_-]{0,31}$',
+  description: 'Stable Garmin account ID from the plugin settings. Required when multiple accounts are configured. cn/global legacy selectors work only when one account uses that region.',
+}
+
 /**
  * Register all Garmin-related tools with the DeepSeek Harness tool registry.
  *
@@ -31,14 +51,54 @@ export { getDatesInRange, todayLocal } from '../tool-service'
  *   - `output` declares a JSON Schema plus a `render` callback that turns the
  *     execution result into text content blocks for the UI / trajectory.
  */
-export function registerTools(ctx: Context, client: GarminClient, config: Config): void {
+export function registerTools(ctx: Context, accounts: readonly GarminToolAccount[]): void {
   const tools = (ctx as any).tools
-  const service = new GarminToolService(client, {
-    activityDetail: config.activityDetail,
-    fitDownloadDir: config.fitDownloadDir,
-    accountUsername: config.username,
-    accountRegion: config.region,
-  })
+  const configuredAccounts = accounts.filter(account => account.configured)
+  const services = new Map(accounts.map(({ accountId, region, client, config }) => [
+    accountId,
+    new GarminToolService(client, {
+      activityDetail: config.activityDetail,
+      fitDownloadDir: config.fitDownloadDir,
+      accountUsername: config.username,
+      accountRegion: region,
+    }),
+  ] as const))
+  const selectService = (accountId?: string): GarminToolService => {
+    if (accountId !== undefined && !/^[a-z][a-z0-9_-]{0,31}$/.test(accountId)) {
+      throw new PublicToolError('account must be a valid Garmin account ID')
+    }
+    if (accountId) {
+      const exact = configuredAccounts.find(account => account.accountId === accountId)
+      if (exact) return services.get(exact.accountId)!
+      if (accountId === 'cn' || accountId === 'global') {
+        const regional = configuredAccounts.filter(account => account.region === accountId)
+        if (regional.length === 1) return services.get(regional[0].accountId)!
+        if (regional.length > 1) {
+          throw new PublicToolError(`Multiple Garmin ${accountId} accounts are configured. Select a specific account ID.`)
+        }
+        throw new PublicToolError(`No Garmin ${accountId} account is configured. Add it in the plugin settings.`)
+      }
+      if (accounts.some(account => account.accountId === accountId)) {
+        throw new PublicToolError(`Garmin account ${accountId} has no email configured. Add it in the plugin settings.`)
+      }
+      throw new PublicToolError(`Garmin account ${accountId} is not configured. Select an account ID from the plugin settings.`)
+    }
+    if (configuredAccounts.length === 1) return services.get(configuredAccounts[0].accountId)!
+    if (configuredAccounts.length === 0) {
+      throw new PublicToolError('No Garmin account is configured. Add an account in the plugin settings.')
+    }
+    const ids = configuredAccounts.map(account => account.accountId).join(', ')
+    throw new PublicToolError(`Multiple Garmin accounts are configured. Set account to an account ID: ${ids}.`)
+  }
+  // Running concepts and intake are local knowledge. Keep them usable before
+  // login and without account selection; only activity enrichment reads Garmin.
+  const knowledgeService = services.values().next().value as GarminToolService | undefined
+    ?? new GarminToolService({} as GarminClient, {
+      activityDetail: 'full',
+      fitDownloadDir: '',
+      accountUsername: '',
+      accountRegion: 'cn',
+    })
 
   // ------------------------------------------------------------------
   // 1. get_garmin_activities
@@ -55,6 +115,7 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       type: 'object',
       additionalProperties: false,
       properties: {
+        account: accountParameter,
         limit: {
           type: 'integer',
           minimum: 1,
@@ -74,9 +135,10 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       },
     },
     output: flexibleOutput,
-    execute: async (args: ActivityArgs) => {
+    execute: async (args: ActivityArgs & AccountArgs) => {
       try {
-        return await service.getActivities(args)
+        const { account, ...request } = args
+        return await selectService(account).getActivities(request)
       } catch (error) {
         return toolError(error, 'Failed to fetch activities')
       }
@@ -94,9 +156,10 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       'Example user query: "How did I sleep last night?" or "My sleep trend this week"',
     parameters: dateRangeParameters,
     output: flexibleOutput,
-    execute: async (args: DateRangeArgs) => {
+    execute: async (args: DateRangeArgs & AccountArgs) => {
       try {
-        return await service.getSleep(args)
+        const { account, ...request } = args
+        return await selectService(account).getSleep(request)
       } catch (error) {
         return toolError(error, 'Failed to fetch sleep data')
       }
@@ -114,9 +177,10 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       'Example user query: "How many steps did I take today?"',
     parameters: dateRangeParameters,
     output: flexibleOutput,
-    execute: async (args: DateRangeArgs) => {
+    execute: async (args: DateRangeArgs & AccountArgs) => {
       try {
-        return await service.getSteps(args)
+        const { account, ...request } = args
+        return await selectService(account).getSteps(request)
       } catch (error) {
         return toolError(error, 'Failed to fetch steps')
       }
@@ -134,9 +198,10 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       'Example user query: "What is my resting heart rate?"',
     parameters: dateRangeParameters,
     output: flexibleOutput,
-    execute: async (args: DateRangeArgs) => {
+    execute: async (args: DateRangeArgs & AccountArgs) => {
       try {
-        return await service.getHeartRate(args)
+        const { account, ...request } = args
+        return await selectService(account).getHeartRate(request)
       } catch (error) {
         return toolError(error, 'Failed to fetch heart rate')
       }
@@ -153,9 +218,10 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       'Example user query: "What was my weight today?"',
     parameters: dateRangeParameters,
     output: flexibleOutput,
-    execute: async (args: DateRangeArgs) => {
+    execute: async (args: DateRangeArgs & AccountArgs) => {
       try {
-        return await service.getWeight(args)
+        const { account, ...request } = args
+        return await selectService(account).getWeight(request)
       } catch (error) {
         return toolError(error, 'Failed to fetch weight data')
       }
@@ -174,6 +240,7 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       type: 'object',
       additionalProperties: false,
       properties: {
+        account: accountParameter,
         limit: {
           type: 'integer',
           minimum: 1,
@@ -188,9 +255,10 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       },
     },
     output: flexibleOutput,
-    execute: async (args: PaginationArgs) => {
+    execute: async (args: PaginationArgs & AccountArgs) => {
       try {
-        return await service.getWorkouts(args)
+        const { account, ...request } = args
+        return await selectService(account).getWorkouts(request)
       } catch (error) {
         return toolError(error, 'Failed to fetch workouts')
       }
@@ -207,12 +275,12 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
     parameters: {
       type: 'object',
       additionalProperties: false,
-      properties: {},
+      properties: { account: accountParameter },
     },
     output: flexibleOutput,
-    execute: async () => {
+    execute: async (args: AccountArgs = {}) => {
       try {
-        return await service.getProfile()
+        return await selectService(args.account).getProfile()
       } catch (error) {
         return toolError(error, 'Failed to fetch profile')
       }
@@ -232,12 +300,17 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       'training background, availability, health/recovery constraints, and preferred load pattern ' +
       '(steady, clearly separated hard/easy, or mixed), including quality-session and intensity-guidance preferences. ' +
       'If warning symptoms are reported, stop planning and follow the tool\'s medical-clearance guidance. Never guess missing answers. ' +
-      'Recent Garmin running activities can supplement but never replace the intake.',
+      'Recent Garmin running activities can supplement but never replace the intake. ' +
+      'Concept explanations and intake questions do not require an account.',
     parameters: {
       type: 'object',
       required: ['mode'],
       additionalProperties: false,
       properties: {
+        account: {
+          ...accountParameter,
+          description: 'Garmin account ID for recent activity enrichment. Required when multiple accounts are configured and personalized advice includes recent activities.',
+        },
         mode: {
           type: 'string',
           enum: RUNNING_ADVICE_MODES,
@@ -319,9 +392,13 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       },
     },
     output: flexibleOutput,
-    execute: async (args: RunningAdviceArgs) => {
+    execute: async (args: RunningAdviceArgs & AccountArgs) => {
       try {
-        return await service.getRunningAdvice(args)
+        const { account, ...request } = args
+        const service = request.mode === 'personalized' && request.includeRecentActivities
+          ? selectService(account)
+          : account ? selectService(account) : knowledgeService
+        return await service.getRunningAdvice(request)
       } catch (error) {
         return toolError(error, 'Failed to look up running skills')
       }
@@ -354,6 +431,7 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       required: ['name', 'steps'],
       additionalProperties: false,
       properties: {
+        account: accountParameter,
         name: {
           type: 'string',
           minLength: 1,
@@ -389,9 +467,10 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       },
     },
     output: flexibleOutput,
-    execute: async (args: CreateWorkoutArgs) => {
+    execute: async (args: CreateWorkoutArgs & AccountArgs) => {
       try {
-        return await service.createWorkout(args)
+        const { account, ...request } = args
+        return await selectService(account).createWorkout(request)
       } catch (error) {
         return toolError(error, 'Failed to create workout')
       }
@@ -414,6 +493,7 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       required: ['activityId'],
       additionalProperties: false,
       properties: {
+        account: accountParameter,
         activityId: {
           type: 'integer',
           minimum: 1,
@@ -423,9 +503,10 @@ export function registerTools(ctx: Context, client: GarminClient, config: Config
       },
     },
     output: flexibleOutput,
-    execute: async (args: DownloadActivityFitArgs) => {
+    execute: async (args: DownloadActivityFitArgs & AccountArgs) => {
       try {
-        return await service.downloadActivityFit(args)
+        const { account, ...request } = args
+        return await selectService(account).downloadActivityFit(request)
       } catch (error) {
         return toolError(error, 'Failed to download FIT activity file')
       }
@@ -444,6 +525,7 @@ const dateRangeParameters = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    account: accountParameter,
     startDate: {
       type: 'string',
       pattern: '^\\d{4}-\\d{2}-\\d{2}$',

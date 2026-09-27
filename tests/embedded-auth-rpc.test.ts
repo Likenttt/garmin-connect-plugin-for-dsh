@@ -1,9 +1,15 @@
 import type { Context } from '@deepseek-ai/cordis'
 import {
   registerEmbeddedAuthRpc,
+  registerEmbeddedAuthRpcAccounts,
   resolveEmbeddedAuthConfig,
+  type EmbeddedAuthAccountOption,
   type EmbeddedAuthRpcController,
 } from '../src/embedded-auth-rpc'
+import {
+  parseGarminAuthAccountRpcResult,
+  parseGarminAuthAccountsRpcResult,
+} from '../src/client/protocol'
 
 function fixture() {
   const controller: jest.Mocked<EmbeddedAuthRpcController> = {
@@ -42,6 +48,63 @@ function fixture() {
     ctx,
     disposeEffect: () => disposeEffect,
   }
+}
+
+function multiAccountFixture(configuredGlobal = true, sameRegion = false) {
+  const subject = fixture()
+  const accountIds = { cn: 'acct-cn', global: 'acct-global' }
+  const flowIds = { cn: 'a'.repeat(64), global: 'b'.repeat(64) }
+  const controllers = Object.fromEntries((['cn', 'global'] as const).map(region => [
+    region,
+    {
+      begin: jest.fn().mockResolvedValue({
+        success: true,
+        flowId: flowIds[region],
+        bridgeUrl: `http://127.0.0.1:43127/garmin-auth/bridge/${flowIds[region]}`,
+        expiresAt: 1_900_000_000_000,
+      }),
+      status: jest.fn().mockReturnValue({ success: true, status: 'in_progress' }),
+      cancel: jest.fn().mockReturnValue({ success: true }),
+      close: jest.fn().mockResolvedValue(undefined),
+    } as jest.Mocked<EmbeddedAuthRpcController>,
+  ])) as Record<'cn' | 'global', jest.Mocked<EmbeddedAuthRpcController>>
+  const clients = Object.fromEntries((['cn', 'global'] as const).map(region => [
+    region,
+    {
+      getAuthenticatedAccount: jest.fn().mockReturnValue(undefined),
+      getAuthenticationRequirement: jest.fn().mockReturnValue(undefined),
+      replacePersistedSession: jest.fn().mockImplementation(async (write: () => Promise<void>) => write()),
+    },
+  ])) as Record<'cn' | 'global', {
+    getAuthenticatedAccount: jest.Mock
+    getAuthenticationRequirement: jest.Mock
+    replacePersistedSession: jest.Mock
+  }>
+  const accounts = (['cn', 'global'] as const).map(region => ({
+    accountId: accountIds[region],
+    slot: region === 'cn' ? 1 : 2,
+    region: sameRegion && region === 'global' ? 'cn' : region,
+    config: {
+      username: `${region}@example.test`,
+      region: sameRegion && region === 'global' ? 'cn' : region,
+      sessionTokenFile: `/private/${region}.session.json`,
+    } as never,
+    configured: region === 'cn' || configuredGlobal,
+    alias: region === 'cn' ? '国内训练' : 'International',
+    client: clients[region] as never,
+    initialConnection: Promise.resolve(),
+  })) satisfies EmbeddedAuthAccountOption[]
+  const createController = jest.fn((_config, account: EmbeddedAuthAccountOption) => (
+    controllers[account.accountId === accountIds.cn ? 'cn' : 'global']
+  ))
+  registerEmbeddedAuthRpcAccounts(
+    subject.ctx as unknown as Context,
+    accounts,
+    { createController },
+  )
+  const handler = subject.handle.mock.calls[0][1]
+  const signal = new AbortController().signal
+  return { ...subject, accountIds, flowIds, controllers, clients, accounts, createController, handler, signal }
 }
 
 describe('DSH embedded Garmin authentication RPC', () => {
@@ -483,5 +546,310 @@ describe('DSH embedded Garmin authentication RPC', () => {
     expect(subject.controller.close).toHaveBeenCalledTimes(1)
     expect(subject.disposeRpc.mock.invocationCallOrder[0])
       .toBeLessThan(subject.controller.close.mock.invocationCallOrder[0])
+  })
+})
+
+describe('DSH embedded authentication for named accounts', () => {
+  it('constructs independent controllers with the Host-provided session paths', () => {
+    const subject = multiAccountFixture()
+
+    expect(subject.createController).toHaveBeenCalledTimes(2)
+    expect(subject.createController.mock.calls.map(([config, account]) => [
+      account.accountId,
+      account.region,
+      config.sessionTokenFile,
+    ])).toEqual([
+      ['acct-cn', 'cn', '/private/cn.session.json'],
+      ['acct-global', 'global', '/private/global.session.json'],
+    ])
+    expect(subject.handle).toHaveBeenCalledTimes(1)
+    expect(subject.handle).toHaveBeenCalledWith(
+      '/garmin-auth', expect.any(Function), { authority: 'loopback' },
+    )
+  })
+
+  it('returns independent public account details and omits unconfigured slots from the list', async () => {
+    const subject = multiAccountFixture(false)
+    subject.clients.cn.getAuthenticatedAccount.mockReturnValue({
+      email: 'cn@example.test', region: 'cn',
+    })
+
+    await expect(subject.handler('account', { accountId: subject.accountIds.cn }, subject.signal))
+      .resolves.toEqual({ ok: true, value: {
+        success: true,
+        accountId: subject.accountIds.cn,
+        slot: 1,
+        configured: true,
+        authenticated: true,
+        region: 'cn',
+        alias: '国内训练',
+        email: 'cn@example.test',
+      } })
+    await expect(subject.handler('account', { accountId: subject.accountIds.global }, subject.signal))
+      .resolves.toEqual({ ok: true, value: {
+        success: true,
+        accountId: subject.accountIds.global,
+        slot: 2,
+        configured: false,
+        authenticated: false,
+        region: 'global',
+      } })
+    expect(subject.clients.global.getAuthenticatedAccount).not.toHaveBeenCalled()
+    expect(subject.createController).toHaveBeenCalledTimes(1)
+    await expect(subject.handler('account', {}, subject.signal))
+      .resolves.toEqual({ ok: true, value: {
+        success: true,
+        accounts: [{
+          accountId: subject.accountIds.cn,
+          slot: 1,
+          region: 'cn',
+          alias: '国内训练',
+          configured: true,
+          authenticated: true,
+        }],
+      } })
+    await expect(subject.handler('begin', { accountId: subject.accountIds.global }, subject.signal))
+      .resolves.toEqual({ ok: true, value: {
+        success: false, code: 'configuration',
+      } })
+    await expect(subject.handler('account', { accountId: 'missing' }, subject.signal))
+      .resolves.toEqual({ ok: true, value: {
+        success: false, code: 'configuration',
+      } })
+  })
+
+  it('keeps Host account summaries and details compatible with the client parser', async () => {
+    const subject = multiAccountFixture(false)
+    subject.clients.cn.getAuthenticatedAccount.mockReturnValue({
+      email: 'cn@example.test', region: 'cn',
+    })
+
+    const listWire = await subject.handler('account', {}, subject.signal)
+    expect(parseGarminAuthAccountsRpcResult(listWire)).toEqual({
+      success: true,
+      accounts: [{
+        accountId: subject.accountIds.cn,
+        slot: 1,
+        region: 'cn',
+        alias: '国内训练',
+        configured: true,
+        authenticated: true,
+      }],
+    })
+    const authenticatedWire = await subject.handler(
+      'account', { accountId: subject.accountIds.cn }, subject.signal,
+    )
+    expect(parseGarminAuthAccountRpcResult(authenticatedWire)).toEqual({
+      success: true,
+      accountId: subject.accountIds.cn,
+      slot: 1,
+      region: 'cn',
+      alias: '国内训练',
+      configured: true,
+      authenticated: true,
+      email: 'cn@example.test',
+    })
+    const unconfiguredWire = await subject.handler(
+      'account', { accountId: subject.accountIds.global }, subject.signal,
+    )
+    expect(parseGarminAuthAccountRpcResult(unconfiguredWire)).toEqual({
+      success: true,
+      accountId: subject.accountIds.global,
+      slot: 2,
+      region: 'global',
+      configured: false,
+      authenticated: false,
+    })
+  })
+
+  it('keeps browser-recovery state inside its selected region', async () => {
+    const subject = multiAccountFixture()
+    subject.clients.global.getAuthenticationRequirement.mockReturnValue({
+      reason: 'challenge', region: 'global', revision: 2,
+    })
+
+    await expect(subject.handler('account', { accountId: subject.accountIds.global }, subject.signal))
+      .resolves.toEqual({ ok: true, value: {
+        success: true,
+        accountId: subject.accountIds.global,
+        slot: 2,
+        configured: true,
+        authenticated: false,
+        region: 'global',
+        alias: 'International',
+        authenticationRequired: true,
+        reason: 'challenge',
+        revision: 2,
+      } })
+    expect(subject.clients.cn.getAuthenticationRequirement).not.toHaveBeenCalled()
+
+    subject.clients.global.getAuthenticationRequirement.mockReturnValue({
+      reason: 'challenge', region: 'cn', revision: 2,
+    })
+    await expect(subject.handler('account', { accountId: subject.accountIds.global }, subject.signal))
+      .resolves.toEqual({ ok: true, value: {
+        success: false, code: 'unavailable',
+      } })
+  })
+
+  it('keeps two accounts in the same region distinct by stable account ID', async () => {
+    const subject = multiAccountFixture(true, true)
+    subject.clients.cn.getAuthenticatedAccount.mockReturnValue({
+      email: 'first@example.test', region: 'cn',
+    })
+    subject.clients.global.getAuthenticatedAccount.mockReturnValue({
+      email: 'second@example.test', region: 'cn',
+    })
+
+    const listed = await subject.handler('account', {}, subject.signal)
+    expect(listed).toEqual({ ok: true, value: {
+      success: true,
+      accounts: [
+        {
+          accountId: subject.accountIds.cn,
+          slot: 1,
+          region: 'cn',
+          alias: '国内训练',
+          configured: true,
+          authenticated: true,
+        },
+        {
+          accountId: subject.accountIds.global,
+          slot: 2,
+          region: 'cn',
+          alias: 'International',
+          configured: true,
+          authenticated: true,
+        },
+      ],
+    } })
+    expect(JSON.stringify(listed)).not.toContain('first@example.test')
+    expect(JSON.stringify(listed)).not.toContain('second@example.test')
+
+    await expect(subject.handler('account', {
+      accountId: subject.accountIds.global,
+    }, subject.signal)).resolves.toEqual({ ok: true, value: {
+      success: true,
+      accountId: subject.accountIds.global,
+      slot: 2,
+      configured: true,
+      authenticated: true,
+      region: 'cn',
+      alias: 'International',
+      email: 'second@example.test',
+    } })
+    await subject.handler('begin', { accountId: subject.accountIds.cn }, subject.signal)
+    await subject.handler('begin', { accountId: subject.accountIds.global }, subject.signal)
+    expect(subject.controllers.cn.begin).toHaveBeenCalledWith(subject.signal, 'cn')
+    expect(subject.controllers.global.begin).toHaveBeenCalledWith(subject.signal, 'cn')
+    await subject.handler('status', { flowId: subject.flowIds.global }, subject.signal)
+    expect(subject.controllers.global.status).toHaveBeenCalledTimes(1)
+    expect(subject.controllers.cn.status).not.toHaveBeenCalled()
+  })
+
+  it('routes begin/status/cancel solely by the issuing account ID and flow ID', async () => {
+    const subject = multiAccountFixture()
+    for (const region of ['cn', 'global'] as const) {
+      await expect(subject.handler('begin', { accountId: subject.accountIds[region] }, subject.signal))
+        .resolves.toEqual({ ok: true, value: expect.objectContaining({
+          success: true, flowId: subject.flowIds[region],
+        }) })
+      expect(subject.controllers[region].begin).toHaveBeenCalledWith(
+        subject.signal, region,
+      )
+    }
+    await expect(subject.handler('status', {
+      flowId: subject.flowIds.global,
+    }, subject.signal)).resolves.toEqual({
+      ok: true, value: { success: true, status: 'in_progress' },
+    })
+    await expect(subject.handler('cancel', {
+      flowId: subject.flowIds.cn,
+    }, subject.signal)).resolves.toEqual({
+      ok: true, value: { success: true },
+    })
+    expect(subject.controllers.global.status).toHaveBeenCalledWith({
+      flowId: subject.flowIds.global,
+    })
+    expect(subject.controllers.cn.cancel).toHaveBeenCalledWith({
+      flowId: subject.flowIds.cn,
+    })
+    expect(subject.controllers.cn.status).not.toHaveBeenCalled()
+    expect(subject.controllers.global.cancel).not.toHaveBeenCalled()
+
+    await expect(subject.handler('status', {
+      flowId: 'c'.repeat(64),
+    }, subject.signal)).resolves.toEqual({
+      ok: true, value: { success: false, code: 'invalid' },
+    })
+    await expect(subject.handler('cancel', {
+      flowId: subject.flowIds.cn, extra: true,
+    }, subject.signal)).resolves.toEqual({
+      ok: true, value: { success: false, code: 'invalid' },
+    })
+  })
+
+  it('does not reassign a duplicate flow ID from one account to the other', async () => {
+    const subject = multiAccountFixture()
+    subject.controllers.global.begin.mockResolvedValue({
+      success: true,
+      flowId: subject.flowIds.cn,
+      bridgeUrl: `http://127.0.0.1:43127/garmin-auth/bridge/${subject.flowIds.cn}`,
+      expiresAt: 1_900_000_000_000,
+    })
+    await subject.handler('begin', { accountId: subject.accountIds.cn }, subject.signal)
+
+    await expect(subject.handler('begin', { accountId: subject.accountIds.global }, subject.signal))
+      .resolves.toEqual({ ok: true, value: {
+        success: false, code: 'unavailable',
+      } })
+    expect(subject.controllers.global.cancel).toHaveBeenCalledWith({
+      flowId: subject.flowIds.cn,
+    })
+    await subject.handler('status', { flowId: subject.flowIds.cn }, subject.signal)
+    expect(subject.controllers.cn.status).toHaveBeenCalledTimes(1)
+    expect(subject.controllers.global.status).not.toHaveBeenCalled()
+  })
+
+  it('releases a flow after returning its first terminal status or successful cancel', async () => {
+    const subject = multiAccountFixture()
+    subject.controllers.cn.status.mockReturnValue({ success: true, status: 'succeeded' })
+    await subject.handler('begin', { accountId: subject.accountIds.cn }, subject.signal)
+    await expect(subject.handler('status', {
+      flowId: subject.flowIds.cn,
+    }, subject.signal)).resolves.toEqual({
+      ok: true, value: { success: true, status: 'succeeded' },
+    })
+    await expect(subject.handler('status', {
+      flowId: subject.flowIds.cn,
+    }, subject.signal)).resolves.toEqual({
+      ok: true, value: { success: false, code: 'invalid' },
+    })
+    expect(subject.controllers.cn.status).toHaveBeenCalledTimes(1)
+
+    await subject.handler('begin', { accountId: subject.accountIds.global }, subject.signal)
+    await expect(subject.handler('cancel', {
+      flowId: subject.flowIds.global,
+    }, subject.signal)).resolves.toEqual({
+      ok: true, value: { success: true },
+    })
+    await expect(subject.handler('status', {
+      flowId: subject.flowIds.global,
+    }, subject.signal)).resolves.toEqual({
+      ok: true, value: { success: false, code: 'invalid' },
+    })
+    expect(subject.controllers.global.status).not.toHaveBeenCalled()
+  })
+
+  it('unregisters the shared route before closing both private bridges', async () => {
+    const subject = multiAccountFixture()
+    await subject.disposeEffect()?.()
+
+    expect(subject.disposeRpc).toHaveBeenCalledTimes(1)
+    for (const controller of Object.values(subject.controllers)) {
+      expect(controller.close).toHaveBeenCalledTimes(1)
+      expect(subject.disposeRpc.mock.invocationCallOrder[0])
+        .toBeLessThan(controller.close.mock.invocationCallOrder[0])
+    }
   })
 })

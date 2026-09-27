@@ -26,11 +26,80 @@ export type GarminAuthenticatedAccount = {
   region: 'cn' | 'global'
 }
 
+export type GarminAuthRegion = GarminAuthenticatedAccount['region']
+
+export type GarminAuthAccountSummary = {
+  accountId: string
+  slot: number
+  region: GarminAuthRegion
+  alias?: string
+  configured: true
+  authenticated: boolean
+}
+
+export type GarminAuthAccountsResult = {
+  success: true
+  accounts: GarminAuthAccountSummary[]
+} | {
+  success: false
+  code: GarminAuthClientErrorCode
+}
+
 export type GarminAuthenticationRequirement = {
   authenticationRequired: true
 } & GarminAuthenticationRequirementWire
 
 export type GarminAuthAccountResult = {
+  success: true
+  accountId: string
+  slot: number
+  configured: false
+  authenticated: false
+  region: GarminAuthRegion
+} | {
+  success: true
+  accountId: string
+  slot: number
+  configured: true
+  authenticated: false
+  region: GarminAuthRegion
+  alias?: string
+} | ({
+  success: true
+  accountId: string
+  slot: number
+  configured: true
+  authenticated: false
+  alias?: string
+} & GarminAuthenticationRequirement) | ({
+  success: true
+  accountId: string
+  slot: number
+  configured: true
+  authenticated: true
+  alias?: string
+} & GarminAuthenticatedAccount) | {
+  success: true
+  configured: false
+  authenticated: false
+  region: GarminAuthRegion
+} | {
+  success: true
+  configured: true
+  authenticated: false
+  region: GarminAuthRegion
+  alias?: string
+} | ({
+  success: true
+  configured: true
+  authenticated: false
+  alias?: string
+} & GarminAuthenticationRequirement) | ({
+  success: true
+  configured: true
+  authenticated: true
+  alias?: string
+} & GarminAuthenticatedAccount) | {
   success: true
   authenticated: false
 } | ({
@@ -69,12 +138,220 @@ export type GarminAuthCancelResult = {
   code: GarminAuthClientErrorCode
 }
 
+/** The account picker receives only public metadata, never saved emails. */
+export function parseGarminAuthAccountsRpcResult(value: unknown): GarminAuthAccountsResult {
+  if (!isExactRecord(value, ['ok', 'value']) || value.ok !== true) {
+    return unavailable()
+  }
+  const business = value.value
+  if (isBusinessFailure(business)) return business
+  if (!isExactRecord(business, ['success', 'accounts'])
+    || business.success !== true
+    || !Array.isArray(business.accounts)
+    || business.accounts.length > 5) return unavailable()
+
+  const seenIds = new Set<string>()
+  const seenSlots = new Set<number>()
+  const accounts: GarminAuthAccountSummary[] = []
+  for (const raw of business.accounts) {
+    if (!isCurrentAccountRecord(raw, [
+      'accountId', 'slot', 'region', 'configured', 'authenticated',
+    ])
+      || !isAccountId(raw.accountId)
+      || !isSlot(raw.slot)
+      || !isRegion(raw.region)
+      || raw.configured !== true
+      || typeof raw.authenticated !== 'boolean'
+      || seenIds.has(raw.accountId)
+      || seenSlots.has(raw.slot)) return unavailable()
+    seenIds.add(raw.accountId)
+    seenSlots.add(raw.slot)
+    accounts.push({
+      accountId: raw.accountId,
+      slot: raw.slot,
+      region: raw.region,
+      configured: true,
+      authenticated: raw.authenticated,
+      ...(typeof raw.alias === 'string' ? { alias: raw.alias } : {}),
+    })
+  }
+  return { success: true, accounts }
+}
+
 export function parseGarminAuthAccountRpcResult(value: unknown): GarminAuthAccountResult {
   if (!isExactRecord(value, ['ok', 'value']) || value.ok !== true) {
     return unavailable()
   }
   const business = value.value
   if (isBusinessFailure(business)) return business
+  if (
+    isExactRecord(business, [
+      'success', 'accountId', 'slot', 'configured', 'authenticated', 'region',
+    ])
+    && business.success === true
+    && isAccountId(business.accountId)
+    && isSlot(business.slot)
+    && business.configured === false
+    && business.authenticated === false
+    && isRegion(business.region)
+  ) {
+    return {
+      success: true,
+      accountId: business.accountId,
+      slot: business.slot,
+      configured: false,
+      authenticated: false,
+      region: business.region,
+    }
+  }
+  if (
+    isCurrentAccountRecord(business, [
+      'success', 'accountId', 'slot', 'configured', 'authenticated', 'region',
+      'authenticationRequired', 'reason', 'revision',
+    ])
+    && business.success === true
+    && isAccountId(business.accountId)
+    && isSlot(business.slot)
+    && business.configured === true
+    && business.authenticated === false
+    && business.authenticationRequired === true
+    && isGarminAuthenticationRequiredReason(business.reason)
+    && isRegion(business.region)
+    && Number.isSafeInteger(business.revision)
+    && (business.revision as number) >= 1
+  ) {
+    return {
+      success: true,
+      accountId: business.accountId,
+      slot: business.slot,
+      configured: true,
+      authenticated: false,
+      region: business.region,
+      ...(typeof business.alias === 'string' ? { alias: business.alias } : {}),
+      authenticationRequired: true,
+      reason: business.reason,
+      revision: business.revision as number,
+    }
+  }
+  if (
+    isCurrentAccountRecord(business, [
+      'success', 'accountId', 'slot', 'configured', 'authenticated', 'region',
+    ])
+    && business.success === true
+    && isAccountId(business.accountId)
+    && isSlot(business.slot)
+    && business.configured === true
+    && business.authenticated === false
+    && isRegion(business.region)
+  ) {
+    return {
+      success: true,
+      accountId: business.accountId,
+      slot: business.slot,
+      configured: true,
+      authenticated: false,
+      region: business.region,
+      ...(typeof business.alias === 'string' ? { alias: business.alias } : {}),
+    }
+  }
+  if (
+    isCurrentAccountRecord(business, [
+      'success', 'accountId', 'slot', 'configured', 'authenticated', 'region', 'email',
+    ])
+    && business.success === true
+    && isAccountId(business.accountId)
+    && isSlot(business.slot)
+    && business.configured === true
+    && business.authenticated === true
+    && isRegion(business.region)
+    && isSafeEmail(business.email)
+  ) {
+    return {
+      success: true,
+      accountId: business.accountId,
+      slot: business.slot,
+      configured: true,
+      authenticated: true,
+      region: business.region,
+      email: business.email,
+      ...(typeof business.alias === 'string' ? { alias: business.alias } : {}),
+    }
+  }
+  if (
+    isExactRecord(business, ['success', 'configured', 'authenticated', 'region'])
+    && business.success === true
+    && business.configured === false
+    && business.authenticated === false
+    && isRegion(business.region)
+  ) {
+    return {
+      success: true,
+      configured: false,
+      authenticated: false,
+      region: business.region,
+    }
+  }
+  if (
+    isCurrentAccountRecord(business, [
+      'success', 'configured', 'authenticated', 'region',
+      'authenticationRequired', 'reason', 'revision',
+    ])
+    && business.success === true
+    && business.configured === true
+    && business.authenticated === false
+    && business.authenticationRequired === true
+    && isGarminAuthenticationRequiredReason(business.reason)
+    && isRegion(business.region)
+    && Number.isSafeInteger(business.revision)
+    && (business.revision as number) >= 1
+  ) {
+    return {
+      success: true,
+      configured: true,
+      authenticated: false,
+      region: business.region,
+      ...(typeof business.alias === 'string' ? { alias: business.alias } : {}),
+      authenticationRequired: true,
+      reason: business.reason,
+      revision: business.revision as number,
+    }
+  }
+  if (
+    isCurrentAccountRecord(business, [
+      'success', 'configured', 'authenticated', 'region',
+    ])
+    && business.success === true
+    && business.configured === true
+    && business.authenticated === false
+    && isRegion(business.region)
+  ) {
+    return {
+      success: true,
+      configured: true,
+      authenticated: false,
+      region: business.region,
+      ...(typeof business.alias === 'string' ? { alias: business.alias } : {}),
+    }
+  }
+  if (
+    isCurrentAccountRecord(business, [
+      'success', 'configured', 'authenticated', 'region', 'email',
+    ])
+    && business.success === true
+    && business.configured === true
+    && business.authenticated === true
+    && isRegion(business.region)
+    && isSafeEmail(business.email)
+  ) {
+    return {
+      success: true,
+      configured: true,
+      authenticated: true,
+      region: business.region,
+      email: business.email,
+      ...(typeof business.alias === 'string' ? { alias: business.alias } : {}),
+    }
+  }
   if (
     isExactRecord(business, [
       'success',
@@ -128,6 +405,34 @@ export function parseGarminAuthAccountRpcResult(value: unknown): GarminAuthAccou
     email: business.email,
     region: business.region,
   }
+}
+
+function isCurrentAccountRecord(
+  value: unknown,
+  expectedKeys: readonly string[],
+): value is Record<string, unknown> {
+  if (!isExactRecord(value, expectedKeys)
+    && !isExactRecord(value, [...expectedKeys, 'alias'])) return false
+  return !Object.hasOwn(value, 'alias') || isSafeAlias(value.alias)
+}
+
+function isRegion(value: unknown): value is GarminAuthRegion {
+  return value === 'cn' || value === 'global'
+}
+
+function isAccountId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z][a-z0-9_-]{0,31}$/.test(value)
+}
+
+function isSlot(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= 5
+}
+
+function isSafeAlias(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length <= 64
+    && value === value.trim()
+    && !/[\u0000-\u001f\u007f-\u009f]/.test(value)
 }
 
 export function parseGarminAuthBeginRpcResult(value: unknown): GarminAuthBeginResult {

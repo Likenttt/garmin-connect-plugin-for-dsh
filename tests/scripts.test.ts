@@ -33,8 +33,17 @@ function findButtons(value: unknown): TestJsxElement[] {
   ]
 }
 
+function textChildren(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value.map(textChildren).join('')
+  if (typeof value === 'object' && value !== null) {
+    return textChildren((value as TestJsxElement).props?.children)
+  }
+  return ''
+}
+
 describe('maintenance scripts', () => {
-  it('publishes a DSH web client with explicit China and Global login actions', async () => {
+  it('publishes a DSH web client with login only in dynamic account settings cards', async () => {
     const projectRoot = path.resolve(__dirname, '..')
     const build = spawnSync(
       process.execPath,
@@ -114,6 +123,7 @@ describe('maintenance scripts', () => {
       useEffect: (effect: () => void | (() => void)) => effects.push(effect),
       useRef: (current: unknown) => ({ current }),
       useState: (initial: unknown) => [initial, () => undefined],
+      useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
     }
     const client = definition!.factory((id) => {
       if (id === 'react') return react
@@ -126,31 +136,48 @@ describe('maintenance scripts', () => {
       }
       throw new Error(`unexpected client dependency: ${id}`)
     })
-    let slotFactory: (() => TestJsxElement) | undefined
+    let overlayFactory: (() => TestJsxElement) | undefined
+    let settingsFactory: (() => TestJsxElement) | undefined
     const slots = {
       inject: jest.fn((_name: string, install: () => void) => install()),
       register: jest.fn((
-        _definition: unknown,
+        definition: { name: string },
         render: () => TestJsxElement,
       ) => {
-        slotFactory = render
+        if (definition.name === 'shell.overlay') overlayFactory = render
+        if (definition.name === 'plugins.bundle.config') settingsFactory = render
       }),
     }
-    let completeFirstAccountRequest: ((value: unknown) => void) | undefined
-    const rpcCall = jest.fn().mockImplementation((_channel, method) => {
-      if (method !== 'garmin-auth/account') {
-        return Promise.resolve({
-          ok: true,
-          value: { success: false, code: 'unavailable' },
-        })
-      }
-      return new Promise(resolve => {
-        completeFirstAccountRequest = resolve
-      })
+    const rpcCall = jest.fn().mockResolvedValue({
+      ok: true,
+      value: { success: false, code: 'configuration' },
     })
+    const form = {
+      getSnapshot: () => ({
+        status: 'ready',
+        value: {
+          accountsConfigured: true,
+          accounts: [
+            { id: 'legacy-cn', region: 'cn', alias: '', slot: 1 },
+            { id: 'legacy-global', region: 'global', alias: '', slot: 2 },
+          ],
+        },
+        base: {}, user: {}, revision: 2, writable: true, mode: 'host',
+      }),
+      subscribe: () => () => undefined,
+      mutate: jest.fn().mockResolvedValue(true),
+    }
+    const connection = { isLoopback: true, rpc: { call: rpcCall } }
+    const configForms = {
+      get: () => form,
+      describe: () => ({ load: async () => undefined }),
+    }
     client.apply({
-      connection: { isLoopback: true, rpc: { call: rpcCall } },
+      connection,
       slots,
+      inject: (_dependencies: string[], callback: (ctx: unknown) => void) => {
+        callback({ connection, slots, configForms })
+      },
     })
 
     expect(slots.inject).toHaveBeenCalledWith(
@@ -164,89 +191,46 @@ describe('maintenance scripts', () => {
       }),
       expect.any(Function),
     )
-    const overlay = slotFactory!()
+    expect(settingsFactory).toBeDefined()
+    const overlay = overlayFactory!()
     expect(typeof overlay.type).toBe('function')
-    const rendered = (overlay.type as (
+    const renderedOverlay = (overlay.type as (
       props: Record<string, unknown>,
     ) => unknown)(overlay.props)
     const cleanups = effects
       .map(effect => effect())
       .filter((cleanup): cleanup is () => void => typeof cleanup === 'function')
-    await Promise.resolve()
-
-    expect(rpcCall).toHaveBeenCalledWith(
-      '/api',
-      'garmin-auth/account',
-      {},
-      expect.any(AbortSignal),
-    )
-    const firstAccountSignal = rpcCall.mock.calls[0][3] as AbortSignal
-
-    // A focus event while the first account request is slow must not create a
-    // second request or abort the in-flight one.
-    windowListeners.get('focus')?.()
-    await Promise.resolve()
-    expect(rpcCall).toHaveBeenCalledTimes(1)
-    expect(firstAccountSignal.aborted).toBe(false)
-
-    completeFirstAccountRequest!({
-      ok: true,
-      value: { success: false, authenticated: false },
-    })
-    await new Promise(resolve => setImmediate(resolve))
-    expect(setTimeoutMock).toHaveBeenCalledWith(expect.any(Function), 1_000)
-
-    rpcCall.mockClear()
-    timeoutCallbacks[0]()
-    await Promise.resolve()
-    expect(rpcCall).toHaveBeenCalledWith(
-      '/api',
-      'garmin-auth/account',
-      {},
-      expect.any(AbortSignal),
-    )
-
-    const secondAccountSignal = rpcCall.mock.calls[0][3] as AbortSignal
-    rpcCall.mockClear()
-    windowListeners.get('focus')?.()
-    await Promise.resolve()
-    expect(rpcCall).not.toHaveBeenCalled()
-    expect(secondAccountSignal.aborted).toBe(false)
-
-    const loginButtons = findButtons(rendered).filter(button => (
-      typeof button.props['aria-label'] === 'string'
-      && button.props['aria-label'].startsWith('登录 Garmin ')
+    const settings = settingsFactory!()
+    const renderedSettings = (settings.type as (
+      props: Record<string, unknown>,
+    ) => unknown)(settings.props)
+    const loginButtons = findButtons(renderedSettings).filter(button => (
+      textChildren(button.props.children) === '在 Harness 内登录'
     ))
-    expect(loginButtons.map(button => button.props['aria-label'])).toEqual([
-      '登录 Garmin 中国区',
-      '登录 Garmin 国际区',
-    ])
+    expect(findButtons(renderedOverlay)).toEqual([])
+    expect(rpcCall).not.toHaveBeenCalled()
+    expect(loginButtons).toHaveLength(2)
+    expect(loginButtons.every(button => button.props.disabled === true)).toBe(true)
 
     ;(loginButtons[0].props.onClick as () => void)()
-    await Promise.resolve()
-    await Promise.resolve()
     await new Promise(resolve => setImmediate(resolve))
     expect(rpcCall).toHaveBeenCalledWith(
       '/api',
       'garmin-auth/begin',
-      { region: 'cn' },
+      { accountId: 'legacy-cn' },
       expect.any(AbortSignal),
     )
 
     ;(loginButtons[1].props.onClick as () => void)()
-    await Promise.resolve()
-    await Promise.resolve()
     await new Promise(resolve => setImmediate(resolve))
-    expect(rpcCall).toHaveBeenLastCalledWith(
+    expect(rpcCall).toHaveBeenCalledWith(
       '/api',
       'garmin-auth/begin',
-      { region: 'global' },
+      { accountId: 'legacy-global' },
       expect.any(AbortSignal),
     )
 
     cleanups.forEach(cleanup => cleanup())
-    expect(clearTimeoutMock).toHaveBeenCalled()
-    expect(removeEventListener).toHaveBeenCalledWith('focus', expect.any(Function))
   })
 
   it('ships both test-report pages in the published package', () => {
