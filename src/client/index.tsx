@@ -65,10 +65,14 @@ export function apply(ctx: GarminClientContext): void {
   if (typeof settingsInjector.inject === 'function') {
     settingsInjector.inject(['configForms'], settingsCtx => {
       const configSlots = settingsCtx.slots as unknown as ConfigSlotRegistry
+      const refreshSettings = () => settingsCtx.configForms.describe().load()
       configSlots.inject('plugins.bundle.config', () => configSlots.register({
         name: 'plugins.bundle.config',
         key: 'dsh-plugin-garmin-connect',
-      }, () => <GarminSettingsForm form={settingsCtx.configForms.get('garmin-connect')} />))
+      }, () => <GarminSettingsForm
+        form={settingsCtx.configForms.get('garmin-connect')}
+        refresh={refreshSettings}
+      />))
     })
   }
 }

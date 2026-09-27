@@ -28,8 +28,10 @@ const fieldStyle = {
 /** A local-only editor for the single account the Garmin tools currently use. */
 export function GarminSettingsForm({
   form,
+  refresh,
 }: {
   form: ConfigForm<GarminSettingsValue>
+  refresh(): Promise<unknown>
 }): ReactElement {
   const subscribe = useCallback((notify: () => void) => form.subscribe(notify), [form])
   const getSnapshot = useCallback(() => form.getSnapshot(), [form])
@@ -42,6 +44,18 @@ export function GarminSettingsForm({
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+
+  const refreshSettings = useCallback(async () => {
+    try {
+      await refresh()
+    } catch {
+      // Keep the form in its current state; a later refresh may succeed.
+    }
+  }, [refresh])
+
+  useEffect(() => {
+    void refreshSettings()
+  }, [refreshSettings])
 
   useEffect(() => setRegion(currentRegion), [currentRegion])
 
@@ -86,7 +100,14 @@ export function GarminSettingsForm({
       </p>
       {snapshot.status === 'loading' && <p>正在读取配置…</p>}
       {snapshot.status === 'unavailable' && (
-        <p role="status">只能在本机 Harness 中修改插件配置。</p>
+        <div role="status">
+          <p>{snapshot.mode === 'memory'
+            ? '只能在本机 Harness 中修改插件配置。'
+            : '暂时无法读取插件配置，请刷新后重试。'}</p>
+          {snapshot.mode === 'host' && (
+            <button onClick={() => void refreshSettings()} type="button">刷新配置</button>
+          )}
+        </div>
       )}
       {snapshot.status === 'ready' && (
         <form onSubmit={event => void save(event)}>

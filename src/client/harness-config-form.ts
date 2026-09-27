@@ -29,6 +29,7 @@ export interface ConfigForm<T> {
 
 export interface ConfigForms {
   get<T>(entryId: string): ConfigForm<T>
+  describe(): { load(): Promise<unknown> }
   whileServed(
     namespaces: readonly string[],
     register: (served: ReadonlySet<string>) => () => void,
