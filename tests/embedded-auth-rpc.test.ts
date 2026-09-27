@@ -126,7 +126,7 @@ describe('DSH embedded Garmin authentication RPC', () => {
     expect(subject.handle).not.toHaveBeenCalled()
   })
 
-  it('dispatches a browser RPC envelope through a loopback-only Fetch route', async () => {
+  it('dispatches a browser RPC envelope through an admitted Host Fetch route', async () => {
     const subject = fixture()
     const register = jest.fn().mockReturnValue(jest.fn().mockResolvedValue(undefined))
     Object.assign(subject.child.connection, { fetch: { register } })
@@ -151,8 +151,10 @@ describe('DSH embedded Garmin authentication RPC', () => {
       }),
     }) as unknown as Request
 
+    // Connection's HTTP bridge uses this internal URL after admitting the
+    // original request. It does not preserve the external loopback hostname.
     const response = await beginRoute.fetch(request(
-      'http://127.0.0.1:19387/api/garmin-auth/begin',
+      'http://dsh.internal/api/garmin-auth/begin',
     ))
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
@@ -165,12 +167,8 @@ describe('DSH embedded Garmin authentication RPC', () => {
     })
     expect(subject.controller.begin).toHaveBeenCalledWith(expect.any(AbortSignal), 'cn')
 
-    const remote = await beginRoute.fetch(request(
-      'https://remote.example.test/api/garmin-auth/begin',
-    ))
-    expect(remote.status).toBe(403)
     const mismatched = await beginRoute.fetch(request(
-      'http://127.0.0.1:19387/api/garmin-auth/begin',
+      'http://dsh.internal/api/garmin-auth/begin',
       'garmin-auth/status',
     ))
     expect(mismatched.status).toBe(400)

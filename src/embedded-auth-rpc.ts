@@ -127,7 +127,8 @@ export function resolveEmbeddedAuthConfig(
  *
  * Connection is intentionally optional: older DSH hosts can still load the
  * plugin. New Hosts mount authenticated Fetch routes; older Hosts use the
- * private RPC channel. Both paths accept loopback requests only.
+ * private loopback-only RPC channel. The Host admits Fetch requests before
+ * invoking these route callbacks.
  */
 export function registerEmbeddedAuthRpc(
   ctx: Context,
@@ -188,12 +189,6 @@ async function handleFetchRpc(
   request: Request,
   handler: ConnectionRpcHandler,
 ): Promise<Response> {
-  const hostname = new URL(request.url).hostname.toLowerCase()
-  if (hostname !== 'localhost'
-    && hostname !== '[::1]'
-    && !/^127(?:\.\d{1,3}){3}$/.test(hostname)) {
-    return new Response('forbidden', { status: 403 })
-  }
   if (request.method !== 'POST') {
     return new Response('method not allowed', { status: 405 })
   }
