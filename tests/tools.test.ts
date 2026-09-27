@@ -1,5 +1,13 @@
 import { GarminToolService } from '../src/tool-service'
+import type { Config } from '../src/config'
 import { getDatesInRange, registerTools, todayLocal } from '../src/tools/index'
+
+function registerSingle(ctx: any, client: any, config: Config): void {
+  registerTools(ctx, [{
+    accountId: 'athlete', slot: 1,
+    region: config.region, client, config, configured: true,
+  }])
+}
 
 describe('Tools Utils', () => {
   describe('getDatesInRange', () => {
@@ -49,7 +57,7 @@ describe('Tools Utils', () => {
       getUserProfile: jest.fn(),
     }
 
-    registerTools(ctx as any, client as any, {
+    registerSingle(ctx, client, {
       username: 'runner@example.com',
       password: 'not-used-by-this-test',
       region: 'global',
@@ -71,6 +79,11 @@ describe('Tools Utils', () => {
       'create_garmin_workout',
       'download_garmin_activity_fit',
     ])
+    for (const definition of definitions) {
+      expect(definition.parameters.properties.account).toMatchObject({
+        type: 'string', pattern: '^[a-z][a-z0-9_-]{0,31}$',
+      })
+    }
 
     const downloadFit = definitions.find(
       definition => definition.name === 'download_garmin_activity_fit',
@@ -169,7 +182,7 @@ describe('Tools Utils', () => {
       addWorkout,
       getUserProfile: jest.fn(),
     }
-    registerTools(ctx as any, client as any, {
+    registerSingle(ctx, client, {
       username: 'runner@example.com',
       password: 'not-used-by-this-test',
       region: 'global',
@@ -205,7 +218,7 @@ describe('Tools Utils', () => {
     }
 
     try {
-      registerTools(ctx as any, {} as any, {
+      registerSingle(ctx, {}, {
         username: 'runner@example.com',
         password: 'not-used-by-this-test',
         region: 'global',
@@ -253,7 +266,7 @@ describe('Tools Utils', () => {
         'password=do-not-leak response contained private@example.test',
       )),
     }
-    registerTools(ctx as any, client as any, {
+    registerSingle(ctx, client, {
       username: 'runner@example.com',
       password: 'not-used-by-this-test',
       region: 'global',
@@ -268,5 +281,140 @@ describe('Tools Utils', () => {
       error: true,
       message: 'Failed to fetch profile',
     })
+  })
+
+  it('requires an ID with two accounts and routes exact IDs or an unambiguous legacy region', async () => {
+    const definitions: Array<{ name: string; execute: (args: any) => Promise<any> }> = []
+    const ctx = {
+      tools: { register: (definition: any) => definitions.push(definition) },
+      logger: { info: jest.fn() },
+    }
+    const cnProfile = jest.fn().mockResolvedValue({ displayName: 'China athlete' })
+    const globalProfile = jest.fn().mockResolvedValue({ displayName: 'Global athlete' })
+    const base: Config = {
+      username: 'china@example.test', region: 'cn', cacheTtl: 0,
+      logLevel: 'info', activityDetail: 'full', fitDownloadDir: '',
+    }
+    registerTools(ctx as any, [
+      {
+        accountId: 'china', slot: 1, region: 'cn', configured: true,
+        client: { getUserProfile: cnProfile } as any, config: base,
+      },
+      {
+        accountId: 'travel', slot: 2, region: 'global', configured: true,
+        client: { getUserProfile: globalProfile } as any,
+        config: { ...base, username: 'global@example.test', region: 'global' },
+      },
+    ])
+    const profile = definitions.find(definition => definition.name === 'get_garmin_profile')!
+
+    await expect(profile.execute({})).resolves.toEqual({
+      error: true,
+      message: 'Multiple Garmin accounts are configured. Set account to an account ID: china, travel.',
+    })
+    expect(cnProfile).not.toHaveBeenCalled()
+    expect(globalProfile).not.toHaveBeenCalled()
+    await profile.execute({ account: 'cn' })
+    expect(cnProfile).toHaveBeenCalledTimes(1)
+    expect(globalProfile).not.toHaveBeenCalled()
+    await profile.execute({ account: 'travel' })
+    expect(globalProfile).toHaveBeenCalledTimes(1)
+  })
+
+  it('defaults to the only configured region and explains when another slot is empty', async () => {
+    const definitions: Array<{ name: string; execute: (args: any) => Promise<any> }> = []
+    const ctx = {
+      tools: { register: (definition: any) => definitions.push(definition) },
+      logger: { info: jest.fn() },
+    }
+    const cnProfile = jest.fn().mockResolvedValue({ displayName: 'China athlete' })
+    const base: Config = {
+      username: 'china@example.test', region: 'cn', cacheTtl: 0,
+      logLevel: 'info', activityDetail: 'full', fitDownloadDir: '',
+    }
+    registerTools(ctx as any, [
+      {
+        accountId: 'china', slot: 1, region: 'cn', configured: true,
+        client: { getUserProfile: cnProfile } as any, config: base,
+      },
+      {
+        accountId: 'global-empty', slot: 2, region: 'global', configured: false, client: {} as any,
+        config: { ...base, username: '', region: 'global' },
+      },
+    ])
+    const profile = definitions.find(definition => definition.name === 'get_garmin_profile')!
+    await profile.execute({})
+    expect(cnProfile).toHaveBeenCalledTimes(1)
+    await expect(profile.execute({ account: 'global' })).resolves.toEqual({
+      error: true,
+      message: 'No Garmin global account is configured. Add it in the plugin settings.',
+    })
+  })
+
+  it('does not treat one region as one account when two accounts share it', async () => {
+    const definitions: Array<{ name: string; execute: (args: any) => Promise<any> }> = []
+    const ctx = {
+      tools: { register: (definition: any) => definitions.push(definition) },
+      logger: { info: jest.fn() },
+    }
+    const firstProfile = jest.fn().mockResolvedValue({ displayName: 'First' })
+    const secondProfile = jest.fn().mockResolvedValue({ displayName: 'Second' })
+    const base: Config = {
+      username: 'first@example.test', region: 'cn', cacheTtl: 0,
+      logLevel: 'info', activityDetail: 'full', fitDownloadDir: '',
+    }
+    registerTools(ctx as any, [
+      {
+        accountId: 'first', slot: 1, region: 'cn', configured: true,
+        client: { getUserProfile: firstProfile } as any, config: base,
+      },
+      {
+        accountId: 'second', slot: 2, region: 'cn', configured: true,
+        client: { getUserProfile: secondProfile } as any,
+        config: { ...base, username: 'second@example.test' },
+      },
+    ])
+    const profile = definitions.find(definition => definition.name === 'get_garmin_profile')!
+    await expect(profile.execute({ account: 'cn' })).resolves.toEqual({
+      error: true,
+      message: 'Multiple Garmin cn accounts are configured. Select a specific account ID.',
+    })
+    await profile.execute({ account: 'second' })
+    expect(firstProfile).not.toHaveBeenCalled()
+    expect(secondProfile).toHaveBeenCalledTimes(1)
+  })
+
+  it('explains running concepts without an account but selects one before recent activity enrichment', async () => {
+    const base: Config = {
+      username: '', region: 'cn', cacheTtl: 0,
+      logLevel: 'info', activityDetail: 'full', fitDownloadDir: '',
+    }
+    for (const configuredCount of [0, 2]) {
+      const definitions: Array<{ name: string; execute: (args: any) => Promise<any> }> = []
+      registerTools({
+        tools: { register: (definition: any) => definitions.push(definition) },
+        logger: { info: jest.fn() },
+      } as any, [
+        {
+          accountId: 'china', slot: 1,
+          region: 'cn', configured: configuredCount > 0, client: {} as any, config: base,
+        },
+        {
+          accountId: 'travel', slot: 2,
+          region: 'global', configured: configuredCount > 0, client: {} as any,
+          config: { ...base, region: 'global' },
+        },
+      ])
+      const advice = definitions.find(definition => definition.name === 'get_running_skill_advice')!
+      await expect(advice.execute({ mode: 'explain', query: 'threshold' }))
+        .resolves.toMatchObject({ mode: 'explain', requiresUserInput: false })
+      await expect(advice.execute({ mode: 'personalized', includeRecentActivities: true }))
+        .resolves.toMatchObject({
+          error: true,
+          message: configuredCount === 0
+            ? expect.stringContaining('No Garmin account is configured')
+            : expect.stringContaining('Set account to an account ID'),
+        })
+    }
   })
 })

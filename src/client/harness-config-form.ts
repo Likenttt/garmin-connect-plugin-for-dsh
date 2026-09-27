@@ -37,3 +37,67 @@ export interface ConfigForms {
     register: (served: ReadonlySet<string>) => () => void,
   ): () => void
 }
+
+export interface GarminStoredAccount {
+  id: string
+  region: 'cn' | 'global'
+  alias: string
+  slot: number
+}
+
+/** Update public metadata atomically with an optional new secret email. */
+export function saveAccountMutations(
+  current: readonly GarminStoredAccount[],
+  account: GarminStoredAccount,
+  email: string,
+): ConfigMutation[] | undefined {
+  const previous = current.find(value => value.id === account.id)
+  const next = previous
+    ? current.map(value => value.id === account.id ? account : value)
+    : [...current, account]
+  if (!validAccounts(next) || (!previous && !email)) return undefined
+  return [
+    { op: 'set', path: ['accounts'], value: next },
+    { op: 'set', path: ['accountsConfigured'], value: true },
+    ...(email ? [
+      { op: 'set' as const, path: [`account${account.slot}Username`], value: email },
+      { op: 'set' as const, path: [`account${account.slot}UsernameId`], value: account.id },
+    ] : []),
+  ]
+}
+
+/** Explicit empty metadata prevents a removed legacy account from reappearing. */
+export function removeAccountMutations(
+  current: readonly GarminStoredAccount[],
+  accountId: string,
+): ConfigMutation[] | undefined {
+  const removed = current.find(value => value.id === accountId)
+  if (!removed || !validAccounts(current)) return undefined
+  return [
+    { op: 'set', path: ['accounts'], value: current.filter(value => value.id !== accountId) },
+    { op: 'set', path: ['accountsConfigured'], value: true },
+    { op: 'set', path: [`account${removed.slot}Username`], value: '' },
+    { op: 'set', path: [`account${removed.slot}UsernameId`], value: '' },
+  ]
+}
+
+function validAccounts(accounts: readonly GarminStoredAccount[]): boolean {
+  if (accounts.length > 5) return false
+  const ids = new Set<string>()
+  const slots = new Set<number>()
+  for (const account of accounts) {
+    if (!/^[a-z][a-z0-9_-]{0,31}$/.test(account.id)
+      || (account.region !== 'cn' && account.region !== 'global')
+      || typeof account.alias !== 'string'
+      || account.alias.length > 64
+      || /[\u0000-\u001f\u007f-\u009f]/.test(account.alias)
+      || !Number.isSafeInteger(account.slot)
+      || account.slot < 1
+      || account.slot > 5
+      || ids.has(account.id)
+      || slots.has(account.slot)) return false
+    ids.add(account.id)
+    slots.add(account.slot)
+  }
+  return true
+}

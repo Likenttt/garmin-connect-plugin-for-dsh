@@ -960,7 +960,7 @@ describe('GarminClient', () => {
     expect(latestGarmin().loadToken).not.toHaveBeenCalled()
   })
 
-  it('prefers an explicit session token over the configured token file', async () => {
+  it('keeps an inline token when no valid DI session file is available', async () => {
     const inlineTokens = {
       oauth1: { oauth_token: 'inline-oauth-one' },
       oauth2: { access_token: 'inline-oauth-two' },
@@ -977,6 +977,104 @@ describe('GarminClient', () => {
       inlineTokens.oauth1,
       inlineTokens.oauth2,
     )
+  })
+
+  it('restores a matching browser DI file before a stale legacy inline token after restart', async () => {
+    const sessionTokenFile = await createSessionFile(JSON.stringify(createDiSession()))
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: '',
+      sessionToken: JSON.stringify({
+        oauth1: { oauth_token: 'old-inline' },
+        oauth2: { access_token: 'old-inline' },
+      }),
+      sessionTokenFile,
+    })
+    latestGarmin().getUserProfile.mockResolvedValue({ profileId: 123456789 })
+
+    await expect(client.connect()).resolves.toBeUndefined()
+    expect(latestGarmin().loadToken).not.toHaveBeenCalled()
+    expect(latestGarmin().getUserProfile).toHaveBeenCalledTimes(1)
+    expect(latestGarmin().login).not.toHaveBeenCalled()
+    expect(client.getAuthenticatedAccount()).toEqual({
+      email: 'runner@example.test',
+      region: 'global',
+    })
+  })
+
+  it('falls back to the legacy inline token once a preferred DI file is rejected', async () => {
+    const sessionTokenFile = await createSessionFile(JSON.stringify(createDiSession()))
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: '',
+      sessionToken: JSON.stringify({ oauth1: {}, oauth2: {} }),
+      sessionTokenFile,
+    })
+    latestGarmin().getUserProfile.mockRejectedValue(
+      Object.assign(new Error('unauthorized'), { status: 401 }),
+    )
+    const rejectedGarmin = latestGarmin()
+
+    await expect(client.connect()).resolves.toBeUndefined()
+    const fallbackGarmin = latestGarmin()
+    expect(fallbackGarmin).not.toBe(rejectedGarmin)
+    expect(fallbackGarmin.client.client.defaults.timeout).toBe(baseConfig.requestTimeoutMs ?? 15_000)
+    expect(fallbackGarmin.client.client.defaults.maxContentLength).toBe(MAX_ZIP_BYTES)
+    await expect(client.connect()).resolves.toBeUndefined()
+    expect(rejectedGarmin.getUserProfile).toHaveBeenCalledTimes(1)
+    expect(fallbackGarmin.loadToken).toHaveBeenCalledTimes(2)
+    expect(fallbackGarmin.client.client.interceptors.request.use).toHaveBeenCalled()
+    expect(latestGarmin().login).not.toHaveBeenCalled()
+    expect(client.getAuthenticatedAccount()).toBeUndefined()
+
+    const replacement = createDiSession()
+    replacement.tokens.accessToken = 'new-browser-session'
+    await writeFile(sessionTokenFile, JSON.stringify(replacement), {
+      encoding: 'utf8', mode: 0o600,
+    })
+    fallbackGarmin.getUserProfile.mockResolvedValue({ profileId: 123456789 })
+    await expect(client.connect()).resolves.toBeUndefined()
+    expect(fallbackGarmin.getUserProfile).toHaveBeenCalledTimes(1)
+    expect(fallbackGarmin.loadToken).toHaveBeenCalledTimes(2)
+    expect(client.getAuthenticatedAccount()).toEqual({
+      email: 'runner@example.test', region: 'global',
+    })
+  })
+
+  it.each([
+    ['damaged', () => '{"broken":'],
+    ['another account', () => JSON.stringify(createDiSession('other@example.test'))],
+    ['another region', () => JSON.stringify(createDiSession('runner@example.test', 'cn'))],
+    ['expired', () => {
+      const session = createDiSession()
+      return JSON.stringify({
+        ...session,
+        tokens: { ...session.tokens, refreshExpiresAtMs: Date.now() - 1 },
+      })
+    }],
+  ])('keeps the valid legacy inline token when the DI file is %s', async (
+    _case,
+    source,
+  ) => {
+    const sessionTokenFile = await createSessionFile(source())
+    const inlineTokens = {
+      oauth1: { oauth_token: 'valid-inline-one' },
+      oauth2: { access_token: 'valid-inline-two' },
+    }
+    const client = new GarminClient(createContext(), {
+      ...baseConfig,
+      password: '',
+      sessionToken: JSON.stringify(inlineTokens),
+      sessionTokenFile,
+    })
+
+    await expect(client.connect()).resolves.toBeUndefined()
+    expect(latestGarmin().loadToken).toHaveBeenCalledWith(
+      inlineTokens.oauth1,
+      inlineTokens.oauth2,
+    )
+    expect(latestGarmin().getUserProfile).not.toHaveBeenCalled()
+    expect(latestGarmin().login).not.toHaveBeenCalled()
   })
 
   it('falls back to password without logging malformed token-file content or its path', async () => {
