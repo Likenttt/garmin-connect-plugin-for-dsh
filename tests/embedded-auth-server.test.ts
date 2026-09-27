@@ -336,6 +336,20 @@ describe('EmbeddedAuthServer', () => {
     expect(adapter.bridgeBootstrap).toHaveBeenCalledWith(FLOW_ID)
   })
 
+  it('allows the exact Harness app origin and loopback parents to frame the bridge', async () => {
+    const { response } = await openBridge()
+    const contentSecurityPolicy = response.headers['content-security-policy']
+
+    if (typeof contentSecurityPolicy !== 'string') {
+      throw new Error('expected a single Content-Security-Policy header')
+    }
+    expect(contentSecurityPolicy.split('; ').find(
+      directive => directive.startsWith('frame-ancestors '),
+    )).toBe(
+      'frame-ancestors dsh-app://app http://127.0.0.1:* http://localhost:*',
+    )
+  })
+
   it('serves a bridge whose inline script is valid JavaScript', async () => {
     const { response } = await openBridge()
     const inlineScript = extractInlineScript(response.body)

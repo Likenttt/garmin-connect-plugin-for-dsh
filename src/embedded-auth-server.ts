@@ -580,7 +580,7 @@ function sendBridgePage(
       "manifest-src 'none'",
       "base-uri 'none'",
       "form-action 'none'",
-      'frame-ancestors http://127.0.0.1:* http://localhost:*',
+      'frame-ancestors dsh-app://app http://127.0.0.1:* http://localhost:*',
       "require-trusted-types-for 'script'",
       "trusted-types 'none'",
     ].join('; '),

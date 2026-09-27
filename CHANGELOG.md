@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-09-27
+
+### Fixed
+- Allow the local Garmin login bridge to be embedded by the current DeepSeek Harness `dsh-app://app` page. The bridge keeps its existing loopback frame ancestors and exact origin checks.
+
 ## [0.1.9] - 2026-09-27
 
 ### Fixed
