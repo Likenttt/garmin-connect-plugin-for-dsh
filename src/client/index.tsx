@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { ConfigForms } from './harness-config-form'
 import {
   parseGarminAuthAccountRpcResult,
   parseGarminAuthBeginRpcResult,
@@ -22,12 +23,31 @@ import {
   GarminAuthView,
   type GarminLoginRegion,
 } from './view'
+import { GarminSettingsForm } from './settings-form'
 
 const AUTHENTICATED_ACCOUNT_REFRESH_MS = 15_000
 const UNAUTHENTICATED_ACCOUNT_REFRESH_MS = 1_000
 const STATUS_POLL_MS = 750
 
-type GarminClientContext = ClientContext & { connection: ConnectionHandle }
+type GarminClientContext = ClientContext & {
+  connection: ConnectionHandle
+}
+
+type GarminSettingsContext = GarminClientContext & { configForms: ConfigForms }
+type SettingsInjector = {
+  inject(
+    dependencies: string[],
+    callback: (ctx: GarminSettingsContext) => void,
+  ): unknown
+}
+
+type ConfigSlotRegistry = {
+  inject(key: 'plugins.bundle.config', callback: () => () => void): () => void
+  register(
+    options: { name: 'plugins.bundle.config'; key: string },
+    render: () => ReactElement,
+  ): () => void
+}
 
 export const inject = ['slots', 'connection']
 
@@ -38,6 +58,25 @@ export function apply(ctx: GarminClientContext): void {
     order: 90,
     registrant: 'dsh-plugin-garmin-connect',
   }, () => <GarminAuthOverlay ctx={ctx} />))
+
+  // The settings service is optional on older Harness versions. Cordis runs
+  // this child only once the protected config-form service is available.
+  const settingsInjector = ctx as unknown as SettingsInjector
+  if (typeof settingsInjector.inject === 'function') {
+    settingsInjector.inject(['configForms'], settingsCtx => {
+      const configSlots = settingsCtx.slots as unknown as ConfigSlotRegistry
+      const refreshSettings = async () => {
+        await settingsCtx.configForms.describe().load?.()
+      }
+      configSlots.inject('plugins.bundle.config', () => configSlots.register({
+        name: 'plugins.bundle.config',
+        key: 'dsh-plugin-garmin-connect',
+      }, () => <GarminSettingsForm
+        form={settingsCtx.configForms.get('garmin-connect')}
+        refresh={refreshSettings}
+      />))
+    })
+  }
 }
 
 function GarminAuthOverlay({ ctx }: { ctx: GarminClientContext }): ReactElement {

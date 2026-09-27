@@ -286,6 +286,53 @@ describe('GarminClient', () => {
     })
   })
 
+  it('rejects an in-flight response after the client is deactivated', async () => {
+    const client = new GarminClient(createContext(), baseConfig)
+    await client.connect()
+    let finishRequest!: (value: unknown[]) => void
+    let requestStarted!: () => void
+    const started = new Promise<void>(resolve => { requestStarted = resolve })
+    latestGarmin().getActivities.mockImplementation(() => {
+      requestStarted()
+      return new Promise<unknown[]>(resolve => { finishRequest = resolve })
+    })
+
+    const pending = client.getActivities()
+    await started
+    client.deactivate()
+    finishRequest([{ account: 'old-account' }])
+
+    await expect(pending).rejects.toThrow(
+      'Garmin authentication changed while the request was in flight',
+    )
+    expect(client.getAuthenticatedAccount()).toBeUndefined()
+    expect(client.getAuthenticationRequirement()).toBeUndefined()
+    await expect(client.getActivities()).rejects.toThrow(
+      'Garmin authentication changed while the request was in flight',
+    )
+  })
+
+  it('cannot publish a successful login after deactivation', async () => {
+    const client = new GarminClient(createContext(), baseConfig)
+    let finishLogin!: () => void
+    let loginStarted!: () => void
+    const started = new Promise<void>(resolve => { loginStarted = resolve })
+    latestGarmin().login.mockImplementation(() => {
+      loginStarted()
+      return new Promise<void>(resolve => { finishLogin = resolve })
+    })
+
+    const pending = client.connect()
+    await started
+    client.deactivate()
+    finishLogin()
+
+    await expect(pending).rejects.toThrow(
+      'Garmin authentication changed while the request was in flight',
+    )
+    expect(client.getAuthenticatedAccount()).toBeUndefined()
+  })
+
   it('accepts a newly persisted DI session after an earlier missing-file failure', async () => {
     const sessionTokenFile = await createEmptySessionPath()
     const client = new GarminClient(createContext(), {

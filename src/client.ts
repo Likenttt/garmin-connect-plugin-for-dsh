@@ -96,6 +96,7 @@ export class GarminClient {
   private authenticatedAccount?: GarminAuthenticatedAccount
   private authenticationRequirement?: GarminAuthenticationRequirement
   private authenticationRequirementRevision = 0
+  private active = true
 
   constructor(
     ctx: Context,
@@ -133,14 +134,36 @@ export class GarminClient {
 
   // ---------- Lifecycle ---------------------------------------------------
 
+  /** Fence old requests and credentials when Cordis unloads this instance. */
+  deactivate(): void {
+    if (!this.active) return
+    this.active = false
+    this.connected = false
+    this.authenticatedAccount = undefined
+    this.authenticationRequirement = undefined
+    this.authEpoch += 1
+    this.cache.clear()
+    this.diRuntime?.invalidate()
+    this.diRuntime = null
+    const upstream = this.gc.client as any
+    upstream.oauth1Token = undefined
+    upstream.oauth2Token = undefined
+  }
+
+  private assertActive(): void {
+    if (!this.active) throw authenticationChangedError()
+  }
+
   /**
    * Log in (or restore a session token) exactly once. Concurrent callers
    * share the same in-flight promise, so eager warm-up and lazy first-use
    * never race each other.
    */
   async connect(): Promise<void> {
+    this.assertActive()
     while (this.sessionReplacementGate) {
       await this.sessionReplacementGate
+      this.assertActive()
     }
     if (!this.connecting) {
       let tracked!: Promise<void>
@@ -154,12 +177,13 @@ export class GarminClient {
 
   /** Return only an account identity established by a trusted Host auth path. */
   getAuthenticatedAccount(): GarminAuthenticatedAccount | undefined {
-    if (this.sessionReplacementGate || !this.authenticatedAccount) return undefined
+    if (!this.active || this.sessionReplacementGate || !this.authenticatedAccount) return undefined
     return { ...this.authenticatedAccount }
   }
 
   /** Return only coarse browser-recovery state; never upstream error details. */
   getAuthenticationRequirement(): GarminAuthenticationRequirement | undefined {
+    if (!this.active) return undefined
     return this.authenticationRequirement
       ? { ...this.authenticationRequirement }
       : undefined
@@ -167,6 +191,7 @@ export class GarminClient {
 
   private async login(): Promise<void> {
     try {
+      this.assertActive()
       let identityVerified = false
       if (!this.config.username.trim()) {
         throw new PublicToolError('Garmin username is required')
@@ -199,12 +224,14 @@ export class GarminClient {
       } else {
         throw new GarminAuthenticationRequiredError('missing')
       }
+      this.assertActive()
       this.connected = true
       this.clearAuthenticationRequirement()
       if (identityVerified) this.markAuthenticatedAccount()
       this.log('info', '[garmin] ✅ Connected successfully.')
     } catch (err) {
       this.connected = false
+      if (!this.active) throw authenticationChangedError()
       const status = getHttpStatus(err)
       if (err instanceof GarminAuthenticationRequiredError) {
         this.publishAuthenticationRequirement(err.reason)
@@ -429,6 +456,7 @@ export class GarminClient {
    * atomic writer installs the new file last.
    */
   async replacePersistedSession(writeSession: () => Promise<void>): Promise<void> {
+    this.assertActive()
     const sessionTokenFile = this.config.sessionTokenFile?.trim()
     if (!sessionTokenFile) {
       throw new PublicToolError('Garmin session token file is not configured')
@@ -439,6 +467,7 @@ export class GarminClient {
 
     while (this.sessionReplacementGate) {
       await this.sessionReplacementGate
+      this.assertActive()
     }
     let releaseReplacement!: () => void
     const replacementGate = new Promise<void>(resolveReplacement => {
@@ -452,6 +481,7 @@ export class GarminClient {
     try {
       const pendingConnection = this.connecting
       if (pendingConnection) await pendingConnection.catch(() => undefined)
+      this.assertActive()
 
       this.connected = false
       this.authEpoch += 1
@@ -461,6 +491,7 @@ export class GarminClient {
 
       await replaceGarminDiSessionPath(sessionTokenFile, writeSession)
       committed = true
+      this.assertActive()
       try {
         const session = await readSessionTokenFile(resolve(sessionTokenFile))
         verifiedReplacement = isDiSessionFile(session)
@@ -488,7 +519,7 @@ export class GarminClient {
       const upstream = this.gc.client as any
       upstream.oauth1Token = undefined
       upstream.oauth2Token = undefined
-      if (committed) {
+      if (committed && this.active) {
         if (verifiedReplacement) {
           this.markAuthenticatedAccount()
           this.clearAuthenticationRequirement()
@@ -505,18 +536,22 @@ export class GarminClient {
 
   /** Lazily connect on first use. Failures are logged and rethrown to the caller. */
   private async ensureConnected(): Promise<void> {
+    this.assertActive()
     while (this.sessionReplacementGate) {
       await this.sessionReplacementGate
+      this.assertActive()
     }
     if (!this.connected) {
       await this.connect()
     }
+    this.assertActive()
   }
 
   private async withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
     await this.ensureConnected()
 
     for (let i = 0; i <= retries; i++) {
+      this.assertActive()
       const attemptEpoch = this.authEpoch
       try {
         const result = await fn()

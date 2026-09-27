@@ -125,6 +125,22 @@ describe('DSH Garmin authentication client protocol', () => {
     })
   })
 
+  it('preserves the explicit region mismatch without exposing private configuration', () => {
+    expect(parseGarminAuthBeginRpcResult({
+      ok: true,
+      value: { success: false, code: 'region_mismatch' },
+    })).toEqual({ success: false, code: 'region_mismatch' })
+
+    expect(parseGarminAuthBeginRpcResult({
+      ok: true,
+      value: {
+        success: false,
+        code: 'region_mismatch',
+        email: 'runner@example.test',
+      },
+    })).toEqual({ success: false, code: 'unavailable' })
+  })
+
   it.each([
     `https://127.0.0.1:43127/garmin-auth/bridge/${flowId}`,
     `http://localhost:43127/garmin-auth/bridge/${flowId}`,

@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import { Config, resolveConfig } from './config'
+import { Config, type PluginConfig, resolveConfig } from './config'
 import { GarminClient } from './client'
 import {
   registerEmbeddedAuthRpc,
@@ -11,10 +11,36 @@ export const name = 'garmin-connect'
 export { Config, resolveConfig }
 export const inject = ['tools']
 
-export function apply(ctx: Context, config: Config) {
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    'loader/volatile-update'(paths: readonly (readonly string[])[]): void
+  }
+}
+
+export function apply(ctx: Context, config: Config | PluginConfig) {
   const resolvedConfig = resolveEmbeddedAuthConfig(resolveConfig(config))
   const client = new GarminClient(ctx, resolvedConfig, {
     allowUnconfigured: true,
+  })
+
+  // Loader commits volatile fields without remounting the plugin. Rebuild the
+  // client, tools, and auth controller together from the newly committed refs.
+  let restartQueued = false
+  ctx.on('loader/volatile-update', paths => {
+    if (
+      restartQueued
+      || !paths.some(path => path.length === 1 && (
+        path[0] === 'username' || path[0] === 'region'
+      ))
+    ) return
+    restartQueued = true
+    queueMicrotask(() => {
+      restartQueued = false
+      if (ctx.fiber.uid === null) return
+      void ctx.fiber.restart().catch(() => {
+        ctx.logger.error('[garmin] Could not apply updated account settings')
+      })
+    })
   })
 
   // Kick off the Garmin login in the background. Tool calls auto-connect on
@@ -38,4 +64,6 @@ export function apply(ctx: Context, config: Config) {
     },
     replaceSession: writer => client.replacePersistedSession(writer),
   })
+
+  ctx.effect(() => () => client.deactivate(), 'garmin-connect: client lifecycle')
 }

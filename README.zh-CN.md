@@ -171,26 +171,34 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh web
 
 默认在 `http://127.0.0.1:3080` 打开 Web 界面。如果通过 `npx` 启动,下面的命令同样加上 `npx --legacy-peer-deps=false @deepseek-ai/dsh` 前缀;如果已全局安装 `dsh`,则可以去掉 `npx @deepseek-ai/` 前缀。
 
-### 3. 配置凭据
+### 3. 准备登录时再配置 Garmin 账号
 
-普通运行时凭据来自环境变量（或启动器提供的密钥存储），请确保 `.env` 不进入版本
-控制。本机 Web MFA 流程是唯一的有限例外：用户明确确认 profile 后，Host 会原子
-保存仅所有者可访问的 DI session 文件，但绝不会保存密码、MFA 验证码或 CAPTCHA
-答案。
+Harness 插件安装和启动时可以不填 Garmin 邮箱。在本机 Harness 的**插件**页面打开
+**dsh-plugin-garmin-connect**，找到**Garmin 账号配置**，选择**中国区（cn）**或
+**国际区（global）**，填写该区域账号的邮箱并点击**保存账号配置**。等待插件重新加载后，
+点击对应区域的登录按钮，在 Garmin 官方页面输入密码和 MFA 验证码。已保存的邮箱不会
+回填到配置表单。插件当前一次使用一个区域的账号；切换区域时，请先在这里保存目标区域
+的邮箱。点击国际区后若提示未配置邮箱，请先保存国际区账号配置，再重试登录。
+
+CLI、MCP 或无界面运行时可以通过环境变量（或启动器提供的密钥存储）配置账号，
+请确保 `.env` 不进入版本控制。本机 Web MFA 流程会在用户确认 profile 后，由
+Host 原子保存仅所有者可访问的 DI session 文件，但绝不会保存密码、MFA 验证码或
+CAPTCHA 答案。
 
 ```bash
 # 仅源码目录：复制随仓库提供的模板
 cp .env.example .env
 
-# 编辑 .env，填入你的 Garmin 账号信息
+# 仅在使用 CLI/MCP 或环境变量配置时编辑 .env
 ```
 
-如果使用 registry 安装，请直接在运行 `dsh` 的目录（工作区根目录）新建 `.env`，
-再按下表填写变量；包内模板不会出现在当前工作目录。插件启动时会自动加载该文件。
+如果通过 registry 安装且选择环境变量配置，请在运行 `dsh` 的目录（工作区根目录）
+新建 `.env`，再按下表填写变量；包内模板不会出现在当前工作目录。插件启动时会自动
+加载该文件。插件设置中明确保存的邮箱优先于 `GARMIN_USERNAME`。
 
 | 环境变量 | 必填 | 说明 |
 |---|---|---|
-| `GARMIN_USERNAME` | ✅ | Garmin 账号邮箱 |
+| `GARMIN_USERNAME` | CLI/MCP | Garmin 账号邮箱；Harness 用户可在安装后通过插件设置填写 |
 | `GARMIN_ACCOUNT` | ❌ | Web/CLI/MCP 隐式 session 路径使用的小写本地别名（未设置时为 `default`） |
 | `GARMIN_PASSWORD` | ✅* | 旧版直接登录密码；不要用于下方的 MFA 交互式初始化 |
 | `GARMIN_SESSION_TOKEN` | ✅* | 内联预认证令牌（仍支持，但 session 文件更安全） |
@@ -204,7 +212,8 @@ cp .env.example .env
 
 > \* 正常读取数据时，`GARMIN_PASSWORD`、`GARMIN_SESSION_TOKEN`、
 > `GARMIN_SESSION_TOKEN_FILE` 三选一即可；本机 Web、`auth:serve` 和独立 MCP
-> 可以在三者都没有时启动，并创建隐式账号 session 文件。受保护的 session 文件比内联
+> 可以在三者都没有时启动，并创建隐式账号 session 文件。开始登录前仍需配置账号邮箱；
+> Harness 用户可以安装后在插件设置中填写。受保护的 session 文件比内联
 > token 更安全，尤其适合隔离多个进程。如果同时配置，内联 token
 > 会优先于文件，直到 Garmin 明确拒绝它；此后新写入且账号匹配的 session 文件可在重试
 > 时接管。有效 session 优先于密码登录。
@@ -219,14 +228,15 @@ cp .env.example .env
 
 #### 两步验证——浏览器 MFA
 
-当 dsh 与它的 Web UI 运行在同一台本机时，可使用顶部栏中的 **国内账号**或
-**国际账号**按钮。选择必须与当前进程配置的 `GARMIN_REGION` 一致；不一致时会在打开
-Garmin 页面前安全失败。匹配的选择会在随机 `127.0.0.1` 端口打开一个自定义桥页；Garmin 官方 GAuth 页面嵌入这个独立
-桥页，而不是直接嵌入 dsh 页面。邮箱、密码、MFA 验证码和任何 CAPTCHA 都只输入
-Garmin iframe。
+当 dsh 与它的 Web UI 运行在同一台本机时，先在插件的**Garmin 账号配置**中保存
+对应区域和邮箱，再使用顶部栏中的**国内账号**或**国际账号**按钮。选择必须与当前
+配置的区域一致；不一致时会在打开 Garmin 页面前提示先配置该区域账号。匹配的选择
+会在随机 `127.0.0.1` 端口打开一个自定义桥页；Garmin 官方 GAuth 页面嵌入这个独立
+桥页，而不是直接嵌入 dsh 页面。账号邮箱会保存在本机 Harness 插件配置中；Garmin
+登录页上再次输入的邮箱、密码、MFA 验证码和任何 CAPTCHA 都留在 Garmin iframe 中。
 
 让这套流程既可用又安全，远不是增加一个“验证码”输入框那么简单。我们首先把 Garmin
-官方 GAuth 页面保留在本地 iframe 中，让邮箱、密码和 MFA 验证码始终留在 Garmin origin；
+官方 GAuth 页面保留在本地 iframe 中，让 Garmin 登录表单字段留在 Garmin origin；
 随后逐一处理了跨域消息、官方样式缺失、CSP/Trusted Types、第三方 frame 策略、MFA 重定向和
 精确 ticket/service 绑定。受 Zhitao 在 [DailySync](https://dailysync.cn) 中“用新标签页完成 Garmin SSO”思路的
 启发，我们又为 CLI 和 MCP 客户端加入了系统浏览器 loopback broker。新标签页返回的只是一次性、
@@ -241,8 +251,9 @@ DI token 交换。中国区 Garmin 在 MFA 后可能把 ticket 绑定到本次�
 ticket/service 配对，并在请求 DI 前拒绝其他 loopback 主机、端口、路径、查询参数或区域。
 一次性 ticket 不会被改写 service 或用后备 service 重试。Host 探测 Garmin profile，向用户显示安全化后的 profile 供确认。只有
 用户确认该 Garmin 账号与配置邮箱对应后，才原子写入绑定配置账号与区域、且仅所有者可访问
-的 session。外层 dsh 页面只会收到公开的进度状态；dsh 页面、模型上下文和 AI 可调用工具
-返回都拿不到 ticket、DI token、密码、MFA 验证码或 CAPTCHA 答案。
+的 session。外层 dsh 页面会收到公开的登录进度与用户在本机插件设置中明确输入的
+邮箱；dsh 页面、模型上下文和 AI 可调用工具返回都拿不到 ticket、DI token、密码、
+MFA 验证码或 CAPTCHA 答案。
 
 当 Host 已通过密码登录、绑定 profile 的 DI session 或刚完成的 Web 登录确认账号身份时，
 匹配区域的按钮副标题会显示 `已登录：「账号邮箱」`；另一地区仍显示域名。仅加载但尚未
@@ -256,7 +267,8 @@ MFA／CAPTCHA 页面标记，本机网页会自动打开一次与配置区域匹
 HTTP 401、普通登录页、网络错误或仅标题像 MFA 的页面都不会自动打开浏览器。未登录时网页
 每秒读取一次这种不含上游文本的粗粒度状态，登录后恢复为 15 秒刷新。
 
-打开对话框前必须配置 `GARMIN_USERNAME` 和正确的 `GARMIN_REGION`。该 Web 流程可不设置
+打开对话框前需在插件设置中保存邮箱和正确区域（或通过环境变量配置
+`GARMIN_USERNAME` 和 `GARMIN_REGION`）。该 Web 流程可不设置
 `GARMIN_SESSION_TOKEN_FILE`：Host 会使用 `GARMIN_ACCOUNT`（默认 `default`），在通常的
 POSIX 配置路径写入
 `~/.config/dsh-plugin-garmin-connect/accounts/<alias>.session.json`（其他平台使用对应配置
@@ -477,7 +489,7 @@ npm run test:integration
 ### 凭据解析优先级
 
 ```
-1. 插件配置值（profile patch / --patch 中为该插件行指定的 config）
+1. 插件配置值（本机 Garmin 账号配置表单、profile patch 或 --patch 中指定的 config）
    ↓ 回退
 2. 环境变量（.env 文件 / Shell 环境）
    ↓ 回退
@@ -875,7 +887,7 @@ Garmin 凭据与 AI 对话彻底分开：
                                │ 嵌入与区域严格匹配的页面
                                ▼
           Garmin 官方 GAuth iframe（cn / global）
-          账号、密码、MFA、CAPTCHA 只在这里输入
+          Garmin 登录表单字段留在这里
                                │
                                │ 一次性 ticket + 原始精确 service
                                ▼
@@ -897,9 +909,10 @@ Garmin 凭据与 AI 对话彻底分开：
 
 关键约束如下：
 
-- dsh 外层页面、MCP 客户端和模型只会看到本机一次性 URL、完成通知或不含敏感
-  数据的粗粒度状态；ticket、DI token、session 内容和 session 路径不会进入模型
-  上下文或 AI 工具参数/结果。
+- 认证期间，dsh 外层页面会收到本机一次性 URL 和粗粒度进度；独立的本机插件配置
+  表单处理用户输入的账号邮箱。MCP 客户端和模型只会收到 URL、完成通知或不含
+  敏感数据的粗粒度状态；ticket、DI token、session 内容和 session 路径不会进入
+  模型上下文或 AI 工具参数/结果。
 - bridge 只接受预期 Garmin SSO origin、对应 iframe window、CSRF 和严格匹配的
   `ticket/service`。一次性 ticket 不改写 service、不跟随重定向，也不做后备重试。
 - 写入 session 前先探测 Garmin profile，并由用户确认账号；随后以私有权限原子
@@ -979,7 +992,7 @@ src/
 
 ```bash
 npm run build   # prepublishOnly 也会自动执行
-npm publish
+npm publish --registry=https://registry.npmjs.org/ --access public
 ```
 
 发布后,用户只需一条命令即可安装:

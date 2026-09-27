@@ -165,6 +165,7 @@ export function GarminAuthView({
                 <ErrorStatus
                   code={begin.code}
                   onRetry={() => onLogin(selectedRegion ?? 'global')}
+                  selectedRegion={selectedRegion}
                 />
               )}
               {showFrame && begin?.success === true && (
@@ -251,17 +252,24 @@ function renderRegionLoginButton(
 function ErrorStatus({
   code,
   onRetry,
+  selectedRegion,
 }: {
   code: GarminAuthClientErrorCode
   onRetry(): Promise<void>
+  selectedRegion?: GarminLoginRegion
 }): ReactElement {
+  const selectedLabel = selectedRegion
+    ? REGION_DETAILS[selectedRegion].label
+    : '区域'
   const message = code === 'not_local'
     ? '此功能只能在本机 DSH 页面使用。'
-    : code === 'configuration'
-      ? '请先配置 Garmin 邮箱，并确认所选区域与 GARMIN_REGION 一致。'
-      : code === 'busy'
-        ? '已有一个 Garmin 登录正在进行。'
-        : '暂时无法启动 Garmin 登录。'
+    : code === 'region_mismatch'
+      ? `所选${selectedLabel}与当前插件配置的账号区域不一致。请先在插件中配置${selectedLabel}账号，然后重试。`
+      : code === 'configuration'
+        ? '请先在插件中配置 Garmin 账号邮箱和区域。'
+        : code === 'busy'
+          ? '已有一个 Garmin 登录正在进行。'
+          : '暂时无法启动 Garmin 登录。'
   return (
     <div style={statusStyle}>
       <div aria-hidden="true" style={errorIconStyle}>!</div>

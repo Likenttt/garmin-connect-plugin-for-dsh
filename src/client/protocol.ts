@@ -18,6 +18,7 @@ export type GarminAuthClientErrorCode =
   | 'unavailable'
   | 'not_local'
   | 'configuration'
+  | 'region_mismatch'
   | 'busy'
 
 export type GarminAuthenticatedAccount = {
@@ -202,6 +203,7 @@ function isClientErrorCode(value: unknown): value is GarminAuthClientErrorCode {
   return value === 'unavailable'
     || value === 'not_local'
     || value === 'configuration'
+    || value === 'region_mismatch'
     || value === 'busy'
 }
 

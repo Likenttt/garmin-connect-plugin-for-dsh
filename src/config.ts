@@ -37,6 +37,16 @@ export interface Config {
   fitDownloadDir: string
 }
 
+/** Cordis keeps these two editable account fields in stable references. */
+interface ConfigReference<T extends string> {
+  get(): T
+}
+
+export type PluginConfig = Omit<Config, 'username' | 'region'> & {
+  username: ConfigReference<string>
+  region: ConfigReference<GarminRegion>
+}
+
 /**
  * DeepSeek Harness plugin configuration schema (schemastery).
  *
@@ -52,7 +62,8 @@ export const Config = z.object({
   username: z.string()
     .role('secret')
     .default('')
-    .description('Garmin account email. Env: GARMIN_USERNAME'),
+    .description('Garmin account email. Env: GARMIN_USERNAME')
+    .volatile(),
 
   password: z.string()
     .role('secret')
@@ -71,7 +82,8 @@ export const Config = z.object({
 
   region: z.union(['global', 'cn'] as const)
     .default(envChoice(process.env.GARMIN_REGION, ['global', 'cn'] as const, 'global'))
-    .description('Server region: global | cn. Env: GARMIN_REGION'),
+    .description('Server region: global | cn. Env: GARMIN_REGION')
+    .volatile(),
 
   cacheTtl: z.number()
     .min(0)
@@ -105,10 +117,11 @@ export const Config = z.object({
 })
 
 /** Resolve secrets at runtime so schema metadata never contains credentials. */
-export function resolveConfig(input: Config): Config {
+export function resolveConfig(input: Config | PluginConfig): Config {
   return {
     ...input,
-    username: preferNonEmpty(input.username, process.env.GARMIN_USERNAME),
+    username: preferNonEmpty(readVolatile(input.username), process.env.GARMIN_USERNAME),
+    region: readVolatile(input.region),
     password: preferNonEmpty(input.password, process.env.GARMIN_PASSWORD),
     sessionToken: preferNonEmpty(input.sessionToken, process.env.GARMIN_SESSION_TOKEN),
     sessionTokenFile: preferNonEmpty(
@@ -120,6 +133,12 @@ export function resolveConfig(input: Config): Config {
       process.env.GARMIN_FIT_DOWNLOAD_DIR,
     )),
   }
+}
+
+function readVolatile<T extends string>(value: T | ConfigReference<T>): T {
+  return typeof value === 'object' && value !== null && 'get' in value
+    ? (value as ConfigReference<T>).get()
+    : value as T
 }
 
 function preferNonEmpty(primary: string | undefined, fallback: string | undefined): string {
