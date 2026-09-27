@@ -29,7 +29,9 @@ export interface ConfigForm<T> {
 
 export interface ConfigForms {
   get<T>(entryId: string): ConfigForm<T>
-  describe(): { load(): Promise<unknown> }
+  // Current Harness exposes a mirror refresh method at runtime. Keep it
+  // optional because older settings clients do not publish this method.
+  describe(): { load?(): Promise<void> }
   whileServed(
     namespaces: readonly string[],
     register: (served: ReadonlySet<string>) => () => void,
