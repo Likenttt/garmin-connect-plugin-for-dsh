@@ -46,6 +46,13 @@ const fieldStyle: CSSProperties = {
   color: 'var(--dsw-alias-label-primary, #111827)',
   font: 'inherit',
 }
+const fieldGroupStyle: CSSProperties = {
+  display: 'grid',
+  gridRow: 'span 3',
+  gridTemplateRows: 'subgrid',
+  paddingBottom: 14,
+  fontWeight: 600,
+}
 const buttonStyle: CSSProperties = {
   border: 0,
   borderRadius: 8,
@@ -414,20 +421,20 @@ function AccountCard({
         账号 ID：<code style={{ userSelect: 'text' }}>{entry.id}</code>
       </p>
       <form onSubmit={event => void save(event)}>
-        <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 250px), 1fr))' }}>
-          <label style={{ fontWeight: 600 }}>
-            地区
+        <div style={{ display: 'grid', columnGap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 250px), 1fr))' }}>
+          <label style={fieldGroupStyle}>
+            <span>地区</span>
             <select disabled={!canEdit} onChange={event => setRegion(event.target.value as GarminAuthRegion)} style={fieldStyle} value={region}>
               <option value="cn">中国区（garmin.cn）</option>
               <option value="global">国际区（garmin.com）</option>
             </select>
           </label>
-          <label style={{ fontWeight: 600 }}>
-            别名（可选）
+          <label style={fieldGroupStyle}>
+            <span>别名（可选）</span>
             <input disabled={!canEdit} maxLength={64} onChange={event => setAlias(event.target.value)} style={fieldStyle} type="text" value={alias} />
           </label>
-          <label style={{ fontWeight: 600 }}>
-            {isDraft ? 'Garmin 账号邮箱' : 'Garmin 账号邮箱（点击更换，留空保留）'}
+          <label style={fieldGroupStyle}>
+            <span>Garmin 账号邮箱</span>
             <input
               autoCapitalize="off"
               autoComplete="off"
