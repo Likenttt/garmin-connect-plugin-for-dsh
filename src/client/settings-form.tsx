@@ -288,7 +288,9 @@ function AccountCard({
         return
       }
       setEmail('')
-      setMessage('已保存，账号准备完成后即可登录。')
+      setMessage(normalizedEmail
+        ? '邮箱已提交保存。输入框会清空且不会回显已保存的邮箱；账号状态更新后即可登录。'
+        : '账号已保存，原邮箱保持不变。')
     } catch {
       setError('配置暂时无法保存，请重试。')
     } finally {
@@ -338,8 +340,17 @@ function AccountCard({
             <input disabled={!writable || busy} maxLength={64} onChange={event => setAlias(event.target.value)} style={fieldStyle} type="text" value={alias} />
           </label>
           <label style={{ fontWeight: 600 }}>
-            Garmin 账号邮箱{isDraft ? '' : '（留空保留）'}
-            <input autoComplete="email" disabled={!writable || busy} maxLength={320} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" style={fieldStyle} type="email" value={email} />
+            {isDraft ? 'Garmin 账号邮箱' : '更换 Garmin 账号邮箱（留空保留）'}
+            <input autoComplete="off" disabled={!writable || busy} maxLength={320} onChange={event => setEmail(event.target.value)} placeholder={!isDraft && summary?.configured ? '邮箱已保存，不会回显' : 'name@example.com'} style={fieldStyle} type="email" value={email} />
+            {!isDraft && (
+              <span style={{ color: 'var(--dsw-alias-label-secondary, #475569)', display: 'block', fontSize: 12, fontWeight: 400, marginTop: 6 }}>
+                {summary?.configured === true
+                  ? '邮箱已配置。输入新邮箱并保存可更换；留空保存会保留原邮箱。'
+                  : summary?.configured === false
+                    ? '尚未配置邮箱；请输入邮箱并保存，之后才能登录。'
+                    : '正在确认邮箱配置。已保存的邮箱不会回显。'}
+              </span>
+            )}
           </label>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
