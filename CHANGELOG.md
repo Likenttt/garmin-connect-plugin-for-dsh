@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Remove the top-right account buttons and direct missing-account errors to the settings form. Preserve existing single-account and regional account settings when upgrading.
-- Clarify in account settings that saved email addresses are retained after the input clears, and show whether an account email is configured.
+- Show a masked saved email in each editable account field while keeping the complete address on the Host. Replacing an address saves the new value and starts a fresh Garmin sign-in.
 - Clarify the separate Harness and CLI/MCP setup paths in the bilingual guides and environment template. Document publication to the official npm registry explicitly.
 
 ## [0.1.10] - 2026-09-27

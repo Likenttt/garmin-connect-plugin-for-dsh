@@ -50,7 +50,12 @@ function fixture() {
   }
 }
 
-function multiAccountFixture(configuredGlobal = true, sameRegion = false) {
+function multiAccountFixture(
+  configuredGlobal = true,
+  sameRegion = false,
+  cnUsername = 'cn@example.test',
+  cnRevision?: string,
+) {
   const subject = fixture()
   const accountIds = { cn: 'acct-cn', global: 'acct-global' }
   const flowIds = { cn: 'a'.repeat(64), global: 'b'.repeat(64) }
@@ -85,12 +90,13 @@ function multiAccountFixture(configuredGlobal = true, sameRegion = false) {
     slot: region === 'cn' ? 1 : 2,
     region: sameRegion && region === 'global' ? 'cn' : region,
     config: {
-      username: `${region}@example.test`,
+      username: region === 'cn' ? cnUsername : `${region}@example.test`,
       region: sameRegion && region === 'global' ? 'cn' : region,
       sessionTokenFile: `/private/${region}.session.json`,
     } as never,
     configured: region === 'cn' || configuredGlobal,
     alias: region === 'cn' ? '国内训练' : 'International',
+    ...(region === 'cn' && cnRevision ? { revision: cnRevision } : {}),
     client: clients[region] as never,
     initialConnection: Promise.resolve(),
   })) satisfies EmbeddedAuthAccountOption[]
@@ -604,6 +610,7 @@ describe('DSH embedded authentication for named accounts', () => {
           slot: 1,
           region: 'cn',
           alias: '国内训练',
+          maskedEmail: 'c****@example.test',
           configured: true,
           authenticated: true,
         }],
@@ -632,6 +639,7 @@ describe('DSH embedded authentication for named accounts', () => {
         slot: 1,
         region: 'cn',
         alias: '国内训练',
+        maskedEmail: 'c****@example.test',
         configured: true,
         authenticated: true,
       }],
@@ -660,6 +668,110 @@ describe('DSH embedded authentication for named accounts', () => {
       configured: false,
       authenticated: false,
     })
+  })
+
+  it('shows only a masked configured email in account summaries', async () => {
+    const subject = multiAccountFixture(false)
+    const account = subject.accounts[0] as EmbeddedAuthAccountOption
+    for (const [username, maskedEmail] of [
+      ['chunhua@88.com', 'chu****@88.com'],
+      ['abcde@88.com', 'a****@88.com'],
+      ['ab@88.com', 'a****@88.com'],
+      ['a@88.com', '****@88.com'],
+      ["o'connor@example.test", 'o\'c****@example.test'],
+      ['!special@example.test', '!sp****@example.test'],
+      ['甲乙丙丁戊己@88.com', '甲乙丙****@88.com'],
+      ['invalid@@example.test', undefined],
+      ['missing-at', undefined],
+      ['a*star@example.test', undefined],
+      ['a@example*.test', undefined],
+      ['a\n@example.test', undefined],
+      ['a@bad domain.test', undefined],
+      ['a@example..test', undefined],
+    ] as const) {
+      account.config.username = username
+      const listed = await subject.handler('account', {}, subject.signal)
+      expect(listed.value.accounts[0].maskedEmail).toBe(maskedEmail)
+      expect(JSON.stringify(listed)).not.toContain(username)
+    }
+  })
+
+  it('waits for the saved revision before beginning, even when two emails share a mask', async () => {
+    const previousEmail = 'chunhua@88.com'
+    const savedEmail = 'chutian@88.com'
+    const previousRevision = 'a'.repeat(32)
+    const savedRevision = 'b'.repeat(32)
+    const previous = multiAccountFixture(false, false, previousEmail, previousRevision)
+    const request = {
+      accountId: previous.accountIds.cn,
+      expectedRevision: savedRevision,
+      expectedRegion: 'cn',
+    }
+
+    const oldList = await previous.handler('account', {}, previous.signal)
+    expect(oldList.value.accounts[0].maskedEmail).toBe('chu****@88.com')
+    const stale = await previous.handler('begin', request, previous.signal)
+    expect(stale).toEqual({ ok: true, value: {
+      success: false, code: 'stale_config',
+    } })
+    expect(previous.controllers.cn.begin).not.toHaveBeenCalled()
+    expect(JSON.stringify(stale)).not.toContain(savedEmail)
+    expect(JSON.stringify(stale)).not.toContain(previousEmail)
+
+    const current = multiAccountFixture(false, false, savedEmail, savedRevision)
+    const newList = await current.handler('account', {}, current.signal)
+    expect(newList.value.accounts[0].maskedEmail).toBe('chu****@88.com')
+    await expect(current.handler('begin', request, current.signal))
+      .resolves.toEqual({ ok: true, value: expect.objectContaining({
+        success: true,
+        flowId: current.flowIds.cn,
+      }) })
+    expect(current.controllers.cn.begin).toHaveBeenCalledWith(current.signal, 'cn')
+  })
+
+  it('guards every saved revision and rejects malformed begin guards without opening a bridge', async () => {
+    const revision = 'c'.repeat(32)
+    const subject = multiAccountFixture(false, false, 'cn@example.test', revision)
+    const accountId = subject.accountIds.cn
+    await expect(subject.handler('begin', {
+      accountId: 'new-account', expectedRevision: revision, expectedRegion: 'cn',
+    }, subject.signal)).resolves.toEqual({ ok: true, value: {
+      success: false, code: 'stale_config',
+    } })
+    await expect(subject.handler('begin', {
+      accountId: subject.accountIds.global,
+      expectedRevision: revision, expectedRegion: 'global',
+    }, subject.signal)).resolves.toEqual({ ok: true, value: {
+      success: false, code: 'stale_config',
+    } })
+    await expect(subject.handler('begin', {
+      accountId, expectedRevision: revision, expectedRegion: 'global',
+    }, subject.signal)).resolves.toEqual({ ok: true, value: {
+      success: false, code: 'stale_config',
+    } })
+    for (const payload of [
+      { accountId, expectedRevision: revision },
+      { accountId, expectedRegion: 'cn' },
+      { accountId, expectedRevision: revision, expectedRegion: 'cn', extra: true },
+      { accountId, expectedRevision: 'A'.repeat(32), expectedRegion: 'cn' },
+      { accountId, expectedRevision: 'a'.repeat(31), expectedRegion: 'cn' },
+      { accountId, expectedEmail: 'new@example.test', expectedRegion: 'cn' },
+      { accountId, expectedRegion: 'invalid' },
+    ]) {
+      await expect(subject.handler('begin', payload, subject.signal))
+        .resolves.toEqual({ ok: true, value: {
+          success: false, code: 'unavailable',
+        } })
+    }
+    expect(subject.controllers.cn.begin).not.toHaveBeenCalled()
+
+    await expect(subject.handler('begin', {
+      accountId, expectedRevision: revision, expectedRegion: 'cn',
+    }, subject.signal)).resolves.toEqual({ ok: true, value: expect.objectContaining({
+      success: true,
+      flowId: subject.flowIds.cn,
+    }) })
+    expect(subject.controllers.cn.begin).toHaveBeenCalledTimes(1)
   })
 
   it('keeps browser-recovery state inside its selected region', async () => {
@@ -710,6 +822,7 @@ describe('DSH embedded authentication for named accounts', () => {
           slot: 1,
           region: 'cn',
           alias: '国内训练',
+          maskedEmail: 'c****@example.test',
           configured: true,
           authenticated: true,
         },
@@ -718,6 +831,7 @@ describe('DSH embedded authentication for named accounts', () => {
           slot: 2,
           region: 'cn',
           alias: 'International',
+          maskedEmail: 'glo****@example.test',
           configured: true,
           authenticated: true,
         },

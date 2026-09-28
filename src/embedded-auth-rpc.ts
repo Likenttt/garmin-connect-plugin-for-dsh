@@ -26,6 +26,7 @@ const FETCH_RPC_CHANNEL = '/api/garmin-auth'
 const RPC_ENDPOINTS = ['account', 'begin', 'status', 'cancel'] as const
 const RPC_EFFECT_LABEL = 'garmin-connect: embedded auth rpc'
 const ACCOUNT_ID_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/
+const ACCOUNT_REVISION_PATTERN = /^[0-9a-f]{32}$/
 const MAX_CONFIGURED_ACCOUNTS = 5
 
 type Environment = Readonly<Record<string, string | undefined>>
@@ -77,6 +78,7 @@ export interface EmbeddedAuthAccountOption {
   config: Config
   configured: boolean
   alias?: string
+  revision?: string
   client: Pick<GarminClient,
     'getAuthenticatedAccount' | 'getAuthenticationRequirement' | 'replacePersistedSession'>
   /** The Host's background session restore, if one is in progress. */
@@ -127,6 +129,7 @@ interface MultiAccountSummary {
   slot: number
   region: GarminRegion
   alias?: string
+  maskedEmail?: string
   configured: true
   authenticated: boolean
 }
@@ -273,6 +276,9 @@ export function registerEmbeddedAuthRpcAccounts(
       || account.slot < 1
       || account.slot > MAX_CONFIGURED_ACCOUNTS
       || (account.region !== 'cn' && account.region !== 'global')
+      || (account.revision !== undefined
+        && (typeof account.revision !== 'string'
+          || !ACCOUNT_REVISION_PATTERN.test(account.revision)))
       || accountById.has(account.accountId)) {
       throw new Error('Garmin embedded auth account IDs must be valid and unique')
     }
@@ -364,11 +370,13 @@ function createMultiAccountRpcHandler(
                 // A temporarily unavailable account must not hide other slots.
               }
               const alias = publicAlias(account.alias)
+              const maskedEmail = maskedConfiguredEmail(account.config.username)
               return {
                 accountId: account.accountId,
                 slot: account.slot,
                 region: account.region,
                 ...(alias === undefined ? {} : { alias }),
+                ...(maskedEmail === undefined ? {} : { maskedEmail }),
                 configured: true,
                 authenticated,
               }
@@ -457,9 +465,19 @@ function createMultiAccountRpcHandler(
         }
       }
       if (endpoint === 'begin') {
-        const accountId = exactAccountIdPayload(payload)
-        if (!accountId) return unavailable()
+        const request = exactMultiAccountBeginPayload(payload)
+        if (!request) return unavailable()
+        const { accountId } = request
         const runtime = runtimes.get(accountId)
+        if (request.expectedRevision !== undefined
+          && (!runtime?.account.configured
+            || runtime.account.region !== request.expectedRegion
+            || runtime.account.revision !== request.expectedRevision)) {
+          return {
+            ok: true,
+            value: { success: false, code: 'stale_config' },
+          }
+        }
         const controller = runtime?.controller
         if (!controller) {
           return {
@@ -532,6 +550,28 @@ function publicAlias(value: unknown): string | undefined {
     && !/[\u0000-\u001f\u007f-\u009f]/.test(alias)
     ? alias
     : undefined
+}
+
+/** Return a display hint without putting the configured email on the wire. */
+function maskedConfiguredEmail(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 320) return undefined
+  const separator = value.indexOf('@')
+  if (separator < 1 || separator !== value.lastIndexOf('@')) return undefined
+
+  const local = value.slice(0, separator)
+  const domain = value.slice(separator + 1)
+  if (domain.length > 255
+    || /[@*\s\u0000-\u001f\u007f-\u009f]/u.test(local)) return undefined
+
+  const labels = domain.split('.')
+  if (labels.length < 2 || labels.some(label =>
+    label.length > 63
+      || !/^[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?$/u.test(label)
+  )) return undefined
+
+  const characters = Array.from(local)
+  const visibleCount = characters.length >= 6 ? 3 : characters.length >= 2 ? 1 : 0
+  return `${characters.slice(0, visibleCount).join('')}****@${domain}`
 }
 
 function exactFlowId(value: unknown): string | undefined {
@@ -681,6 +721,44 @@ function exactBeginRegion(value: unknown): GarminRegion | undefined {
     if (keys.length !== 1 || keys[0] !== 'region') return undefined
     const region = (value as Record<string, unknown>).region
     return region === 'cn' || region === 'global' ? region : undefined
+  } catch {
+    return undefined
+  }
+}
+
+type MultiAccountBeginRequest =
+  | { accountId: string; expectedRevision?: undefined; expectedRegion?: undefined }
+  | { accountId: string; expectedRevision: string; expectedRegion: GarminRegion }
+
+/** The guard prevents a save from opening a bridge with the previous config. */
+function exactMultiAccountBeginPayload(value: unknown): MultiAccountBeginRequest | undefined {
+  try {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return undefined
+    }
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) return undefined
+    const ownKeys = Reflect.ownKeys(value)
+    if (ownKeys.some(key => typeof key !== 'string')) return undefined
+    const keys = (ownKeys as string[]).sort()
+    const manual = keys.length === 1 && keys[0] === 'accountId'
+    const revisionGuard = keys.length === 3
+      && keys[0] === 'accountId' && keys[1] === 'expectedRegion'
+      && keys[2] === 'expectedRevision'
+    if (!manual && !revisionGuard) return undefined
+
+    const request = value as Record<string, unknown>
+    const accountId = request.accountId
+    if (typeof accountId !== 'string' || !ACCOUNT_ID_PATTERN.test(accountId)) {
+      return undefined
+    }
+    if (manual) return { accountId }
+    const expectedRegion = request.expectedRegion
+    if (expectedRegion !== 'cn' && expectedRegion !== 'global') return undefined
+    const expectedRevision = request.expectedRevision
+    if (typeof expectedRevision !== 'string'
+      || !ACCOUNT_REVISION_PATTERN.test(expectedRevision)) return undefined
+    return { accountId, expectedRegion, expectedRevision }
   } catch {
     return undefined
   }

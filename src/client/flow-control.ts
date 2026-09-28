@@ -1,10 +1,15 @@
 import {
+  parseGarminAuthBeginRpcResult,
   parseGarminAuthCancelRpcResult,
   parseGarminAuthStatusRpcResult,
+  type GarminAuthBeginResult,
+  type GarminAuthRegion,
 } from './protocol'
 
 const API_CHANNEL = '/api'
 const LEGACY_CHANNEL = '/garmin-auth'
+const CONFIG_RETRY_MS = 500
+const CONFIG_WAIT_MS = 10_000
 
 type GarminAuthEndpoint = 'account' | 'begin' | 'status' | 'cancel'
 type GarminAuthChannel = typeof API_CHANNEL | typeof LEGACY_CHANNEL
@@ -64,6 +69,57 @@ function isMissingRoute(
   if (!(error instanceof Error)) return false
   const method = channel === API_CHANNEL ? `garmin-auth/${endpoint}` : endpoint
   return error.message === `transport failure for ${channel}/${method}: HTTP 404`
+}
+
+/** Wait for the Host's volatile restart before opening a flow for a newly saved account. */
+export async function beginGarminAuthAfterConfigSave(
+  rpc: RpcCaller,
+  payload: { accountId: string; expectedRegion: GarminAuthRegion; expectedRevision: string },
+  signal: AbortSignal,
+): Promise<GarminAuthBeginResult> {
+  const deadline = Date.now() + CONFIG_WAIT_MS
+  for (;;) {
+    let result: GarminAuthBeginResult
+    try {
+      result = parseGarminAuthBeginRpcResult(
+        await callGarminAuthRpc(rpc, 'begin', payload, signal),
+      )
+    } catch (error) {
+      // During a volatile restart both Host routes can briefly be absent.
+      // Never retry another transport failure: the begin may have reached Host.
+      if (signal.aborted || !isMissingBeginRoute(error)) throw error
+      if (Date.now() >= deadline || !await waitForConfigRetry(signal)) {
+        return { success: false, code: 'stale_config' }
+      }
+      continue
+    }
+    if (result.success || result.code !== 'stale_config' || Date.now() >= deadline) {
+      return result
+    }
+    if (!await waitForConfigRetry(signal)) return result
+  }
+}
+
+function isMissingBeginRoute(error: unknown): boolean {
+  return isMissingRoute(error, API_CHANNEL, 'begin')
+    || isMissingRoute(error, LEGACY_CHANNEL, 'begin')
+}
+
+function waitForConfigRetry(signal: AbortSignal): Promise<boolean> {
+  return new Promise(resolve => {
+    if (signal.aborted) { resolve(false); return }
+    let timer: ReturnType<typeof setTimeout>
+    const onAbort = () => {
+      clearTimeout(timer)
+      resolve(false)
+    }
+    timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve(true)
+    }, CONFIG_RETRY_MS)
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
+  })
 }
 
 /**

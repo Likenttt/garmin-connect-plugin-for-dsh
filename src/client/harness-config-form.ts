@@ -43,6 +43,8 @@ export interface GarminStoredAccount {
   region: 'cn' | 'global'
   alias: string
   slot: number
+  /** Public nonce identifying this saved account configuration. */
+  revision?: string
 }
 
 /** Update public metadata atomically with an optional new secret email. */
@@ -50,12 +52,19 @@ export function saveAccountMutations(
   current: readonly GarminStoredAccount[],
   account: GarminStoredAccount,
   email: string,
+  revision: string,
 ): ConfigMutation[] | undefined {
   const previous = current.find(value => value.id === account.id)
+  const saved = { ...account, revision }
   const next = previous
-    ? current.map(value => value.id === account.id ? account : value)
-    : [...current, account]
-  if (!validAccounts(next) || (!previous && !email)) return undefined
+    ? current.map(value => value.id === account.id ? saved : value)
+    : [...current, saved]
+  // A masked display hint must never replace the secret account email.
+  if (!/^[0-9a-f]{32}$/.test(revision)
+    || revision === previous?.revision
+    || !validAccounts(next)
+    || (!previous && !email)
+    || email.includes('****@')) return undefined
   return [
     { op: 'set', path: ['accounts'], value: next },
     { op: 'set', path: ['accountsConfigured'], value: true },
@@ -94,6 +103,7 @@ function validAccounts(accounts: readonly GarminStoredAccount[]): boolean {
       || !Number.isSafeInteger(account.slot)
       || account.slot < 1
       || account.slot > 5
+      || (account.revision !== undefined && !/^[0-9a-f]{32}$/.test(account.revision))
       || ids.has(account.id)
       || slots.has(account.slot)) return false
     ids.add(account.id)

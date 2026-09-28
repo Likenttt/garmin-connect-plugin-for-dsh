@@ -23,6 +23,7 @@ describe('Config environment defaults', () => {
         let fallback: unknown
         let minimum: number | undefined
         let maximum: number | undefined
+        let pattern: RegExp | undefined
         let volatile = false
         const schema = ((value?: unknown) => {
           const resolved = value ?? fallback
@@ -33,6 +34,9 @@ describe('Config environment defaults', () => {
             && maximum !== undefined
             && (Array.isArray(resolved) ? resolved.length : resolved) > maximum) {
             throw new TypeError(`Expected a value no greater than ${maximum}`)
+          }
+          if (typeof resolved === 'string' && pattern && !pattern.test(resolved)) {
+            throw new TypeError(`Expected a value matching ${pattern}`)
           }
           return volatile ? { get: () => resolved } : resolved
         }) as any
@@ -52,6 +56,10 @@ describe('Config environment defaults', () => {
         }
         schema.max = (value: number) => {
           maximum = value
+          return schema
+        }
+        schema.pattern = (value: RegExp) => {
+          pattern = value
           return schema
         }
         return schema
@@ -225,6 +233,7 @@ describe('Config environment defaults', () => {
         sessionTokenFile: '/private/legacy.session.json',
       },
     })
+    expect(accounts[0].revision).toBeUndefined()
   })
 
   it('keeps a legacy inline token available when a configured session file is damaged', () => {
@@ -284,6 +293,33 @@ describe('Config environment defaults', () => {
     expect(accounts[0].config.sessionTokenFile).not.toBe(accounts[1].config.sessionTokenFile)
     expect(accounts[0].config.password).toBe('')
     expect(accounts[1].config.sessionToken).toBe('')
+  })
+
+  it('preserves a saved public account revision and rejects an invalid revision', () => {
+    const { Config, resolveAccountConfigs } = require('../src/config') as typeof import('../src/config')
+    const account = {
+      id: 'a11111111111111111111', region: 'cn' as const, alias: 'Morning', slot: 1,
+      revision: 'a'.repeat(32),
+    }
+    const resolved = resolveAccountConfigs(Config({
+      accountsConfigured: true,
+      accounts: [account],
+      account1UsernameId: account.id,
+      account1Username: 'morning@example.test',
+    }))
+    expect(resolved[0].revision).toBe(account.revision)
+    expect(() => resolveAccountConfigs(Config({
+      accountsConfigured: true,
+      accounts: [{ ...account, revision: 'A'.repeat(32) }],
+    }))).toThrow()
+
+    const legacy = resolveAccountConfigs(Config({
+      accountsConfigured: true,
+      accounts: [{ id: account.id, region: 'cn', alias: '', slot: 1 }],
+      account1UsernameId: account.id,
+      account1Username: 'morning@example.test',
+    }))
+    expect(legacy[0].revision).toBeUndefined()
   })
 
   it('does not resurrect deleted legacy accounts or reuse a stale email after slot reuse', () => {
