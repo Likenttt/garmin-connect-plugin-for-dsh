@@ -184,9 +184,11 @@ The Harness plugin can be installed and started without a Garmin email. In the
 local Harness **Plugins** page, open **dsh-plugin-garmin-connect** and use
 **Garmin 账号配置** and click **+** to add accounts as needed, up to five. Choose
 China (cn) or International (global) for each account; multiple accounts may use
-the same region. Give each an optional display alias. The saved email is not
-filled back into the settings form. After saving an account, click its **Log in**
-action in the same settings page. Harness opens the Garmin sign-in flow inside
+the same region. Give each an optional display alias. Settings show a masked
+preview of the saved email; selecting that field lets you replace it without
+exposing the complete saved address. Adding an account or changing its email
+saves the address and starts a fresh Garmin login from the same settings page.
+Harness opens the Garmin sign-in flow inside
 its own window; enter your password and MFA code on Garmin's official page
 there. Every account has an independent session and a stable account ID shown
 in settings. With multiple accounts configured, pass that ID as the tool's

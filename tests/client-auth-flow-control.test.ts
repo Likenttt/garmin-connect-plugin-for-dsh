@@ -1,4 +1,5 @@
 import {
+  beginGarminAuthAfterConfigSave,
   callGarminAuthRpc,
   releaseGarminAuthFlow,
   retainUnreleasedGarminAuthFlowId,
@@ -80,6 +81,114 @@ describe('DSH Garmin authentication transport', () => {
 })
 
 describe('DSH Garmin authentication flow control', () => {
+  it('waits for the saved account to reach the Host before beginning one login flow', async () => {
+    jest.useFakeTimers()
+    try {
+      const payload = {
+        accountId: 'legacy-cn', expectedRegion: 'cn' as const,
+        expectedRevision: 'a'.repeat(32),
+      }
+      const call = jest.fn()
+        .mockResolvedValueOnce({ ok: true, value: { success: false, code: 'stale_config' } })
+        .mockResolvedValueOnce({ ok: true, value: {
+          success: true, flowId, bridgeUrl: `http://127.0.0.1:4567/garmin-auth/bridge/${flowId}`,
+          expiresAt: 123456789,
+        } })
+      const controller = new AbortController()
+      const result = beginGarminAuthAfterConfigSave({ call }, payload, controller.signal)
+
+      await jest.advanceTimersByTimeAsync(500)
+      await expect(result).resolves.toMatchObject({ success: true, flowId })
+      expect(call).toHaveBeenCalledTimes(2)
+      expect(call).toHaveBeenNthCalledWith(1, '/api', 'garmin-auth/begin', payload, controller.signal)
+      expect(call).toHaveBeenNthCalledWith(2, '/api', 'garmin-auth/begin', payload, controller.signal)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('does not retry a non-stale begin failure', async () => {
+    const call = jest.fn().mockResolvedValue({
+      ok: true, value: { success: false, code: 'busy' },
+    })
+    await expect(beginGarminAuthAfterConfigSave(
+      { call }, { accountId: 'legacy-cn', expectedRegion: 'cn', expectedRevision: 'a'.repeat(32) },
+      new AbortController().signal,
+    )).resolves.toEqual({ success: false, code: 'busy' })
+    expect(call).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries only missing Host routes while volatile configuration restarts', async () => {
+    jest.useFakeTimers()
+    try {
+      const call = jest.fn()
+        .mockRejectedValueOnce(new Error(
+          'transport failure for /api/garmin-auth/begin: HTTP 404',
+        ))
+        .mockRejectedValueOnce(new Error(
+          'transport failure for /garmin-auth/begin: HTTP 404',
+        ))
+        .mockResolvedValueOnce({ ok: true, value: { success: false, code: 'busy' } })
+      const result = beginGarminAuthAfterConfigSave(
+        { call }, { accountId: 'legacy-cn', expectedRegion: 'cn', expectedRevision: 'a'.repeat(32) },
+        new AbortController().signal,
+      )
+      await jest.advanceTimersByTimeAsync(500)
+      await expect(result).resolves.toEqual({ success: false, code: 'busy' })
+      expect(call).toHaveBeenCalledTimes(3)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('never replays guarded begin after an uncertain transport error', async () => {
+    const call = jest.fn().mockRejectedValue(new Error(
+      'transport failure for /api/garmin-auth/begin: HTTP 500',
+    ))
+    await expect(beginGarminAuthAfterConfigSave(
+      { call }, { accountId: 'legacy-cn', expectedRegion: 'cn', expectedRevision: 'a'.repeat(32) },
+      new AbortController().signal,
+    )).rejects.toThrow('HTTP 500')
+    expect(call).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops waiting for a saved account when login is cancelled', async () => {
+    jest.useFakeTimers()
+    try {
+      const call = jest.fn().mockResolvedValue({
+        ok: true, value: { success: false, code: 'stale_config' },
+      })
+      const controller = new AbortController()
+      const result = beginGarminAuthAfterConfigSave(
+        { call }, { accountId: 'legacy-cn', expectedRegion: 'cn', expectedRevision: 'a'.repeat(32) }, controller.signal,
+      )
+      await jest.advanceTimersByTimeAsync(0)
+      controller.abort()
+      await expect(result).resolves.toEqual({ success: false, code: 'stale_config' })
+      expect(call).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('stops retrying when the saved configuration never becomes active', async () => {
+    jest.useFakeTimers()
+    try {
+      const call = jest.fn().mockResolvedValue({
+        ok: true, value: { success: false, code: 'stale_config' },
+      })
+      const result = beginGarminAuthAfterConfigSave(
+        { call }, { accountId: 'legacy-cn', expectedRegion: 'cn', expectedRevision: 'a'.repeat(32) },
+        new AbortController().signal,
+      )
+      await jest.advanceTimersByTimeAsync(10_000)
+      await expect(result).resolves.toEqual({ success: false, code: 'stale_config' })
+      expect(call).toHaveBeenCalledTimes(21)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('releases a previous handle only after cancellation is confirmed', async () => {
     const call = jest.fn().mockResolvedValue({
       ok: true,

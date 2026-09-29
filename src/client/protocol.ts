@@ -19,6 +19,7 @@ export type GarminAuthClientErrorCode =
   | 'not_local'
   | 'configuration'
   | 'region_mismatch'
+  | 'stale_config'
   | 'busy'
 
 export type GarminAuthenticatedAccount = {
@@ -33,6 +34,7 @@ export type GarminAuthAccountSummary = {
   slot: number
   region: GarminAuthRegion
   alias?: string
+  maskedEmail?: string
   configured: true
   authenticated: boolean
 }
@@ -138,7 +140,7 @@ export type GarminAuthCancelResult = {
   code: GarminAuthClientErrorCode
 }
 
-/** The account picker receives only public metadata, never saved emails. */
+/** The account picker receives public metadata and an optional masked email. */
 export function parseGarminAuthAccountsRpcResult(value: unknown): GarminAuthAccountsResult {
   if (!isExactRecord(value, ['ok', 'value']) || value.ok !== true) {
     return unavailable()
@@ -154,7 +156,7 @@ export function parseGarminAuthAccountsRpcResult(value: unknown): GarminAuthAcco
   const seenSlots = new Set<number>()
   const accounts: GarminAuthAccountSummary[] = []
   for (const raw of business.accounts) {
-    if (!isCurrentAccountRecord(raw, [
+    if (!isAccountSummaryRecord(raw, [
       'accountId', 'slot', 'region', 'configured', 'authenticated',
     ])
       || !isAccountId(raw.accountId)
@@ -173,6 +175,7 @@ export function parseGarminAuthAccountsRpcResult(value: unknown): GarminAuthAcco
       configured: true,
       authenticated: raw.authenticated,
       ...(typeof raw.alias === 'string' ? { alias: raw.alias } : {}),
+      ...(typeof raw.maskedEmail === 'string' ? { maskedEmail: raw.maskedEmail } : {}),
     })
   }
   return { success: true, accounts }
@@ -416,6 +419,32 @@ function isCurrentAccountRecord(
   return !Object.hasOwn(value, 'alias') || isSafeAlias(value.alias)
 }
 
+function isAccountSummaryRecord(value: unknown, expectedKeys: readonly string[]): value is Record<string, unknown> {
+  const hasAlias = isExactRecord(value, [...expectedKeys, 'alias'])
+    || isExactRecord(value, [...expectedKeys, 'alias', 'maskedEmail'])
+  const hasMask = isExactRecord(value, [...expectedKeys, 'maskedEmail'])
+    || isExactRecord(value, [...expectedKeys, 'alias', 'maskedEmail'])
+  if (!isExactRecord(value, expectedKeys) && !hasAlias && !hasMask) return false
+  return (!hasAlias || isSafeAlias(value.alias))
+    && (!hasMask || isSafeMaskedEmail(value.maskedEmail))
+}
+
+/** A display-only hint, never an address accepted by a configuration write. */
+function isSafeMaskedEmail(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 324 || value !== value.trim()) return false
+  const marker = '****@'
+  const markerAt = value.indexOf(marker)
+  if (markerAt < 0 || value.lastIndexOf(marker) !== markerAt) return false
+  const prefix = value.slice(0, markerAt)
+  const domain = value.slice(markerAt + marker.length)
+  const prefixLength = Array.from(prefix).length
+  return (prefixLength === 0 || prefixLength === 1 || prefixLength === 3)
+    && !/[@*\s\u0000-\u001f\u007f-\u009f]/u.test(prefix)
+    && domain.length > 0
+    && domain.includes('.')
+    && !/[@*\s\u0000-\u001f\u007f-\u009f]/u.test(domain)
+}
+
 function isRegion(value: unknown): value is GarminAuthRegion {
   return value === 'cn' || value === 'global'
 }
@@ -509,6 +538,7 @@ function isClientErrorCode(value: unknown): value is GarminAuthClientErrorCode {
     || value === 'not_local'
     || value === 'configuration'
     || value === 'region_mismatch'
+    || value === 'stale_config'
     || value === 'busy'
 }
 

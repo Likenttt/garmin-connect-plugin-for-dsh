@@ -12,6 +12,7 @@ import {
 } from './protocol'
 import {
   callGarminAuthRpc,
+  beginGarminAuthAfterConfigSave,
   releaseGarminAuthFlow,
   retainUnreleasedGarminAuthFlowId,
 } from './flow-control'
@@ -19,7 +20,7 @@ import {
   GarminAuthView,
   type GarminLoginRegion,
 } from './view'
-import { GarminSettingsForm } from './settings-form'
+import { GarminSettingsForm, type GarminLoginRequest } from './settings-form'
 
 const STATUS_POLL_MS = 750
 
@@ -44,19 +45,21 @@ type ConfigSlotRegistry = {
 }
 
 type LoginRequests = {
-  subscribe(listener: (accountId: string, region: GarminLoginRegion) => void): () => void
-  request(accountId: string, region: GarminLoginRegion): void
+  subscribe(listener: (request: GarminLoginRequest) => void): () => void
+  request(request: GarminLoginRequest): boolean
 }
 
 function createLoginRequests(): LoginRequests {
-  const listeners = new Set<(accountId: string, region: GarminLoginRegion) => void>()
+  const listeners = new Set<(request: GarminLoginRequest) => void>()
   return {
     subscribe(listener) {
       listeners.add(listener)
       return () => { listeners.delete(listener) }
     },
-    request(accountId, region) {
-      for (const listener of listeners) listener(accountId, region)
+    request(request) {
+      if (listeners.size === 0) return false
+      for (const listener of listeners) listener(request)
+      return true
     },
   }
 }
@@ -87,7 +90,7 @@ export function apply(ctx: GarminClientContext): void {
       }, () => <GarminSettingsForm
         connection={settingsCtx.connection}
         form={settingsCtx.configForms.get('garmin-connect')}
-        onLogin={(accountId, region) => loginRequests.request(accountId, region)}
+        onLogin={request => loginRequests.request(request)}
         refresh={refreshSettings}
       />))
     })
@@ -119,11 +122,15 @@ function GarminAuthOverlay({
     signal,
   ), [ctx])
 
-  const beginAuthentication = useCallback(async (accountId: string, region: GarminLoginRegion) => {
-    if (!ctx.connection.isLoopback || busy || beginRequest.current) return
+  const beginAuthentication = useCallback(async (request: GarminLoginRequest) => {
+    if (!ctx.connection.isLoopback || busy || beginRequest.current) {
+      request.onSettled?.(false)
+      return
+    }
+    let ready = false
     const current = ++generation.current
     const previousFlowId = activeFlowId.current
-    setSelectedRegion(region)
+    setSelectedRegion(request.region)
     setOpen(true)
     setBusy(true)
     setBegin(undefined)
@@ -143,14 +150,28 @@ function GarminAuthOverlay({
         }
       }
       if (generation.current !== current || controller.signal.aborted) return
-      const result = parseGarminAuthBeginRpcResult(
-        await callGarminAuthRpc(
+      if ((request.expectedRegion === undefined) !== (request.expectedRevision === undefined)) {
+        setBegin({ success: false, code: 'unavailable' })
+        return
+      }
+      const result = request.expectedRegion && request.expectedRevision
+        ? await beginGarminAuthAfterConfigSave(
           ctx.connection.rpc,
-          'begin',
-          { accountId },
+          {
+            accountId: request.accountId,
+            expectedRegion: request.expectedRegion,
+            expectedRevision: request.expectedRevision,
+          },
           controller.signal,
-        ),
-      )
+        )
+        : parseGarminAuthBeginRpcResult(
+          await callGarminAuthRpc(
+            ctx.connection.rpc,
+            'begin',
+            { accountId: request.accountId },
+            controller.signal,
+          ),
+        )
       if (generation.current !== current || controller.signal.aborted) {
         if (result.success) {
           const released = await cancelFlow(result.flowId)
@@ -166,6 +187,7 @@ function GarminAuthOverlay({
       if (result.success) {
         activeFlowId.current = result.flowId
         setStatus('in_progress')
+        ready = true
       }
     } catch {
       if (generation.current === current && !controller.signal.aborted) {
@@ -174,6 +196,7 @@ function GarminAuthOverlay({
     } finally {
       if (beginRequest.current === controller) beginRequest.current = undefined
       if (generation.current === current) setBusy(false)
+      request.onSettled?.(ready)
     }
   }, [busy, cancelFlow, ctx])
 
@@ -202,8 +225,8 @@ function GarminAuthOverlay({
     if (active) void cancelFlow(active)
   }, [cancelFlow])
 
-  useEffect(() => loginRequests.subscribe((accountId, region) => {
-    void beginAuthentication(accountId, region)
+  useEffect(() => loginRequests.subscribe(request => {
+    void beginAuthentication(request)
   }), [beginAuthentication, loginRequests])
 
   useEffect(() => {

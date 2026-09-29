@@ -9,6 +9,13 @@ import {
 const flowId = 'a'.repeat(64)
 
 describe('DSH Garmin authentication client protocol', () => {
+  it('recognizes a pending Host configuration without exposing an email', () => {
+    expect(parseGarminAuthBeginRpcResult({
+      ok: true,
+      value: { success: false, code: 'stale_config' },
+    })).toEqual({ success: false, code: 'stale_config' })
+  })
+
   it('accepts an exact public list with multiple accounts in one region', () => {
     expect(parseGarminAuthAccountsRpcResult({
       ok: true,
@@ -26,6 +33,28 @@ describe('DSH Garmin authentication client protocol', () => {
         { accountId: 'a0123456789abcdefabcd', slot: 3, region: 'cn', alias: '第二个', configured: true, authenticated: true },
       ],
     })
+  })
+
+  it('accepts only display-safe masked emails in account summaries', () => {
+    const base = {
+      accountId: 'a0123456789abcdefabcd', slot: 1, region: 'global',
+      configured: true, authenticated: false,
+    }
+    for (const maskedEmail of ['chu****@88.com', 'c****@example.test', '****@example.test']) {
+      expect(parseGarminAuthAccountsRpcResult({
+        ok: true,
+        value: { success: true, accounts: [{ ...base, maskedEmail }] },
+      })).toEqual({ success: true, accounts: [{ ...base, maskedEmail }] })
+    }
+    for (const maskedEmail of [
+      'runner@example.test', 'abcd****@example.test', 'ch****@example.test',
+      'chu****@evil.test\nX-Token: ST-private', 'chu****@example.test****@other.test',
+    ]) {
+      expect(parseGarminAuthAccountsRpcResult({
+        ok: true,
+        value: { success: true, accounts: [{ ...base, maskedEmail }] },
+      })).toEqual({ success: false, code: 'unavailable' })
+    }
   })
 
   it('rejects private fields, duplicate IDs, and duplicate slots in the public list', () => {

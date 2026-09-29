@@ -33,6 +33,21 @@ function findButtons(value: unknown): TestJsxElement[] {
   ]
 }
 
+function findInputs(value: unknown): TestJsxElement[] {
+  if (Array.isArray(value)) return value.flatMap(findInputs)
+  if (typeof value !== 'object' || value === null) return []
+  const element = value as Partial<TestJsxElement>
+  if (typeof element.type === 'function') {
+    return findInputs((element.type as (
+      props: Record<string, unknown>,
+    ) => unknown)(element.props ?? {}))
+  }
+  return [
+    ...(element.type === 'input' ? [element as TestJsxElement] : []),
+    ...findInputs(element.props?.children),
+  ]
+}
+
 function textChildren(value: unknown): string {
   if (typeof value === 'string') return value
   if (Array.isArray(value)) return value.map(textChildren).join('')
@@ -118,11 +133,19 @@ describe('maintenance scripts', () => {
       props: Record<string, unknown>,
     ): TestJsxElement => ({ type, props })
     const effects: Array<() => void | (() => void)> = []
+    let nextStateOverride: unknown
     const react = {
       useCallback: (callback: unknown) => callback,
       useEffect: (effect: () => void | (() => void)) => effects.push(effect),
       useRef: (current: unknown) => ({ current }),
-      useState: (initial: unknown) => [initial, () => undefined],
+      useState: (initial: unknown) => {
+        if (nextStateOverride !== undefined) {
+          const value = nextStateOverride
+          nextStateOverride = undefined
+          return [value, () => undefined]
+        }
+        return [initial, () => undefined]
+      },
       useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
     }
     const client = definition!.factory((id) => {
@@ -158,7 +181,7 @@ describe('maintenance scripts', () => {
         value: {
           accountsConfigured: true,
           accounts: [
-            { id: 'legacy-cn', region: 'cn', alias: '', slot: 1 },
+            { id: 'legacy-cn', region: 'cn', alias: '', slot: 1, revision: '1'.repeat(32) },
             { id: 'legacy-global', region: 'global', alias: '', slot: 2 },
           ],
         },
@@ -229,6 +252,18 @@ describe('maintenance scripts', () => {
       { accountId: 'legacy-global' },
       expect.any(AbortSignal),
     )
+
+    nextStateOverride = [{
+      accountId: 'legacy-cn', slot: 1, region: 'cn', configured: true,
+      authenticated: false, maskedEmail: 'chu****@88.com',
+    }]
+    const maskedSettings = (settings.type as (
+      props: Record<string, unknown>,
+    ) => unknown)(settings.props)
+    const emailInputs = findInputs(maskedSettings)
+      .filter(input => input.props.inputMode === 'email')
+    expect(emailInputs[0].props.value).toBe('chu****@88.com')
+    expect(emailInputs[0].props.type).toBe('text')
 
     cleanups.forEach(cleanup => cleanup())
   })

@@ -17,6 +17,7 @@ dotenv.config()
 
 export type GarminRegion = 'global' | 'cn'
 export const MAX_GARMIN_ACCOUNTS = 5
+export const ACCOUNT_REVISION_PATTERN = /^[0-9a-f]{32}$/
 
 export interface AccountMetadata {
   /** Stable opaque identity; never derived from the region or email. */
@@ -25,6 +26,8 @@ export interface AccountMetadata {
   alias: string
   /** One of the five private email fields. The slot may be reused with a new ID. */
   slot: number
+  /** Public random version changed on each save, used to wait for Host reload. */
+  revision?: string
 }
 
 export interface Config {
@@ -114,6 +117,7 @@ export interface ResolvedAccountConfig {
   region: GarminRegion
   alias: string
   configured: boolean
+  revision?: string
   config: Config
 }
 
@@ -192,6 +196,7 @@ export const Config = z.object({
     region: z.union(['global', 'cn'] as const),
     alias: z.string(),
     slot: z.number().min(1).max(MAX_GARMIN_ACCOUNTS),
+    revision: z.string().pattern(ACCOUNT_REVISION_PATTERN),
   }))
     .max(MAX_GARMIN_ACCOUNTS)
     .default([])
@@ -341,6 +346,9 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
       || !Number.isInteger(entry.slot)
       || entry.slot < 1 || entry.slot > MAX_GARMIN_ACCOUNTS
       || typeof entry.alias !== 'string'
+      || (entry.revision !== undefined
+        && (typeof entry.revision !== 'string'
+          || !ACCOUNT_REVISION_PATTERN.test(entry.revision)))
       || seenIds.has(entry.id) || seenSlots.has(entry.slot)
     ) {
       throw new Error('Garmin account list contains an invalid or duplicate entry')
@@ -371,6 +379,7 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
       region: entry.region,
       alias: entry.alias.trim().slice(0, 64),
       configured: Boolean(username),
+      ...(entry.revision === undefined ? {} : { revision: entry.revision }),
       config: {
         ...base,
         username,

@@ -177,6 +177,8 @@ function ErrorStatus({
     ? '此功能只能在本机 DSH 页面使用。'
     : code === 'region_mismatch'
       ? `请先在设置页的${selectedLabel}账号卡片中保存账号，然后重试。`
+      : code === 'stale_config'
+        ? '账号配置尚未生效。请关闭此页面，等待几秒后在账号卡片中重试。'
       : code === 'configuration'
         ? `请先在设置页的${selectedLabel}账号卡片中保存 Garmin 账号邮箱。`
         : code === 'busy'
