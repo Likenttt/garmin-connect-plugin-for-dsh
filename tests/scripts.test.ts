@@ -74,6 +74,7 @@ describe('maintenance scripts', () => {
     )) as {
       exports?: Record<string, string | { types?: string; default?: string }>
       dsh?: { client?: { platform?: string; inject?: string[] } }
+      peerDependencies?: Record<string, string>
     }
 
     expect(manifest.exports?.['./client']).toEqual({
@@ -85,11 +86,13 @@ describe('maintenance scripts', () => {
     expect(manifest.dsh?.client).toEqual({
       platform: 'web',
       inject: [
-        '@deepseek-ai/dsh-client-runtime',
         '@deepseek-ai/dsh-client-connection',
         '@deepseek-ai/dsh-client-ui-layout',
       ],
     })
+    expect(manifest.peerDependencies).not.toHaveProperty(
+      '@deepseek-ai/dsh-client-runtime',
+    )
 
     const bundle = readFileSync(
       path.resolve(__dirname, '../lib/dsh-client.js'),

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ConfigForms } from './harness-config-form'
@@ -24,8 +24,22 @@ import { GarminSettingsForm, type GarminLoginRequest } from './settings-form'
 
 const STATUS_POLL_MS = 750
 
+type OverlaySlotRegistry = {
+  inject(key: 'shell.overlay', callback: () => () => void): () => void
+  register(
+    options: {
+      name: 'shell.overlay'
+      id: string
+      order: number
+      registrant: string
+    },
+    render: () => ReactElement,
+  ): () => void
+}
+
 type GarminClientContext = ClientContext & {
   connection: ConnectionHandle
+  slots: OverlaySlotRegistry
 }
 
 type GarminSettingsContext = GarminClientContext & { configForms: ConfigForms }
@@ -82,7 +96,7 @@ export function apply(ctx: GarminClientContext): void {
     settingsInjector.inject(['configForms'], settingsCtx => {
       const configSlots = settingsCtx.slots as unknown as ConfigSlotRegistry
       const refreshSettings = async () => {
-        await settingsCtx.configForms.describe().load?.()
+        await settingsCtx.configForms.describe().ensure()
       }
       configSlots.inject('plugins.bundle.config', () => configSlots.register({
         name: 'plugins.bundle.config',

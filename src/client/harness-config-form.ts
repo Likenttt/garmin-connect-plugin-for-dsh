@@ -1,7 +1,4 @@
-/**
- * The narrow config-form contract provided by Harness 0.1.7's settings client.
- * Kept local so older Harness peer packages can still install this plugin.
- */
+/** Narrow config-form contract shared by supported Harness settings clients. */
 export type ConfigMutation = {
   op: 'set'
   path: readonly string[]
@@ -29,9 +26,7 @@ export interface ConfigForm<T> {
 
 export interface ConfigForms {
   get<T>(entryId: string): ConfigForm<T>
-  // Current Harness exposes a mirror refresh method at runtime. Keep it
-  // optional because older settings clients do not publish this method.
-  describe(): { load?(): Promise<void> }
+  describe(): { ensure(): Promise<void> }
   whileServed(
     namespaces: readonly string[],
     register: (served: ReadonlySet<string>) => () => void,

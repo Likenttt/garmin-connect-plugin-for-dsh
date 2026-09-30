@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-09-30
+
+### Fixed
+- Declare compatibility with DeepSeek Harness `0.2.0-rc.1` client packages. Remove the `dsh-client-runtime` peer and client injection because Harness 0.2 no longer provides that package; keep the earlier client version ranges for older Harness installations.
+- Keep embedded Garmin authentication on local DSH clients by checking the Host request's physical loopback address before its authenticated Fetch routes run. Update the settings mirror initialization to the `ensure()` API shared by both supported Harness generations.
+
 ## [0.1.11] - 2026-09-29
 
 ### Added

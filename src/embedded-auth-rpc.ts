@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { isIP } from 'node:net'
 import type {
   ConnectionRpcHandler,
-  HostConnectionHandle,
 } from '@deepseek-ai/dsh-client-connection'
 import {
   ACCOUNT_ALIAS_PATTERN,
@@ -44,7 +44,21 @@ interface HostFetchRpcRoute {
   fetch(request: Request): Promise<Response>
 }
 
-interface HostConnectionWithFetch extends HostConnectionHandle {
+type GarminRpcHandler = (
+  endpoint: Parameters<ConnectionRpcHandler>[0],
+  payload: Parameters<ConnectionRpcHandler>[1],
+  signal: Parameters<ConnectionRpcHandler>[2],
+) => ReturnType<ConnectionRpcHandler>
+
+/** The 0.1 Host has a private RPC fallback; newer Hosts expose exact Fetch routes. */
+interface HostConnectionWithFetch {
+  rpc: {
+    handle(
+      channel: string,
+      handler: GarminRpcHandler,
+      options?: { authority: 'loopback' },
+    ): () => void | Promise<void>
+  }
   fetch?: {
     register(route: HostFetchRpcRoute): () => void | Promise<void>
   }
@@ -199,9 +213,8 @@ export function resolveEmbeddedAuthConfig(
  * Register the private Host half of embedded Garmin authentication.
  *
  * Connection is intentionally optional: older DSH hosts can still load the
- * plugin. New Hosts mount authenticated Fetch routes; older Hosts use the
- * private loopback-only RPC channel. The Host admits Fetch requests before
- * invoking these route callbacks.
+ * plugin. New Hosts mount authenticated Fetch routes behind a physical
+ * loopback fence; older Hosts use the private loopback-only RPC channel.
  */
 export function registerEmbeddedAuthRpc(
   ctx: Context,
@@ -221,13 +234,14 @@ export function registerEmbeddedAuthRpc(
     }))
   ctx.inject(['connection'], (connectionCtx) => {
     const controller = createController(config)
-    const connection = connectionCtx.connection as HostConnectionWithFetch
+    const connection = connectionCtx.connection as unknown as HostConnectionWithFetch
     const handler = createRpcHandler(
       controller,
       registration.getAuthenticatedAccount,
       registration.getAuthenticationRequirement,
     )
     const fetch = connection.fetch
+    if (fetch?.register) registerLoopbackFetchFence(connectionCtx)
     const disposeRoutes = fetch?.register
       ? RPC_ENDPOINTS.map(endpoint => fetch.register({
         path: `${FETCH_RPC_CHANNEL}/${endpoint}`,
@@ -305,9 +319,10 @@ export function registerEmbeddedAuthRpcAccounts(
       runtimes.set(account.accountId, { account, controller })
     }
 
-    const connection = connectionCtx.connection as HostConnectionWithFetch
+    const connection = connectionCtx.connection as unknown as HostConnectionWithFetch
     const handler = createMultiAccountRpcHandler(runtimes)
     const fetch = connection.fetch
+    if (fetch?.register) registerLoopbackFetchFence(connectionCtx)
     const disposeRoutes = fetch?.register
       ? RPC_ENDPOINTS.map(endpoint => fetch.register({
         path: `${FETCH_RPC_CHANNEL}/${endpoint}`,
@@ -338,9 +353,41 @@ export function registerEmbeddedAuthRpcAccounts(
   })
 }
 
+/** Request.url is rewritten to dsh.internal, so only the physical peer proves locality. */
+function registerLoopbackFetchFence(ctx: Context): void {
+  ctx.on('connection/request', async (request, response, next) => {
+    if (!isGarminAuthFetchPath(request.url)
+      || isLoopbackRemoteAddress(request.socket.remoteAddress)) {
+      await next()
+      return
+    }
+    response.writeHead(403, { 'cache-control': 'no-store' })
+    response.end()
+  })
+}
+
+function isGarminAuthFetchPath(rawUrl: string | undefined): boolean {
+  if (!rawUrl) return false
+  try {
+    const pathname = new URL(rawUrl, 'http://dsh.internal').pathname
+    return RPC_ENDPOINTS.some(endpoint => pathname === `${FETCH_RPC_CHANNEL}/${endpoint}`)
+  } catch {
+    return false
+  }
+}
+
+function isLoopbackRemoteAddress(remoteAddress: string | undefined): boolean {
+  if (!remoteAddress) return false
+  if (remoteAddress === '::1') return true
+  const address = remoteAddress.startsWith('::ffff:')
+    ? remoteAddress.slice('::ffff:'.length)
+    : remoteAddress
+  return isIP(address) === 4 && address.startsWith('127.')
+}
+
 function createMultiAccountRpcHandler(
   runtimes: ReadonlyMap<string, AccountRuntime>,
-): ConnectionRpcHandler {
+): GarminRpcHandler {
   const flowOwners = new Map<string, string>()
   const currentFlowByAccount = new Map<string, string>()
   const unavailable = () => ({
@@ -596,7 +643,7 @@ function exactFlowId(value: unknown): string | undefined {
 async function handleFetchRpc(
   endpoint: typeof RPC_ENDPOINTS[number],
   request: Request,
-  handler: ConnectionRpcHandler,
+  handler: GarminRpcHandler,
 ): Promise<Response> {
   if (request.method !== 'POST') {
     return new Response('method not allowed', { status: 405 })
@@ -637,7 +684,7 @@ function createRpcHandler(
   controller: EmbeddedAuthRpcController,
   getAuthenticatedAccount?: EmbeddedAuthAuthenticatedAccountProvider,
   getAuthenticationRequirement?: EmbeddedAuthAuthenticationRequirementProvider,
-): ConnectionRpcHandler {
+): GarminRpcHandler {
   return async (endpoint, payload, signal) => {
     const unavailable = (): { ok: true; value: EmbeddedAuthRpcResult } => ({
       ok: true,
