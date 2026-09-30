@@ -28,6 +28,7 @@ function fixture() {
   let disposeEffect: (() => Promise<void>) | undefined
   const child = {
     connection: { rpc: { handle } },
+    on: jest.fn(),
     effect: jest.fn((execute: () => () => Promise<void>) => {
       disposeEffect = execute()
       return jest.fn()
@@ -193,6 +194,44 @@ describe('DSH embedded Garmin authentication RPC', () => {
       }))
     }
     expect(subject.handle).not.toHaveBeenCalled()
+  })
+
+  it('refuses remote requests to exact Garmin Fetch routes before dispatch', async () => {
+    const subject = fixture()
+    const register = jest.fn().mockReturnValue(jest.fn().mockResolvedValue(undefined))
+    Object.assign(subject.child.connection, { fetch: { register } })
+    registerEmbeddedAuthRpc(
+      subject.ctx as unknown as Context,
+      {} as never,
+      subject.factory,
+    )
+    expect(subject.child.on).toHaveBeenCalledWith(
+      'connection/request', expect.any(Function),
+    )
+    const gate = subject.child.on.mock.calls[0][1]
+    const response = { writeHead: jest.fn(), end: jest.fn() }
+    const next = jest.fn().mockResolvedValue(undefined)
+
+    await gate({
+      url: '/api/garmin-auth/begin',
+      socket: { remoteAddress: '192.168.1.25' },
+    }, response, next)
+    expect(response.writeHead).toHaveBeenCalledWith(403, { 'cache-control': 'no-store' })
+    expect(response.end).toHaveBeenCalledTimes(1)
+    expect(next).not.toHaveBeenCalled()
+
+    for (const address of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+      await gate({
+        url: '/api/garmin-auth/begin',
+        socket: { remoteAddress: address },
+      }, response, next)
+    }
+    await gate({
+      url: '/api/another-route',
+      socket: { remoteAddress: '192.168.1.25' },
+    }, response, next)
+    expect(next).toHaveBeenCalledTimes(4)
+    expect(response.end).toHaveBeenCalledTimes(1)
   })
 
   it('dispatches a browser RPC envelope through an admitted Host Fetch route', async () => {
