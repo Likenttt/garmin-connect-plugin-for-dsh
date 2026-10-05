@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-10-05
+
+### Fixed
+- Declare compatibility with DeepSeek Harness `0.2.0-rc.2` client packages and build against its client interfaces. Keep the earlier supported Harness versions available.
+
 ## [0.1.12] - 2026-09-30
 
 ### Fixed
