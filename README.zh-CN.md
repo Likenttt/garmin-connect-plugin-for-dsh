@@ -66,11 +66,11 @@
 
 ### 注册的工具
 
-当前开发源码共注册 **23 个工具**，其中 21 个用于读取数据或本地知识查询；
+0.1.14 共注册 **23 个工具**，其中 21 个用于读取数据或本地知识查询；
 `download_garmin_activity_fit` 会在 MCP/dsh 所在主机写入一个本地文件，
 `create_garmin_workout` 会修改用户的 Garmin 训练库。
-下方新增的 13 个恢复与训练工具尚未随插件发布。当前源码已通过精确 npm 别名依赖
-已发布的维护版 SDK，详见[自行维护的 SDK 依赖](#自行维护的-sdk-依赖)。
+0.1.14 新增下方 13 个恢复与训练工具，并通过精确 npm 别名依赖已发布的维护版
+SDK，详见[自行维护的 SDK 依赖](#自行维护的-sdk-依赖)。
 
 | 工具名 | 用途 | 参数示例 |
 |---|---|---|
@@ -85,7 +85,7 @@
 | `download_garmin_activity_fit` | 下载活动的原始归档，并把其中唯一的 FIT 文件安全提取到所配置父目录下的账号目录 | `{"activityId": 123456789}` |
 | `create_garmin_workout` | 预览结构化训练；仅在显式确认后创建 | `{"name": "门槛巡航3×8分钟", "steps": [...]}` |
 
-#### 恢复与训练工具（尚未发布）
+#### 恢复与训练工具（0.1.14 新增）
 
 DSH 和 MCP 共用以下工具，直接对应自行维护的 SDK API：
 
@@ -1001,16 +1001,14 @@ SDK 已于 2026-10-17 发布到官方 npm。插件依赖清单使用以下精确
 `@likenttt/garmin-connect`。registry 包包含编译好的代码与 TypeScript 声明，安装
 SDK 已不再需要 Git、访问 GitHub 或执行依赖的 `prepare` 编译。
 
-此前 Git 依赖曾被 Harness pnpm 11 的 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 和
-`ERR_PNPM_EXOTIC_SUBDEP` 拒绝。发布预编译 SDK 并改用 npm 别名已去掉这项 Git
-依赖。2026-10-17，registry 依赖候选已通过 Harness 桌面官方 CLI 安装，使用
-`--ignore-scripts` 与官方 npm registry。SDK 全部 60 个 `dist` 文件与已发布包逐字节
-一致，13 个方法均存在，锁文件完整性与 npm 一致，旧开发覆盖标记已删除。Git 安全
-策略保持启用；pnpm 仅为新的精确 SDK 版本追加 `minimumReleaseAgeExclude`。
+0.1.14 将这些 API 与预编译 registry SDK 一起提供，去掉此前开发候选遇到的 Git
+依赖构建与 Git 子依赖策略错误，继续兼容 DeepSeek Harness 0.2.0-rc.2。
 
-当前安装的是本地 `0.1.13` 候选包，profile 登记本地 tarball，不等于 npm 上公开的
-旧 `0.1.13` 已包含新增功能。Harness 0.2.0-rc.2 重启后，Garmin 组件显示运行中，
-两个主账号显示已登录。新增工具尚未随新版插件发布 npm。
+发布前，本地 `0.1.13` 开发候选曾通过 Harness 桌面官方 CLI 安装，使用
+`--ignore-scripts` 与官方 npm registry。当时 SDK 全部 60 个 `dist` 文件与已发布包
+逐字节一致，13 个方法均存在，锁文件完整性与 npm 一致；Git 安全策略保持启用，
+仅为精确的新 SDK 版本追加 `minimumReleaseAgeExclude`。这是 registry 依赖的历史
+集成验证，不代表公开旧 `0.1.13` 包包含新增功能，也不描述当前安装版本。
 
 ```bash
 npm ci --registry=https://registry.npmjs.org/
@@ -1024,7 +1022,7 @@ npm run check:sdk
 包、npm 别名残留旧 Git 锁记录或缺少方法都会失败。`prepublishOnly` 会执行编译和
 此检查，`pack:smoke` 也会在检查 npm 包内容前执行两者。
 
-### 恢复接口发布检查（开发版）
+### 恢复接口发布检查
 
 npm alias 候选已通过 host、client declarations、client bundle 构建与 `check:sdk`，
 以及插件 **42 套、992/992 全量测试**。随后新增 8 项 SDK 锁文件校验测试，相关专项
@@ -1032,10 +1030,10 @@ npm alias 候选已通过 host、client declarations、client bundle 构建与 `
 没有把两次运行写成一次 1,000 项全量通过。维护 SDK 的 **59/59 测试**与严格对外
 类型声明检查也已通过。较早 Git 候选的干净安装与真实账号验证在报告中单独保留。
 
-独立 SDK 已发布官方 npm，registry 依赖候选经桌面官方 CLI 的正式安装也已通过。
-安装的 SDK 与此前真实 API 验证的构建逐字节一致，因此本次未重复 26 次 API 调用，
-也没有发送模型对话。新增插件工具尚未发布 npm。已完成检查及剩余分发步骤见
-[当前发布就绪报告](docs/testing/health-release-readiness-2026-10-16.md)。
+0.1.14 包含 13 个恢复 API、共用的 DSH/MCP 工具契约与随包技能参考。较早的真实
+session 验证已通过中国区和国际区共 26 次 DSH API 调用与 26 次 MCP 对照；registry
+SDK 随后已逐字节核验为同一构建，较早候选安装时没有重复查询，也没有发送模型
+对话。覆盖范围及历史证据见[集成验证报告](docs/testing/health-release-readiness-2026-10-16.md)。
 
 源码中的 `scripts/check-health-release.cjs` 可以用已有 DI session 检查安装好的开发
 构建。先编译插件并通过 `npm run check:sdk`，再创建包含 1 至 5 个账号的私密 JSON

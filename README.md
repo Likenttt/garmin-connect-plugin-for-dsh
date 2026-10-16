@@ -62,11 +62,11 @@ This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-
 
 ### Registered Tools
 
-The development checkout registers **23 tools**. Twenty-one provide queries or local advice without writing;
+Version 0.1.14 registers **23 tools**. Twenty-one provide queries or local advice without writing;
 `download_garmin_activity_fit` writes one local file on the MCP/dsh host, and
 `create_garmin_workout` changes the user's Garmin workout library.
-The 13 recovery and training tools below are unreleased. This checkout now
-depends on the published maintained SDK through an exact npm alias; see
+Version 0.1.14 adds the 13 recovery and training tools below and depends on
+the published maintained SDK through an exact npm alias; see
 [Maintained SDK dependency](#maintained-sdk-dependency).
 
 | Tool | Description | Example Args |
@@ -82,7 +82,7 @@ depends on the published maintained SDK through an exact npm alias; see
 | `download_garmin_activity_fit` | Download an activity's original archive and safely extract its single FIT file to the account directory under the configured host parent | `{"activityId": 123456789}` |
 | `create_garmin_workout` | Preview a structured workout; create it only after explicit confirmation | `{"name": "Threshold 3×8min", "steps": [...]}` |
 
-#### Recovery and training tools (unreleased)
+#### Recovery and training tools (introduced in 0.1.14)
 
 These tools are shared by DSH and MCP and map directly to the maintained SDK:
 
@@ -1144,21 +1144,19 @@ itself as `@likenttt/garmin-connect`. The registry package ships compiled code
 and TypeScript declarations. Installing the SDK no longer needs Git, GitHub
 access, or a dependency `prepare` build.
 
-The earlier Git dependency failed Harness pnpm 11 checks with
-`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` and `ERR_PNPM_EXOTIC_SUBDEP`. Publishing
-the precompiled SDK and switching the dependency to an npm alias remove that
-Git dependency. On 2026-10-17, the registry-backed candidate was installed
-successfully through Harness's official desktop CLI with `--ignore-scripts`
-and the official npm registry. All 60 SDK `dist` files match the published
-package byte for byte, all 13 methods are present, and the lockfile integrity
-matches npm. The earlier development overlay marker is gone. Harness keeps
-its Git restrictions; pnpm added only the exact new SDK version to
-`minimumReleaseAgeExclude`.
+Version 0.1.14 packages these APIs with the precompiled registry SDK, removing
+the Git dependency preparation and exotic-subdependency errors encountered by
+earlier development candidates. DeepSeek Harness 0.2.0-rc.2 compatibility is
+retained.
 
-The installed plugin remains a local `0.1.13` candidate, registered from its
-local tarball. It is not the public npm `0.1.13` package and does not imply that
-the new plugin tools have been published. After restart, Harness 0.2.0-rc.2
-shows the Garmin component running and the two main accounts signed in.
+Before this release, a local `0.1.13` development candidate passed installation
+through Harness's official desktop CLI with `--ignore-scripts` and the official
+npm registry. Its 60 SDK `dist` files matched the published package byte for
+byte, all 13 methods were present, and the lockfile integrity matched npm.
+Harness's Git restrictions remained enabled; only the exact new SDK version
+received a `minimumReleaseAgeExclude` entry. This is historical integration
+evidence for the registry dependency, not a claim about the public `0.1.13`
+package or the current installed version.
 
 ```bash
 npm ci --registry=https://registry.npmjs.org/
@@ -1175,7 +1173,7 @@ back to the original SDK, retaining an old Git lock entry for the npm alias,
 or missing methods fails the gate. `prepublishOnly` runs the build and this
 check; `pack:smoke` runs them before inspecting the npm tarball.
 
-### Recovery release checks (development)
+### Recovery release checks
 
 The registry-alias candidate passed the host, client declarations and client
 bundle builds, `check:sdk`, and **992/992 plugin tests in 42 suites**. Eight
@@ -1186,13 +1184,14 @@ suite was run before those eight additions, so these are not a single full
 public-type check. Earlier Git-based clean-install and live-account checks
 are recorded separately in the report.
 
-The standalone SDK is published on official npm, and formal desktop CLI
-installation of the registry-backed candidate has passed. The installed SDK
-is byte-identical to the previously live-tested build; the 26 API calls were
-not repeated after installation, and no model conversation was sent. The new
-plugin tools remain unreleased on npm. See the
-[current release-readiness report](docs/testing/health-release-readiness-2026-10-16.md)
-for completed checks and the remaining distribution step.
+Version 0.1.14 includes the 13 recovery APIs, the shared DSH/MCP tool contracts,
+and bundled skill references. Earlier real-session checks passed 26 DSH API
+calls and 26 MCP parity checks across China and International accounts. The
+registry SDK was then verified byte for byte against that tested build; those
+API calls were not repeated during the earlier candidate installation, and
+no model conversation was sent. See the
+[integration verification report](docs/testing/health-release-readiness-2026-10-16.md)
+for the scope and historical evidence.
 
 To test an installed development build against existing DI sessions, use
 `scripts/check-health-release.cjs` from this source checkout. First build the
