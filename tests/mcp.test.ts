@@ -2,10 +2,26 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { UrlElicitationRequiredError } from '@modelcontextprotocol/sdk/types.js'
 import { createMcpServer, standaloneConfig } from '../src/mcp'
-import { GarminAuthenticationRequiredError } from '../src/utils/errors'
+import { GarminAuthenticationRequiredError, PublicToolError } from '../src/utils/errors'
+
+const healthRoutes = [
+  { name: 'get_garmin_hrv', method: 'getHrvData', args: { date: '2026-10-07' } },
+  { name: 'get_garmin_hrv_summaries', method: 'getHrvSummaries', args: { startDate: '2026-10-01', endDate: '2026-10-07' } },
+  { name: 'get_garmin_stress', method: 'getStressData', args: { date: '2026-10-07' } },
+  { name: 'get_garmin_stress_summaries', method: 'getStressSummaries', args: { startDate: '2026-10-01', endDate: '2026-10-07' } },
+  { name: 'get_garmin_body_battery', method: 'getBodyBattery', args: { startDate: '2026-10-01', endDate: '2026-10-07' } },
+  { name: 'get_garmin_training_readiness', method: 'getTrainingReadiness', args: { date: '2026-10-07' } },
+  { name: 'get_garmin_daily_training_status', method: 'getDailyTrainingStatus', args: { date: '2026-10-07' } },
+  { name: 'get_garmin_training_status', method: 'getTrainingStatus', args: { date: '2026-10-07' } },
+  { name: 'get_garmin_training_load_balance', method: 'getTrainingLoadBalance', args: { date: '2026-10-07' } },
+  { name: 'get_garmin_max_metrics', method: 'getMaxMetrics', args: { date: '2026-10-07' } },
+  { name: 'get_garmin_max_metrics_range', method: 'getMaxMetricsRange', args: { startDate: '2026-10-01', endDate: '2026-10-07' } },
+  { name: 'get_garmin_race_predictions', method: 'getRacePredictions', args: {} },
+  { name: 'get_garmin_race_predictions_range', method: 'getRacePredictionsRange', args: { startDate: '2026-10-01', endDate: '2026-10-07', aggregation: 'monthly' } },
+] as const
 
 describe('MCP adapter', () => {
-  it('exposes the same ten non-secret Garmin tools as the plugin', async () => {
+  it('exposes the same twenty-three non-secret Garmin tools as the plugin', async () => {
     const service = serviceStub()
     const server = createMcpServer(service as any)
     const client = new Client({ name: 'test-client', version: '1.0.0' })
@@ -21,7 +37,7 @@ describe('MCP adapter', () => {
         (require('../package.json') as { version: string }).version,
       )
       const result = await client.listTools()
-      expect(result.tools.map(tool => tool.name)).toEqual([
+      expect(result.tools.map(tool => tool.name).sort()).toEqual([
         'get_garmin_activities',
         'get_garmin_sleep',
         'get_garmin_steps',
@@ -32,7 +48,20 @@ describe('MCP adapter', () => {
         'get_running_skill_advice',
         'create_garmin_workout',
         'download_garmin_activity_fit',
-      ])
+        'get_garmin_hrv',
+        'get_garmin_hrv_summaries',
+        'get_garmin_stress',
+        'get_garmin_stress_summaries',
+        'get_garmin_body_battery',
+        'get_garmin_training_readiness',
+        'get_garmin_daily_training_status',
+        'get_garmin_training_status',
+        'get_garmin_training_load_balance',
+        'get_garmin_max_metrics',
+        'get_garmin_max_metrics_range',
+        'get_garmin_race_predictions',
+        'get_garmin_race_predictions_range',
+      ].sort())
       const createWorkout = result.tools.find(tool => tool.name === 'create_garmin_workout')!
       expect(createWorkout.description).toContain('does not generate a training plan')
       expect(createWorkout.description).toContain('mode=personalized')
@@ -419,6 +448,133 @@ describe('MCP adapter', () => {
   })
 })
 
+describe('MCP recovery and training tools', () => {
+  it.each(healthRoutes)('routes $name to $method without compressing the response', async route => {
+    const service = serviceStub()
+    const response = { devices: [{ values: [0, null, 42], extra: { preserved: true } }], empty: [] }
+    service.getHealthMetric.mockResolvedValue(response)
+
+    await withMcpClient(service, async client => {
+      const result = await client.callTool({ name: route.name, arguments: route.args })
+
+      expect(result.isError).not.toBe(true)
+      expect(service.getHealthMetric).toHaveBeenCalledTimes(1)
+      expect(service.getHealthMetric).toHaveBeenCalledWith(route.method, route.args)
+      expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(response, null, 2) }])
+    })
+  })
+
+  it('advertises strict optional schemas without the old thirty-day fanout limit', async () => {
+    await withMcpClient(serviceStub(), async client => {
+      const { tools } = await client.listTools()
+
+      for (const route of healthRoutes) {
+        const tool = tools.find(item => item.name === route.name)!
+        expect(tool.inputSchema.type).toBe('object')
+        expect(tool.inputSchema.additionalProperties).toBe(false)
+        expect(Object.keys(tool.inputSchema.properties ?? {}).sort()).toEqual(Object.keys(route.args).sort())
+        expect(tool.inputSchema.required ?? []).toEqual([])
+        expect(JSON.stringify(tool.inputSchema)).not.toContain('30 days')
+        expect(tool.annotations).toMatchObject({
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true,
+        })
+      }
+      const raceRange = tools.find(tool => tool.name === 'get_garmin_race_predictions_range')!
+      expect(raceRange.inputSchema.properties?.aggregation).toMatchObject({
+        type: 'string',
+        enum: ['daily', 'monthly'],
+      })
+    })
+  })
+
+  it('passes omitted arguments unchanged to the service for every new tool', async () => {
+    const service = serviceStub()
+    await withMcpClient(service, async client => {
+      for (const route of healthRoutes) {
+        const result = await client.callTool({ name: route.name })
+        expect(result.isError).not.toBe(true)
+        expect(service.getHealthMetric).toHaveBeenLastCalledWith(route.method, {})
+      }
+      expect(service.getHealthMetric).toHaveBeenCalledTimes(13)
+    })
+  })
+
+  it('rejects displayName, unknown keys, invalid date formats and unsupported aggregations before the service', async () => {
+    const service = serviceStub()
+    await withMcpClient(service, async client => {
+      for (const route of healthRoutes) {
+        for (const extra of [{ displayName: 'another-account' }, { unexpected: true }]) {
+          const result = await client.callTool({
+            name: route.name,
+            arguments: { ...route.args, ...extra },
+          })
+          expect(result.isError).toBe(true)
+        }
+      }
+
+      for (const request of [
+        { name: 'get_garmin_hrv', arguments: { date: '2026-10-07T00:00:00Z' } },
+        { name: 'get_garmin_stress', arguments: { date: 20261007 } },
+        { name: 'get_garmin_hrv_summaries', arguments: { startDate: '2026-1-01' } },
+        { name: 'get_garmin_body_battery', arguments: { endDate: null } },
+        { name: 'get_garmin_race_predictions', arguments: { date: '2026-10-07' } },
+        { name: 'get_garmin_race_predictions_range', arguments: { aggregation: 'weekly' } },
+        { name: 'get_garmin_max_metrics_range', arguments: { aggregation: 'daily' } },
+      ]) {
+        const result = await client.callTool(request)
+        expect(result.isError).toBe(true)
+      }
+      expect(service.getHealthMetric).not.toHaveBeenCalled()
+    })
+  })
+
+  it('preserves service calendar validation messages and hides upstream secrets', async () => {
+    const service = serviceStub()
+    service.getHealthMetric
+      .mockRejectedValueOnce(new PublicToolError('startDate must not be after endDate'))
+      .mockRejectedValueOnce(new Error('Bearer secret-token private@example.test'))
+
+    await withMcpClient(service, async client => {
+      const invalid = await client.callTool({
+        name: 'get_garmin_hrv_summaries',
+        arguments: { startDate: '2026-10-07', endDate: '2026-10-01' },
+      })
+      expect(invalid.isError).toBe(true)
+      expect(JSON.stringify(invalid.content)).toContain('startDate must not be after endDate')
+
+      const upstream = await client.callTool({ name: 'get_garmin_hrv' })
+      expect(upstream.isError).toBe(true)
+      expect(JSON.stringify(upstream.content)).toContain('Garmin request failed')
+      expect(JSON.stringify(upstream.content)).not.toContain('secret-token')
+      expect(JSON.stringify(upstream.content)).not.toContain('private@example.test')
+      expect(service.getHealthMetric).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it('elicits authentication for a new metric without replaying the read', async () => {
+    const service = serviceStub()
+    service.getHealthMetric.mockRejectedValue(new GarminAuthenticationRequiredError('missing'))
+    const requireAuthentication = jest.fn(async () => {
+      throw new UrlElicitationRequiredError([{
+        mode: 'url',
+        message: 'Open Garmin authentication',
+        url: 'http://127.0.0.1:54321/garmin-auth/bridge/' + 'a'.repeat(64),
+        elicitationId: 'metric-auth-id',
+      }])
+    })
+
+    await withMcpClient(service, async client => {
+      await expect(client.callTool({ name: 'get_garmin_hrv' }))
+        .rejects.toBeInstanceOf(UrlElicitationRequiredError)
+      expect(requireAuthentication).toHaveBeenCalledTimes(1)
+      expect(service.getHealthMetric).toHaveBeenCalledTimes(1)
+    }, { createAuthentication: () => ({ requireAuthentication }) })
+  })
+})
+
 describe('standalone MCP config', () => {
   const original = { ...process.env }
 
@@ -532,5 +688,26 @@ function serviceStub() {
     getRunningAdvice: jest.fn().mockResolvedValue({}),
     createWorkout: jest.fn().mockResolvedValue({}),
     downloadActivityFit: jest.fn().mockResolvedValue({}),
+    getHealthMetric: jest.fn().mockResolvedValue({}),
+  }
+}
+
+async function withMcpClient(
+  service: ReturnType<typeof serviceStub>,
+  action: (client: Client) => Promise<void>,
+  options?: Parameters<typeof createMcpServer>[1],
+): Promise<void> {
+  const server = createMcpServer(service as any, options)
+  const client = new Client(
+    { name: 'metric-client', version: '1.0.0' },
+    { capabilities: { elicitation: { url: {} } } },
+  )
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
+  try {
+    await action(client)
+  } finally {
+    await client.close()
+    await server.close()
   }
 }

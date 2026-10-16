@@ -11,6 +11,8 @@ import {
 } from './account-session'
 import { GarminClient } from './client'
 import type { Config } from './config'
+import { HEALTH_TOOLS } from './health-tools'
+import type { HealthMetricArgs } from './health-tools'
 import { McpGarminAuthCoordinator } from './mcp-auth'
 import { installMcpShutdownHooks } from './mcp-shutdown'
 import {
@@ -49,6 +51,7 @@ type ToolService = Pick<
   | 'getRunningAdvice'
   | 'createWorkout'
   | 'downloadActivityFit'
+  | 'getHealthMetric'
 >
 
 const dateRangeSchema = {
@@ -56,6 +59,12 @@ const dateRangeSchema = {
     .describe('Start date in YYYY-MM-DD format (default: today)'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
     .describe('Inclusive end date in YYYY-MM-DD format (maximum 30 days)'),
+}
+
+const healthDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+const healthDateRangeSchema = {
+  startDate: healthDateSchema.describe('Inclusive start date in YYYY-MM-DD format (default: today).'),
+  endDate: healthDateSchema.describe('Inclusive end date in YYYY-MM-DD format (default: startDate).'),
 }
 
 const simpleWorkoutStepSchema = z.object({
@@ -322,6 +331,23 @@ export function createMcpServer(
     WRITE_ANNOTATIONS,
     false,
   )
+
+  for (const definition of HEALTH_TOOLS) {
+    const schema: Record<string, z.ZodTypeAny> = definition.kind === 'latest'
+      ? {}
+      : definition.kind === 'daily'
+        ? { date: healthDateSchema.describe('Date in YYYY-MM-DD format (default: today).') }
+        : definition.kind === 'raceRange'
+          ? { ...healthDateRangeSchema, aggregation: z.enum(['daily', 'monthly']).optional() }
+          : healthDateRangeSchema
+
+    register(
+      definition.name,
+      definition.description,
+      schema,
+      (args: HealthMetricArgs) => invokeTool(() => service.getHealthMetric(definition.method, args)),
+    )
+  }
 
   return server
 }

@@ -25,6 +25,8 @@ import {
 import type { WorkoutDef } from './knowledge/workout-schema'
 import { PublicToolError } from './utils/errors'
 import { parseLocalDate } from './utils/date'
+import { HEALTH_TOOLS } from './health-tools'
+import type { GarminRecoveryDataClient, HealthMetricArgs, HealthMetricMethod } from './health-tools'
 import {
   formatActivity,
   formatHeartRate,
@@ -35,7 +37,7 @@ import {
   formatWorkout,
 } from './utils/format'
 
-export interface GarminDataClient {
+export interface GarminDataClient extends Partial<GarminRecoveryDataClient> {
   getActivities(start?: number, limit?: number): Promise<unknown[]>
   getSleep(date: string): Promise<unknown>
   getSteps(date: string): Promise<unknown>
@@ -188,6 +190,54 @@ export class GarminToolService {
     private readonly client: GarminDataClient,
     private readonly options: GarminToolServiceOptions,
   ) {}
+
+  /** Native SDK requests; preserve every returned field, reading and snapshot. */
+  async getHealthMetric(method: HealthMetricMethod, args: HealthMetricArgs = {}): Promise<unknown> {
+    const definition = HEALTH_TOOLS.find(tool => tool.method === method)
+    if (!definition) throw new PublicToolError('Unknown Garmin health metric')
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      throw new PublicToolError('Health metric arguments must be an object')
+    }
+    const allowed = definition.kind === 'latest' ? []
+      : definition.kind === 'daily' ? ['date']
+        : definition.kind === 'raceRange' ? ['startDate', 'endDate', 'aggregation']
+          : ['startDate', 'endDate']
+    if (Object.keys(args).some(key => !allowed.includes(key))) {
+      throw new PublicToolError('Unsupported health metric argument')
+    }
+    const calendarDate = (value: unknown, field: string): string => {
+      try {
+        if (typeof value !== 'string') throw new Error()
+        parseLocalDate(value)
+        return value
+      } catch {
+        throw new PublicToolError(`Invalid ${field}: expected a real date in YYYY-MM-DD format`)
+      }
+    }
+    let parameters: unknown[] = []
+    if (definition.kind === 'daily') {
+      parameters = [calendarDate(args.date === undefined ? todayLocal() : args.date, 'date')]
+    } else if (definition.kind !== 'latest') {
+      const start = calendarDate(args.startDate === undefined ? todayLocal() : args.startDate, 'startDate')
+      const end = calendarDate(args.endDate === undefined ? start : args.endDate, 'endDate')
+      if (start > end) throw new PublicToolError('startDate must not be after endDate')
+      parameters = [start, end]
+      if (definition.kind === 'raceRange') {
+        const aggregation = args.aggregation === undefined ? 'daily' : args.aggregation
+        if (aggregation !== 'daily' && aggregation !== 'monthly') {
+          throw new PublicToolError('aggregation must be daily or monthly')
+        }
+        const span = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000
+        if (span > 366) throw new PublicToolError('Race prediction ranges cannot span more than 366 days')
+        parameters.push(aggregation)
+      }
+    }
+    const action = this.client[method]
+    if (typeof action !== 'function') {
+      throw new PublicToolError('The installed Garmin SDK does not support this health metric; update the plugin')
+    }
+    return Reflect.apply(action, this.client, parameters)
+  }
 
   async getActivities(args: ActivityArgs = {}): Promise<unknown[]> {
     const limit = Math.min(Math.max(Math.trunc(args.limit ?? 5), 1), 100)

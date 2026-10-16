@@ -1,6 +1,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { GarminClient } from '../client'
 import type { Config, GarminRegion } from '../config'
+import { HEALTH_TOOLS } from '../health-tools'
+import type { HealthMetricArgs } from '../health-tools'
 import { PublicToolError, publicErrorMessage } from '../utils/errors'
 import {
   GarminToolService,
@@ -99,6 +101,34 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
       accountUsername: '',
       accountRegion: 'cn',
     })
+
+  // Native range endpoints return full reports in a single request.
+  for (const definition of HEALTH_TOOLS) {
+    const dateProperty = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Calendar date in YYYY-MM-DD format.' }
+    const properties: Record<string, unknown> = { account: accountParameter }
+    if (definition.kind === 'daily') properties.date = dateProperty
+    if (definition.kind === 'range' || definition.kind === 'raceRange') {
+      properties.startDate = { ...dateProperty, description: 'Inclusive start date (default: today).' }
+      properties.endDate = { ...dateProperty, description: 'Inclusive end date (default: startDate).' }
+    }
+    if (definition.kind === 'raceRange') {
+      properties.aggregation = { type: 'string', enum: ['daily', 'monthly'], description: 'History aggregation (default: daily).' }
+    }
+    tools.register({
+      name: definition.name,
+      description: `${definition.description} Returns the full service response; null or empty arrays can mean no data for this account/date.`,
+      parameters: { type: 'object', additionalProperties: false, properties },
+      output: flexibleOutput,
+      execute: async (args: HealthMetricArgs & AccountArgs = {}) => {
+        try {
+          const { account, ...request } = args
+          return await selectService(account).getHealthMetric(definition.method, request)
+        } catch (error) {
+          return toolError(error, 'Failed to fetch Garmin health data')
+        }
+      },
+    })
+  }
 
   // ------------------------------------------------------------------
   // 1. get_garmin_activities
@@ -513,7 +543,7 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
     },
   })
 
-  ctx.logger.info('[garmin] Registered 10 tools.')
+  ctx.logger.info(`[garmin] Registered ${10 + HEALTH_TOOLS.length} tools.`)
 }
 
 // ---------------------------------------------------------------------------
@@ -634,6 +664,7 @@ const workoutStepParameters = {
 const flexibleOutput = {
   schema: {
     oneOf: [
+      { type: 'null' },
       {
         type: 'array',
         items: {

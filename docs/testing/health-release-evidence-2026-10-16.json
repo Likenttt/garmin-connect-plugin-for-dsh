@@ -1,0 +1,465 @@
+{
+  "date": "2026-10-16",
+  "nodeVersion": "v24.18.1",
+  "sdk": {
+    "name": "@likenttt/garmin-connect",
+    "version": "1.7.0",
+    "repository": "git+https://github.com/Likenttt/garmin-connect.git",
+    "gitCommit": "7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b",
+    "resolvePath": "/Users/kent/.dsh/profiles/desktop/node_modules/garmin-connect/package.json",
+    "runtimeCodeMatchesLiveValidatedBuild": true
+  },
+  "queryDate": "2026-10-15",
+  "startDate": "2026-10-09",
+  "registration": {
+    "dsh-tools": {
+      "status": "passed",
+      "count": 23
+    }
+  },
+  "methods": {
+    "getHrvData": {
+      "status": "passed"
+    },
+    "getHrvSummaries": {
+      "status": "passed"
+    },
+    "getStressData": {
+      "status": "passed"
+    },
+    "getStressSummaries": {
+      "status": "passed"
+    },
+    "getBodyBattery": {
+      "status": "passed"
+    },
+    "getTrainingReadiness": {
+      "status": "passed"
+    },
+    "getDailyTrainingStatus": {
+      "status": "passed"
+    },
+    "getTrainingStatus": {
+      "status": "passed"
+    },
+    "getTrainingLoadBalance": {
+      "status": "passed"
+    },
+    "getMaxMetrics": {
+      "status": "passed"
+    },
+    "getMaxMetricsRange": {
+      "status": "passed"
+    },
+    "getRacePredictions": {
+      "status": "passed"
+    },
+    "getRacePredictionsRange": {
+      "status": "passed"
+    }
+  },
+  "accounts": [
+    {
+      "accountId": "test-cn",
+      "region": "cn",
+      "authStages": [],
+      "connection": {
+        "session-profile": {
+          "status": "passed"
+        }
+      },
+      "methods": {
+        "getHrvData": {
+          "status": "passed",
+          "shape": "null",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getHrvSummaries": {
+          "status": "passed",
+          "shape": "null",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getStressData": {
+          "status": "passed",
+          "shape": "object",
+          "count": 12,
+          "httpResponses": 1
+        },
+        "getStressSummaries": {
+          "status": "passed",
+          "shape": "array",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getBodyBattery": {
+          "status": "passed",
+          "shape": "array",
+          "count": 7,
+          "httpResponses": 1
+        },
+        "getTrainingReadiness": {
+          "status": "passed",
+          "shape": "array",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getDailyTrainingStatus": {
+          "status": "passed",
+          "shape": "object",
+          "count": 5,
+          "httpResponses": 1
+        },
+        "getTrainingStatus": {
+          "status": "passed",
+          "shape": "object",
+          "count": 5,
+          "httpResponses": 1
+        },
+        "getTrainingLoadBalance": {
+          "status": "passed",
+          "shape": "object",
+          "count": 3,
+          "httpResponses": 1
+        },
+        "getMaxMetrics": {
+          "status": "passed",
+          "shape": "array",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getMaxMetricsRange": {
+          "status": "passed",
+          "shape": "array",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getRacePredictions": {
+          "status": "passed",
+          "shape": "object",
+          "count": 8,
+          "httpResponses": 2
+        },
+        "getRacePredictionsRange": {
+          "status": "passed",
+          "shape": "array",
+          "count": 0,
+          "httpResponses": 2
+        }
+      },
+      "mcp": {
+        "tool-registration": {
+          "status": "passed",
+          "count": 23
+        },
+        "getHrvData": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getHrvSummaries": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getStressData": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getStressSummaries": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getBodyBattery": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingReadiness": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getDailyTrainingStatus": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingStatus": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingLoadBalance": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getMaxMetrics": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getMaxMetricsRange": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getRacePredictions": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getRacePredictionsRange": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        }
+      },
+      "baseline": {
+        "get_garmin_profile": {
+          "status": "passed",
+          "shape": "object",
+          "count": 4
+        },
+        "get_garmin_activities": {
+          "status": "passed",
+          "shape": "array",
+          "count": 1
+        },
+        "get_garmin_sleep": {
+          "status": "passed",
+          "shape": "object",
+          "count": 7
+        }
+      },
+      "httpStatuses": {
+        "200": 15,
+        "204": 2
+      }
+    },
+    {
+      "accountId": "test-global",
+      "region": "global",
+      "connection": {
+        "session-profile": {
+          "status": "passed"
+        }
+      },
+      "methods": {
+        "getHrvData": {
+          "status": "passed",
+          "shape": "null",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getHrvSummaries": {
+          "status": "passed",
+          "shape": "object",
+          "count": 2,
+          "httpResponses": 1
+        },
+        "getStressData": {
+          "status": "passed",
+          "shape": "object",
+          "count": 14,
+          "httpResponses": 1
+        },
+        "getStressSummaries": {
+          "status": "passed",
+          "shape": "array",
+          "count": 7,
+          "httpResponses": 1
+        },
+        "getBodyBattery": {
+          "status": "passed",
+          "shape": "array",
+          "count": 7,
+          "httpResponses": 1
+        },
+        "getTrainingReadiness": {
+          "status": "passed",
+          "shape": "array",
+          "count": 2,
+          "httpResponses": 1
+        },
+        "getDailyTrainingStatus": {
+          "status": "passed",
+          "shape": "object",
+          "count": 5,
+          "httpResponses": 1
+        },
+        "getTrainingStatus": {
+          "status": "passed",
+          "shape": "object",
+          "count": 5,
+          "httpResponses": 1
+        },
+        "getTrainingLoadBalance": {
+          "status": "passed",
+          "shape": "object",
+          "count": 3,
+          "httpResponses": 1
+        },
+        "getMaxMetrics": {
+          "status": "passed",
+          "shape": "array",
+          "count": 1,
+          "httpResponses": 1
+        },
+        "getMaxMetricsRange": {
+          "status": "passed",
+          "shape": "array",
+          "count": 4,
+          "httpResponses": 1
+        },
+        "getRacePredictions": {
+          "status": "passed",
+          "shape": "object",
+          "count": 8,
+          "httpResponses": 2
+        },
+        "getRacePredictionsRange": {
+          "status": "passed",
+          "shape": "array",
+          "count": 7,
+          "httpResponses": 2
+        }
+      },
+      "mcp": {
+        "tool-registration": {
+          "status": "passed",
+          "count": 23
+        },
+        "getHrvData": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getHrvSummaries": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getStressData": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getStressSummaries": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getBodyBattery": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingReadiness": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getDailyTrainingStatus": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingStatus": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingLoadBalance": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getMaxMetrics": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getMaxMetricsRange": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getRacePredictions": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getRacePredictionsRange": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        }
+      },
+      "baseline": {
+        "get_garmin_profile": {
+          "status": "passed",
+          "shape": "object",
+          "count": 4
+        },
+        "get_garmin_activities": {
+          "status": "passed",
+          "shape": "array",
+          "count": 1
+        },
+        "get_garmin_sleep": {
+          "status": "passed",
+          "shape": "object",
+          "count": 7
+        }
+      },
+      "httpStatuses": {
+        "200": 16,
+        "204": 1
+      }
+    }
+  ],
+  "initialAttempt": {
+    "chinaConnection": "failed",
+    "diagnosticDetail": "Only error class PublicToolError was recorded; root cause not established",
+    "chinaRetry": "passed without new browser login",
+    "global": "passed"
+  },
+  "scope": "read-only-existing-sessions-no-password-or-browser",
+  "summary": {
+    "healthDshPassed": 26,
+    "healthMcpParityPassed": 26,
+    "legacyBaselinePassed": 6,
+    "status": "passed-after-china-retry"
+  },
+  "initialSdk": {
+    "name": "garmin-connect",
+    "version": "1.6.2",
+    "resolvePath": "/Users/kent/.dsh/profiles/desktop/node_modules/garmin-connect/package.json"
+  },
+  "cleanInstall": {
+    "source": "committed package-lock.json in clean directory",
+    "sshDisabled": true,
+    "build": "passed",
+    "sdkDependencyCheck": "passed",
+    "testSuites": 42,
+    "testsPassed": 992,
+    "testsFailed": 0
+  },
+  "desktopInstall": {
+    "kind": "local-development-overlay",
+    "dependencyCheck": {
+      "ok": true,
+      "dependencySource": "maintained-git-sha",
+      "methodCount": 13,
+      "missingMethodCount": 0,
+      "errors": []
+    },
+    "formalInstallBlockedBy": "ERR_PNPM_EXOTIC_SUBDEP",
+    "hostPoliciesMatchOriginal": true
+  }
+}

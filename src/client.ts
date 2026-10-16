@@ -9,6 +9,7 @@ import {
   replaceGarminDiSessionPath,
 } from './di-session'
 import { MAX_ZIP_BYTES } from './fit-export'
+import type { GarminRecoveryDataClient } from './health-tools'
 import { detectGarminBrowserChallenge } from './garmin-auth-challenge'
 import {
   GarminDiSessionFileError,
@@ -70,6 +71,15 @@ type SessionFileSnapshot =
   | { fingerprint: string; session: GarminSessionFile }
   | { error: unknown; fingerprint: string }
 
+/** The maintained SDK's recovery methods; keep this boundary narrower than its raw client. */
+interface GarminRecoverySdk extends Omit<GarminRecoveryDataClient, 'getRacePredictionsRange'> {
+  getRacePredictionsRange(
+    startDate: string,
+    endDate: string,
+    options: { aggregation: 'daily' | 'monthly' },
+  ): Promise<unknown>
+}
+
 /**
  * Thin wrapper around the `garmin-connect` npm package that adds:
  *   - Cordis-aware logging
@@ -77,7 +87,7 @@ type SessionFileSnapshot =
  *   - An in-memory cache to reduce API calls and avoid rate limits
  *   - Automatic retries on rate-limit / session expiration
  */
-export class GarminClient {
+export class GarminClient implements GarminRecoveryDataClient {
   private gc: GarminConnect
   private cache: MemoryCache
   private ctx: Context
@@ -833,6 +843,97 @@ export class GarminClient {
       this.gc.getDailyWeightData(parseLocalDate(date)))
   }
 
+  private get recoverySdk(): GarminRecoverySdk {
+    return this.gc as GarminConnect & GarminRecoverySdk
+  }
+
+  /** Preserve the full recovery response, including unknown fields and empty data. */
+  async getHrvData(date: string): Promise<unknown> {
+    validateRecoveryDate(date)
+    return this.getCachedForCurrentAuth(`hrv:${date}`, () => this.recoverySdk.getHrvData(date))
+  }
+
+  async getHrvSummaries(startDate: string, endDate: string): Promise<unknown> {
+    validateRecoveryRange(startDate, endDate)
+    return this.getCachedForCurrentAuth(`hrv-summaries:${startDate}:${endDate}`, () =>
+      this.recoverySdk.getHrvSummaries(startDate, endDate))
+  }
+
+  async getStressData(date: string): Promise<unknown> {
+    validateRecoveryDate(date)
+    return this.getCachedForCurrentAuth(`stress:${date}`, () => this.recoverySdk.getStressData(date))
+  }
+
+  async getStressSummaries(startDate: string, endDate: string): Promise<unknown> {
+    validateRecoveryRange(startDate, endDate)
+    return this.getCachedForCurrentAuth(`stress-summaries:${startDate}:${endDate}`, () =>
+      this.recoverySdk.getStressSummaries(startDate, endDate))
+  }
+
+  async getBodyBattery(startDate: string, endDate = startDate): Promise<unknown> {
+    validateRecoveryRange(startDate, endDate)
+    return this.getCachedForCurrentAuth(`body-battery:${startDate}:${endDate}`, () =>
+      this.recoverySdk.getBodyBattery(startDate, endDate))
+  }
+
+  async getTrainingReadiness(date: string): Promise<unknown> {
+    validateRecoveryDate(date)
+    return this.getCachedForCurrentAuth(`training-readiness:${date}`, () =>
+      this.recoverySdk.getTrainingReadiness(date))
+  }
+
+  async getDailyTrainingStatus(date: string): Promise<unknown> {
+    validateRecoveryDate(date)
+    return this.getCachedForCurrentAuth(`daily-training-status:${date}`, () =>
+      this.recoverySdk.getDailyTrainingStatus(date))
+  }
+
+  async getTrainingStatus(date: string): Promise<unknown> {
+    validateRecoveryDate(date)
+    return this.getCachedForCurrentAuth(`training-status:${date}`, () =>
+      this.recoverySdk.getTrainingStatus(date))
+  }
+
+  async getTrainingLoadBalance(date: string): Promise<unknown> {
+    validateRecoveryDate(date)
+    return this.getCachedForCurrentAuth(`training-load-balance:${date}`, () =>
+      this.recoverySdk.getTrainingLoadBalance(date))
+  }
+
+  async getMaxMetrics(date: string): Promise<unknown> {
+    validateRecoveryDate(date)
+    return this.getCachedForCurrentAuth(`max-metrics:${date}`, () => this.recoverySdk.getMaxMetrics(date))
+  }
+
+  async getMaxMetricsRange(startDate: string, endDate: string): Promise<unknown> {
+    validateRecoveryRange(startDate, endDate)
+    return this.getCachedForCurrentAuth(`max-metrics-range:${startDate}:${endDate}`, () =>
+      this.recoverySdk.getMaxMetricsRange(startDate, endDate))
+  }
+
+  /** Resolve the race prediction profile from the currently authenticated SDK session. */
+  async getRacePredictions(): Promise<unknown> {
+    return this.getCachedForCurrentAuth('race-predictions:latest', () =>
+      this.recoverySdk.getRacePredictions())
+  }
+
+  async getRacePredictionsRange(
+    startDate: string,
+    endDate: string,
+    aggregation: 'daily' | 'monthly' = 'daily',
+  ): Promise<unknown> {
+    validateRecoveryRange(startDate, endDate)
+    if (aggregation !== 'daily' && aggregation !== 'monthly') {
+      throw new PublicToolError('Race prediction aggregation must be daily or monthly')
+    }
+    const span = Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)
+    if (span > 366 * 86_400_000) {
+      throw new PublicToolError('Race prediction ranges must span no more than 366 days')
+    }
+    return this.getCachedForCurrentAuth(`race-predictions:${aggregation}:${startDate}:${endDate}`, () =>
+      this.recoverySdk.getRacePredictionsRange(startDate, endDate, { aggregation }))
+  }
+
   /** Return workout templates from the user's Garmin workout library. */
   async getWorkouts(start = 0, limit = 10): Promise<unknown[]> {
     const key = `workouts:${start}:${limit}`
@@ -917,6 +1018,25 @@ export class GarminClient {
       region: this.config.region,
     }
   }
+}
+
+/** Validate without converting date-only strings through UTC or JavaScript's 1900 year offset. */
+function validateRecoveryDate(date: string): void {
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new PublicToolError('Expected a valid calendar date in YYYY-MM-DD format')
+  }
+  const [year, month, day] = date.split('-').map(Number)
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const monthDays = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > monthDays[month - 1]) {
+    throw new PublicToolError('Expected a valid calendar date in YYYY-MM-DD format')
+  }
+}
+
+function validateRecoveryRange(startDate: string, endDate: string): void {
+  validateRecoveryDate(startDate)
+  validateRecoveryDate(endDate)
+  if (startDate > endDate) throw new PublicToolError('startDate must be on or before endDate')
 }
 
 /**

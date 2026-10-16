@@ -66,9 +66,11 @@
 
 ### 注册的工具
 
-插件共注册 **10 个工具**。其中 8 个只返回 Garmin 数据；
+当前开发源码共注册 **23 个工具**，其中 21 个用于读取数据或本地知识查询；
 `download_garmin_activity_fit` 会在 MCP/dsh 所在主机写入一个本地文件，
 `create_garmin_workout` 会修改用户的 Garmin 训练库。
+下方新增的 13 个恢复与训练工具尚未发布。当前源码已通过固定 Git 提交依赖自行维护的
+SDK，详见[自行维护的 SDK 依赖](#自行维护的-sdk-依赖)。
 
 | 工具名 | 用途 | 参数示例 |
 |---|---|---|
@@ -83,9 +85,37 @@
 | `download_garmin_activity_fit` | 下载活动的原始归档，并把其中唯一的 FIT 文件安全提取到所配置父目录下的账号目录 | `{"activityId": 123456789}` |
 | `create_garmin_workout` | 预览结构化训练；仅在显式确认后创建 | `{"name": "门槛巡航3×8分钟", "steps": [...]}` |
 
+#### 恢复与训练工具（尚未发布）
+
+DSH 和 MCP 共用以下工具，直接对应自行维护的 SDK API：
+
+| 工具名 | SDK 方法 | 数据与参数示例 |
+|---|---|---|
+| `get_garmin_hrv` | `getHrvData` | 每日 HRV 状态、基线与完整夜间读数；`{"date":"2026-10-15"}` |
+| `get_garmin_hrv_summaries` | `getHrvSummaries` | 每日 HRV 摘要；`{"startDate":"2026-10-09","endDate":"2026-10-15"}` |
+| `get_garmin_stress` | `getStressData` | 每日压力与可用的 Body Battery 完整时序；`{"date":"2026-10-15"}` |
+| `get_garmin_stress_summaries` | `getStressSummaries` | 每日压力摘要；`{"startDate":"2026-10-09","endDate":"2026-10-15"}` |
+| `get_garmin_body_battery` | `getBodyBattery` | 每日身体电量报告及完整时序；`{"startDate":"2026-10-09","endDate":"2026-10-15"}` |
+| `get_garmin_training_readiness` | `getTrainingReadiness` | 所有训练准备度快照与恢复因素；`{"date":"2026-10-15"}` |
+| `get_garmin_daily_training_status` | `getDailyTrainingStatus` | 每日训练状态、急性/慢性负荷，保留所有返回设备；`{"date":"2026-10-15"}` |
+| `get_garmin_training_status` | `getTrainingStatus` | 聚合训练状态、VO2 max 与负荷；`{"date":"2026-10-15"}` |
+| `get_garmin_training_load_balance` | `getTrainingLoadBalance` | 截至指定日期的四周训练负荷平衡；`{"date":"2026-10-15"}` |
+| `get_garmin_max_metrics` | `getMaxMetrics` | 每日最大指标，包括可用的 VO2 max；`{"date":"2026-10-15"}` |
+| `get_garmin_max_metrics_range` | `getMaxMetricsRange` | 通过原生范围请求获取最大指标；`{"startDate":"2026-10-09","endDate":"2026-10-15"}` |
+| `get_garmin_race_predictions` | `getRacePredictions` | 当前认证账号的最新比赛预测；`{}` |
+| `get_garmin_race_predictions_range` | `getRacePredictionsRange` | 比赛预测历史；`{"startDate":"2026-10-09","endDate":"2026-10-15","aggregation":"daily"}` |
+
+每日工具使用 `date`，默认主机本地当天日期。范围工具使用包含首尾的 `startDate`、
+`endDate`；开始日期默认今天，结束日期默认等于开始日期。比赛预测历史的
+`aggregation` 支持 `daily`（默认）和 `monthly`，最大日历跨度 366 天。所有日期必须是
+真实的 `YYYY-MM-DD` 日历日期。输出保留 SDK 原始响应字段、设备映射、未知字段与完整
+时序；`null` 或空数组属于正常的无数据结果，不会被当作认证失败。
+
 Harness 配置多个账号时，访问账号数据的工具调用需添加 `account` 参数，值为设置页
 显示的稳定账号 ID；只有一个账号时可省略。显示别名帮助识别账号，区域决定 Garmin
-服务，两者都不会替代账号 ID；同一区域可以配置多个账号。
+服务，两者都不会替代账号 ID；同一区域可以配置多个账号。上述恢复工具也遵循此规则，
+例如 `{"account":"personal","date":"2026-10-15"}`。独立 MCP 使用该进程配置的账号，
+通过选择对应的 MCP 服务器区分账号，不接收工具级 `account` 参数。
 
 创建训练采用两次调用流程。首次调用只返回预览和一次性
 `confirmationId`；用户确认未更改的预览后，再使用相同训练定义、
@@ -818,9 +848,9 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-MCP 服务器通过标准协议暴露与 dsh 插件**相同的 10 个工具及参数语义**：运动记录、
-睡眠、步数、心率、体重、训练库模板、个人资料、跑步技能、本地 FIT 下载，以及训练
-预览/创建。任何 AI 可调用工具都不接收密码/MFA，也不导出 Session Token；浏览器认证
+当前开发版 MCP 服务器通过标准协议暴露与 dsh 插件**相同的 23 个工具及日期语义**：
+原有 10 个工具加上前述 13 个恢复与训练工具。独立 MCP 每个进程使用配置的账号，
+DSH 则支持工具级 `account` 选择。任何 AI 可调用工具都不接收密码/MFA，也不导出 Session Token；浏览器认证
 通过对话之外的本机 URL elicitation 完成，完成后由用户重试原工具。
 
 ---
@@ -946,6 +976,96 @@ npm run dev
 npm test
 ```
 
+### 自行维护的 SDK 依赖
+
+插件现已真正使用 **`@likenttt/garmin-connect@1.7.0`**，代码位于
+[Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect)，已推送至 GitHub。
+插件的依赖清单和锁文件固定到
+[提交 `7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b`](https://github.com/Likenttt/garmin-connect/commit/7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b)：
+
+```json
+{
+  "dependencies": {
+    "garmin-connect": "git+https://github.com/Likenttt/garmin-connect.git#7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b"
+  }
+}
+```
+
+代码继续使用 `garmin-connect` 导入别名，实际安装包名是
+`@likenttt/garmin-connect`。通过 **npm 干净安装源码**，已能按照提交的清单与锁文件
+选中维护版实现；禁用 SSH 后的 `npm ci`、编译和 SDK 检查均已通过。这条路径需要
+Git、通过 HTTPS 访问 GitHub，并允许执行 SDK 的 `prepare` 构建，不需要用户提供
+GitHub SSH key。首次从源码安装时不要使用 `--ignore-scripts`。
+
+**Harness 桌面端默认安装器目前仍拒绝这项依赖。** pnpm 11 首先通过
+`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 禁止 Git 依赖构建；即使仅允许该精确提交
+构建，仍会因为禁止 Git 子依赖而报 `ERR_PNPM_EXOTIC_SUBDEP`。这些策略没有被关闭。
+本机桌面端当前运行的是开发覆盖文件，正式插件安装记录仍为 `0.1.13`。
+
+SDK 尚未单独发布 npm 包。下一次正式分发应先把
+`@likenttt/garmin-connect@1.7.0` 发布到官方 npm，再把 Git 来源替换为精确的
+`npm:@likenttt/garmin-connect@1.7.0` 别名，保留现有导入并去掉 Git 构建要求。
+这两步尚未执行，因此当前源码还不具备桌面端常规分发条件。
+
+```bash
+npm ci --registry=https://registry.npmjs.org/
+npm run build
+npm run check:sdk
+```
+
+`check:sdk` 是发布门槛：依赖来源必须是自行维护仓库的完整提交 SHA，或未来正式发布
+的精确 scoped npm 别名；同时检查已安装包的名称、仓库，以及其真实原型上是否存在
+全部 13 个新增方法。该检查不请求 Garmin，也不加载凭证。退回上游 registry 包、
+使用浮动分支或缺少方法都会失败。`prepublishOnly` 会执行编译和此检查，
+`pack:smoke` 也会在检查 npm 包内容前执行两者。
+
+### 恢复接口发布检查（开发版）
+
+2026-10-16，干净源码安装后的插件 **42 套、992/992 测试通过**，其中包含本轮新增
+的 **95 项开发测试**；自行维护的 SDK 测试 **59/59 通过**，SDK 对外类型声明的严格
+检查也已通过。禁用 SSH 后的干净 `npm ci`、编译和 `check:sdk` 均已通过。这些本地
+开发验证与旧版 npm 发布报告分开记录；桌面安装器禁止 Git 子依赖的问题仍需通过
+正式 npm 依赖解决。新增插件工具与独立 scoped SDK 均尚未发布到 npm。已完成检查及
+剩余分发步骤见[当前发布就绪报告](docs/testing/health-release-readiness-2026-10-16.md)。
+
+源码中的 `scripts/check-health-release.cjs` 可以用已有 DI session 检查安装好的开发
+构建。先编译插件并通过 `npm run check:sdk`，再创建包含 1 至 5 个账号的私密 JSON
+manifest；以下邮箱与路径均为占位示例：
+
+```json
+[
+  {
+    "accountId": "personal",
+    "username": "runner@example.com",
+    "region": "global",
+    "sessionTokenFile": "/private/example/session.json"
+  }
+]
+```
+
+manifest 必须由当前用户持有，权限为 `0600`；在私密目录中用 `umask 077` 创建。
+`accountId` 不可重复，`region` 为 `cn` 或 `global`。session 文件仍须通过插件的私密
+文件、账号和区域校验。运行时先停用其他读取同一 session 的进程；自动刷新可能更新
+原 session 文件。
+
+```bash
+npm run build
+chmod 600 /private/example/accounts.json
+node scripts/check-health-release.cjs \
+  --plugin-dir "$PWD" \
+  --accounts-file /private/example/accounts.json \
+  --date 2026-10-15 \
+  --start-date 2026-10-09 \
+  --report /private/example/health-release-report.json
+```
+
+五个参数均必填，路径须为绝对路径，报告目标文件须尚不存在。脚本通过编译后的插件
+使用真实 DI 认证和 Garmin 只读请求，执行 DSH 注册的工具；随后校验 MCP 共 23 个
+工具，通过内存 MCP 连接调用 13 个新工具，检查结果一致性与缓存复用，并回归个人
+资料、运动记录和睡眠工具。原始响应仅留在内存，终端与报告只输出状态、结构/数量及
+请求元信息。该检查不覆盖 Harness 桌面 UI，也不会重新发起浏览器登录；任一检查
+失败时进程以非零状态退出。
+
 ### 目录结构
 
 ```
@@ -965,6 +1085,7 @@ src/
 ├── windows-private-acl.ts # Windows 当前用户 SID/DACL 私有化
 ├── fit-export.ts     # 从原始 ZIP 限量、无覆盖地提取 FIT
 ├── tool-service.ts   # dsh 与 MCP 共用的工具行为
+├── health-tools.ts   # 恢复与训练工具的共用定义及客户端约定
 ├── mcp.ts            # 独立 MCP 适配器（用于 Codex/Claude Code 等客户端）
 ├── mcp-auth.ts       # URL elicitation、完成通知与回退说明
 ├── mcp-shutdown.ts   # MCP 认证的有界 stdio/信号清理
@@ -972,7 +1093,7 @@ src/
 │   ├── running-skills.ts  # 8 种课型 + 4 套精简训练理念
 │   └── workout-schema.ts  # 训练定义 → Garmin JSON 构建器
 ├── tools/
-│   └── index.ts      # 工具定义与注册（10 个工具）
+│   └── index.ts      # 工具定义与注册（开发版 23 个工具）
 └── utils/
     ├── errors.ts      # 安全错误输出与上游日志脱敏
     ├── cache.ts       # 内存 TTL/LRU 缓存与 single-flight 刷新
@@ -988,7 +1109,8 @@ src/
 本包是一个标准的 dsh bundle:`package.json` 声明了 `dsh.bundle.patch` → `cordis.patch.yml`,`files` 会带上编译后的 `lib/`、`.env.example`、中英 README 和 patch 文件。
 
 ```bash
-npm run build   # prepublishOnly 也会自动执行
+npm run build
+npm run check:sdk   # prepublishOnly 会在发布前执行两者
 npm publish --registry=https://registry.npmjs.org/ --access public
 ```
 
@@ -1047,7 +1169,7 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugi
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — AI 代理编码运行时
 - [Cordis](https://github.com/cordiverse/cordis) — 插件生命周期框架
-- [garmin-connect](https://www.npmjs.com/package/garmin-connect) — 非官方 Garmin Connect Node.js 客户端
+- [Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect) — 当前开发版实际使用的自行维护 TypeScript SDK，基于[原上游客户端](https://github.com/Pythe1337N/garmin-connect)
 - 感谢 Zhitao 的 [DailySync](https://dailysync.cn) 所带来的启发
 
 <sub>产品名称和图标归各自权利人所有，仅用于说明互操作兼容性。</sub>

@@ -66,9 +66,10 @@
     "auth:canary": "node lib/auth-cli.js canary",
     "preauth:serve": "npm run build",
     "auth:serve": "node lib/auth-cli.js serve --open",
-    "pack:smoke": "npm pack --dry-run",
-    "prepublishOnly": "npm run build",
-    "prepare": "npm run build"
+    "pack:smoke": "npm run build && npm run check:sdk && npm pack --dry-run --ignore-scripts",
+    "prepublishOnly": "npm run build && npm run check:sdk",
+    "prepare": "npm run build",
+    "check:sdk": "node scripts/check-sdk-dependency.cjs"
   },
   "keywords": [
     "deepseek",
@@ -111,7 +112,7 @@
     "axios-cookiejar-support": "5.0.5",
     "dotenv": "^16.4.0",
     "fflate": "0.8.3",
-    "garmin-connect": "1.6.2",
+    "garmin-connect": "git+https://github.com/Likenttt/garmin-connect.git#7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b",
     "tough-cookie": "5.1.2",
     "zod": "^3.25.76"
   },

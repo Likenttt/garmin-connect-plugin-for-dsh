@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Add 13 recovery and training tools to both DSH and MCP, bringing the development total to 23: daily HRV and summaries, daily stress and summaries, Body Battery, training readiness, daily and aggregated training status, training load balance, daily and range max metrics, and latest and range race predictions. These correspond directly to the maintained SDK's 13 new methods.
+- Support explicit calendar dates, native inclusive date ranges, and daily/monthly race prediction history with a maximum 366-day calendar span. Preserve complete response fields, all returned devices and time series, unknown fields, and normal `null`/empty-array results.
+- Reuse existing account selection, session refresh, cache, timeout, retry, and authentication-change isolation for the new tools. DSH uses stable account IDs; standalone MCP uses its configured process account.
+- Add `scripts/check-health-release.cjs` for read-only checks against existing private DI session files, covering DSH execution, all 23 MCP registrations, new-tool response parity/cache reuse, and profile/activity/sleep regressions. Its private account manifest and report use mode `0600`; raw health data and credentials are not printed.
+- Add `npm run check:sdk` and 20 release-gate unit cases. The gate requires a maintained Git dependency pinned to a full SHA or a future exact scoped npm alias, verifies the installed SDK's package/repository identity and all 13 methods, and runs after the build in `prepublishOnly` and `pack:smoke`.
+
+### Changed
+- Replace the upstream SDK dependency with `@likenttt/garmin-connect@1.7.0` from `Likenttt/garmin-connect`, pinned in the dependency manifest and lockfile to `git+https://github.com/Likenttt/garmin-connect.git#7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b`. Retain `garmin-connect` as the import alias. The maintained source is pushed to GitHub, and clean npm source installation selects it from the committed dependency records.
+- Until the standalone scoped SDK is published to npm, source installation uses GitHub HTTPS and the SDK's `prepare` build. It requires Git and build scripts, without requiring a GitHub SSH key. Normal desktop distribution remains blocked by pnpm 11's Git preparation and exotic-subdependency policies; the next release must first publish the SDK to official npm and then switch to `npm:@likenttt/garmin-connect@1.7.0`. Neither step has been performed.
+
+### Development verification
+- On 2026-10-16, clean npm source installation passed all 42 suites and 992/992 plugin tests, including 95 new development tests, plus 59/59 maintained SDK tests and the SDK's strict public-type check. Clean `npm ci`, build and `check:sdk` also passed with SSH disabled. These development checks are separate from historical release reports and do not assert a fresh browser login or a completed official desktop installation.
+- The default desktop installation rejected the Git dependency with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`, then `ERR_PNPM_EXOTIC_SUBDEP` after allowing preparation for the exact commit. The policies remain enabled. Local desktop files currently run as a development override while the official installation record remains `0.1.13`.
+- The new plugin tools and standalone scoped SDK remain unreleased on npm. See the [release-readiness report](docs/testing/health-release-readiness-2026-10-16.md) for verification evidence and the remaining npm distribution step.
+
 ## [0.1.13] - 2026-10-05
 
 ### Fixed

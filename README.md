@@ -62,9 +62,12 @@ This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-
 
 ### Registered Tools
 
-The plugin registers **10 tools**. Eight return Garmin data without writing;
+The development checkout registers **23 tools**. Twenty-one provide queries or local advice without writing;
 `download_garmin_activity_fit` writes one local file on the MCP/dsh host, and
 `create_garmin_workout` changes the user's Garmin workout library.
+The 13 recovery and training tools below are unreleased. This checkout now
+depends on the maintained SDK from a fixed Git commit; see
+[Maintained SDK dependency](#maintained-sdk-dependency).
 
 | Tool | Description | Example Args |
 |---|---|---|
@@ -79,10 +82,41 @@ The plugin registers **10 tools**. Eight return Garmin data without writing;
 | `download_garmin_activity_fit` | Download an activity's original archive and safely extract its single FIT file to the account directory under the configured host parent | `{"activityId": 123456789}` |
 | `create_garmin_workout` | Preview a structured workout; create it only after explicit confirmation | `{"name": "Threshold 3×8min", "steps": [...]}` |
 
+#### Recovery and training tools (unreleased)
+
+These tools are shared by DSH and MCP and map directly to the maintained SDK:
+
+| Tool | SDK method | Data and example arguments |
+|---|---|---|
+| `get_garmin_hrv` | `getHrvData` | Daily HRV status, baseline and overnight readings; `{"date":"2026-10-15"}` |
+| `get_garmin_hrv_summaries` | `getHrvSummaries` | Daily HRV summaries; `{"startDate":"2026-10-09","endDate":"2026-10-15"}` |
+| `get_garmin_stress` | `getStressData` | Daily stress and available Body Battery time series; `{"date":"2026-10-15"}` |
+| `get_garmin_stress_summaries` | `getStressSummaries` | Daily stress summaries; `{"startDate":"2026-10-09","endDate":"2026-10-15"}` |
+| `get_garmin_body_battery` | `getBodyBattery` | Daily Body Battery reports and time series; `{"startDate":"2026-10-09","endDate":"2026-10-15"}` |
+| `get_garmin_training_readiness` | `getTrainingReadiness` | Every readiness snapshot and recovery factor; `{"date":"2026-10-15"}` |
+| `get_garmin_daily_training_status` | `getDailyTrainingStatus` | Daily status and acute/chronic load across returned devices; `{"date":"2026-10-15"}` |
+| `get_garmin_training_status` | `getTrainingStatus` | Aggregated training status, VO2 max and load; `{"date":"2026-10-15"}` |
+| `get_garmin_training_load_balance` | `getTrainingLoadBalance` | Four-week load balance ending on a date; `{"date":"2026-10-15"}` |
+| `get_garmin_max_metrics` | `getMaxMetrics` | Daily max metrics, including available VO2 max; `{"date":"2026-10-15"}` |
+| `get_garmin_max_metrics_range` | `getMaxMetricsRange` | Max metrics through a native range request; `{"startDate":"2026-10-09","endDate":"2026-10-15"}` |
+| `get_garmin_race_predictions` | `getRacePredictions` | Latest predictions for the authenticated account; `{}` |
+| `get_garmin_race_predictions_range` | `getRacePredictionsRange` | Prediction history; `{"startDate":"2026-10-09","endDate":"2026-10-15","aggregation":"daily"}` |
+
+Daily tools use `date`, defaulting to the host's current local date. Range tools
+use inclusive `startDate` and `endDate`; the start defaults to today and the end
+defaults to the start. Race prediction history accepts `aggregation: "daily"`
+(default) or `"monthly"`, with a maximum calendar span of 366 days. Inputs must
+be real calendar dates in `YYYY-MM-DD` format. The SDK's response fields, device
+maps, unknown fields and complete time series are retained. `null` and empty
+arrays are valid no-data results, not authentication failures.
+
 When multiple Harness accounts are configured, add the stable account ID shown
 in settings as the tool's `account` argument. With only one configured account,
 the parameter can be omitted. Display aliases and regions help identify
-accounts but do not change their IDs.
+accounts but do not change their IDs. This also applies to all recovery tools,
+for example `{"account":"personal","date":"2026-10-15"}`. Standalone MCP uses
+the account configured for its process; select the corresponding MCP server
+instead of adding an `account` argument.
 
 Workout creation is a two-call flow. The preview response includes a one-time
 `confirmationId`; after the user approves the unchanged preview, call the tool
@@ -941,9 +975,10 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-The MCP server exposes the same **10 tools and argument semantics** as the dsh
-plugin: activities, sleep, steps, heart rate, weight, workout-library templates,
-profile, running skills, local FIT download, and workout preview/creation.
+The development MCP server exposes the same **23 tools and date semantics** as
+the dsh plugin: the original ten tools plus the 13 recovery and training tools
+listed above. Account selection differs: each standalone MCP process uses its
+configured account, while DSH accepts an explicit `account` selector.
 No AI-callable tool accepts a password/MFA code or exports a session token.
 Browser authentication is an out-of-band local URL elicitation, and the user
 must retry the original tool after completion.
@@ -1080,6 +1115,113 @@ npm run dev
 npm test
 ```
 
+### Maintained SDK dependency
+
+The plugin now uses **`@likenttt/garmin-connect@1.7.0`**, maintained in
+[Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect). Its source
+has been pushed to GitHub. Both the dependency manifest and lockfile pin
+[commit `7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b`](https://github.com/Likenttt/garmin-connect/commit/7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b):
+
+```json
+{
+  "dependencies": {
+    "garmin-connect": "git+https://github.com/Likenttt/garmin-connect.git#7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b"
+  }
+}
+```
+
+`garmin-connect` remains the import alias; the installed package identifies
+itself as `@likenttt/garmin-connect`. A clean **npm source installation** now
+selects the maintained implementation from the committed manifest and lockfile.
+It passed `npm ci`, build and SDK checks with SSH disabled. This route requires
+Git, access to GitHub over HTTPS, and permission to run the SDK's `prepare`
+build; it does not require a GitHub SSH key. Do not use `--ignore-scripts` for a
+fresh source install.
+
+**The default Harness desktop installer does not yet accept this dependency.**
+Its pnpm 11 policy first rejects Git dependency preparation with
+`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`; allowing the exact commit's build still
+leaves `ERR_PNPM_EXOTIC_SUBDEP` because Git subdependencies are blocked. These
+policies have not been disabled. The local desktop currently runs development
+files; its official plugin installation record remains `0.1.13`.
+
+The standalone SDK has not been published to npm. The next supported release
+route is to publish `@likenttt/garmin-connect@1.7.0` to the official npm registry,
+then replace the Git source with the exact
+`npm:@likenttt/garmin-connect@1.7.0` alias. This preserves existing imports and
+removes the Git build requirement. Those publication and dependency changes
+have not been performed, so the current checkout is not ready for normal
+desktop distribution.
+
+```bash
+npm ci --registry=https://registry.npmjs.org/
+npm run build
+npm run check:sdk
+```
+
+`check:sdk` is a release gate: it requires the maintained Git repository with
+a full commit SHA, or a future exact scoped npm alias; checks the installed
+package name and repository; and verifies all 13 methods on the installed SDK
+prototype. It makes no Garmin requests and loads no credentials. A fallback to
+the original registry SDK, a floating Git branch, or missing methods fails the
+gate. `prepublishOnly` runs the build and this check; `pack:smoke` runs them
+before inspecting the npm tarball.
+
+### Recovery release checks (development)
+
+On 2026-10-16, the clean source installation passed **992/992 plugin tests in
+42 suites**, including **95 new development tests**, plus **59/59 maintained
+SDK tests** and the SDK's strict public-type check. The clean `npm ci` run,
+build and `check:sdk` also passed with SSH disabled. These are local development
+results, separate from the historical npm release reports; they do not resolve
+the desktop installer's Git subdependency restriction. The new plugin tools
+and standalone scoped SDK have not been released on npm. See the
+[current release-readiness report](docs/testing/health-release-readiness-2026-10-16.md)
+for the completed checks and remaining distribution step.
+
+To test an installed development build against existing DI sessions, use
+`scripts/check-health-release.cjs` from this source checkout. First build the
+plugin and pass `npm run check:sdk`. Create a private JSON account manifest
+with one to five entries (the address and paths below are placeholders):
+
+```json
+[
+  {
+    "accountId": "personal",
+    "username": "runner@example.com",
+    "region": "global",
+    "sessionTokenFile": "/private/example/session.json"
+  }
+]
+```
+
+The manifest must belong to the current user and have mode `0600`; create it
+under `umask 077` in a private directory. Each `accountId` must be unique; region
+is `cn` or `global`. Session files must already pass the plugin's private-file
+and account/region checks. Stop other processes using the same session while
+running the check: automatic token refresh may update the original session.
+
+```bash
+npm run build
+chmod 600 /private/example/accounts.json
+node scripts/check-health-release.cjs \
+  --plugin-dir "$PWD" \
+  --accounts-file /private/example/accounts.json \
+  --date 2026-10-15 \
+  --start-date 2026-10-09 \
+  --report /private/example/health-release-report.json
+```
+
+All five flags are required; path arguments must be absolute and the report
+destination must not already exist. The runner uses real DI authentication and
+read-only Garmin requests through the compiled plugin's DSH tool registry. It
+also checks all 23 MCP registrations, calls the 13 new tools through an
+in-memory MCP connection, verifies response parity and cache reuse, and checks
+profile/activity/sleep regressions. Raw responses remain in memory; terminal
+and report output contain only status, response shape/count and request
+metadata. It does not test the Harness desktop UI or perform a fresh browser
+login. A nonzero exit indicates a failed check.
+
 ### Project Structure
 
 ```
@@ -1099,6 +1241,7 @@ src/
 ├── windows-private-acl.ts # Owner-only Windows SID/DACL enforcement
 ├── fit-export.ts     # Bounded, non-overwriting FIT extraction from original ZIP
 ├── tool-service.ts   # Shared tool behavior for dsh and MCP
+├── health-tools.ts   # Shared recovery/training tool definitions and client contract
 ├── mcp.ts            # Standalone MCP adapter for Codex/Claude Code/other clients
 ├── mcp-auth.ts       # URL elicitation, completion notification, and fallback
 ├── mcp-shutdown.ts   # Bounded stdio/signal cleanup for MCP auth
@@ -1106,7 +1249,7 @@ src/
 │   ├── running-skills.ts  # 8 workout types + 4 compact training philosophies
 │   └── workout-schema.ts  # Workout definition → Garmin JSON builder
 ├── tools/
-│   └── index.ts      # Tool definitions & registration (10 tools)
+│   └── index.ts      # Tool definitions & registration (23 tools in development)
 └── utils/
     ├── errors.ts      # Safe public errors and upstream-log redaction
     ├── cache.ts       # In-memory TTL/LRU cache with single-flight refresh
@@ -1122,7 +1265,8 @@ src/
 The package is a standard dsh bundle: `package.json` declares `dsh.bundle.patch` → `cordis.patch.yml`, and `files` ships the compiled `lib/`, `.env.example`, both READMEs, and the patch file.
 
 ```bash
-npm run build   # prepublishOnly also runs this automatically
+npm run build
+npm run check:sdk   # prepublishOnly runs both before publication
 npm publish --registry=https://registry.npmjs.org/ --access public
 ```
 
@@ -1181,7 +1325,7 @@ Distribution notes:
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — the agentic coding runtime
 - [Cordis](https://github.com/cordiverse/cordis) — the plugin lifecycle framework
-- [garmin-connect](https://www.npmjs.com/package/garmin-connect) — unofficial Garmin Connect client for Node.js
+- [Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect) — the maintained TypeScript SDK used by this development version, derived from [the upstream client](https://github.com/Pythe1337N/garmin-connect)
 - Thanks to Zhitao and [DailySync](https://dailysync.cn) for the inspiration
 
 <sub>Product names and logos belong to their respective owners and are shown only to describe interoperability.</sub>
