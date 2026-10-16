@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Integrate recovery APIs into the bundled Garmin skill and a focused HRV/recovery reference: discover actual tool schemas, choose summaries or daily detail by task, handle account/date/device differences and missing data, and document skill/MCP reloads. Extend DSH/MCP coaching instructions with the same optional data selection while preserving intake and avoiding automatic recovery queries.
 - Add 13 recovery and training tools to both DSH and MCP, bringing the development total to 23: daily HRV and summaries, daily stress and summaries, Body Battery, training readiness, daily and aggregated training status, training load balance, daily and range max metrics, and latest and range race predictions. These correspond directly to the maintained SDK's 13 new methods.
 - Support explicit calendar dates, native inclusive date ranges, and daily/monthly race prediction history with a maximum 366-day calendar span. Preserve complete response fields, all returned devices and time series, unknown fields, and normal `null`/empty-array results.
 - Reuse existing account selection, session refresh, cache, timeout, retry, and authentication-change isolation for the new tools. DSH uses stable account IDs; standalone MCP uses its configured process account.

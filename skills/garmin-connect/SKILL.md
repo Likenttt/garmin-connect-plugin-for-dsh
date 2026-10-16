@@ -1,7 +1,8 @@
 ---
 name: garmin-connect
-description: 在 WorkBuddy 中下载并配置 dsh-plugin-garmin-connect npm 包，通过 MCP 工具分析 Garmin 活动、睡眠、步数、心率、体重、训练库、跑步趋势和有限的恢复信息，也可按用户要求创建 Garmin 训练或下载活动 FIT 文件。适用于 Garmin 配置、回顾、比较和明确授权的写操作；不用于医疗诊断。
-agent_created: true
+description: 使用已连接的 Garmin DSH/MCP 工具分析活动、睡眠、心率、HRV、压力、Body Battery、训练准备度和训练趋势，也可在 WorkBuddy 配置插件、按用户要求创建训练或下载 FIT。适用于 Garmin 数据查询、恢复分析和跑步计划；不用于医疗诊断。
+metadata:
+  agent_created: "true"
 ---
 
 # Garmin Connect
@@ -15,7 +16,14 @@ agent_created: true
 
 ## 连接工具
 
-首先检查当前 WorkBuddy 会话能否使用下方列出的 Garmin MCP 工具。
+首先检查当前会话实际暴露的 Garmin 工具及其参数 schema。已连接的 DSH 或
+MCP 服务可直接使用；WorkBuddy 的初次连接按下列参考文档配置。
+
+恢复与训练工具的可用性以当前会话为准。仅升级独立 SDK 不会给旧插件增加工具，
+更新 skill 也不会注册工具。查询 HRV、压力、Body Battery、训练准备度、负荷、
+VO₂ max 或比赛预测时，读取
+[references/recovery-analysis.md](references/recovery-analysis.md)，按用户的问题
+选择工具和所需日期，不按插件版本号猜测功能。
 
 - 如果工具不可用，读取
   [references/workbuddy-setup.md](references/workbuddy-setup.md)。仅下载软件包
@@ -36,8 +44,10 @@ agent_created: true
   仍会显示 `127.0.0.1`，因此不要声称用户可仅凭地址栏独立验证 iframe 来源。
   如果 Garmin 表单缺失或被拦截，立即停止输入。
 
-用户没有指定账号时，使用已配置的默认 Garmin 服务。如果多个账号可能明显
-影响答案且无法确定默认账号，询问账号别名；不要合并不同账号的数据。
+DSH 多账号调用使用设置页中的稳定账号 ID 作为 `account`；别名用于识别账号，
+地区不是账号 ID。MCP 使用对应服务进程配置的账号，不向其工具添加 `account`。
+用户没有指定账号时，使用明确的默认账号或服务；有歧义时确认账号别名，再映射
+到该客户端的账号选择方式。同一份趋势分析使用同一账号。
 
 ## 获取最少必要数据
 
@@ -52,12 +62,19 @@ agent_created: true
 - `get_garmin_profile`
 - `get_running_skill_advice`
 
+可用时，恢复与训练数据还包括 `get_garmin_hrv`、`get_garmin_hrv_summaries`、
+压力、Body Battery、训练准备度、训练状态、负荷平衡、Max Metrics 和比赛预测
+工具；精确名称和调用示例见
+[恢复分析参考](references/recovery-analysis.md)。
+
 根据用户的问题选择工具，不要一次获取所有数据。按照用户 Garmin 账号或本地
 日历时区，把相对日期换算成明确的 `YYYY-MM-DD`。确认是否需要包含尚未结束的
-当天；否则优先使用完整日历日，并说明起止日期均包含在内。超过 30 天的范围
-应拆成互不重叠、每批最多 30 天的数据，并标注合并后的总范围。
+当天；否则优先使用完整日历日，并说明起止日期均包含在内。睡眠、步数、心率、
+体重等原有范围工具超过 30 天时分批查询。新增恢复工具按其 schema 使用原生
+范围；比赛预测历史的首尾日期差最多 366 天，不给其他恢复范围工具套用 30 天
+上限。较长时序按问题缩小范围，避免无必要地逐日拉取夜间读数。
 
-查询活动时默认使用 `full`，保留 Garmin 活动列表中可用的扩展字段；圈数和分段摘要只在
+查询活动时默认显式传入 `detail="full"`，保留 Garmin 活动列表中可用的扩展字段；圈数和分段摘要只在
 Garmin 提供时出现。若用户希望减少输出，可显式指定 `detail="compact"`。
 `full` 可能包含精确路线或位置，应向用户说明。小表格或摘要足以回答时，不要
 复述原始响应。
@@ -76,8 +93,10 @@ Garmin 提供时出现。若用户希望减少输出，可显式指定 `detail="
 也不要把 Garmin 估算值当成医学结论。出现警示症状或异常测量时，应建议降低
 训练强度，并在适当情况下寻求专业医疗帮助。
 
-本插件未提供 HRV 状态、Body Battery、压力、训练准备度、恢复时间或训练负荷
-工具。睡眠和静息心率趋势只能作为有限的恢复参考，不能称为完整恢复评分。
+HRV 趋势优先使用摘要，再按需查询单日的基线和夜间读数；当天训练决策结合可用的
+训练准备度、睡眠、近期活动与用户感受。按参考文档处理多个设备、多个准备度
+快照和空数据。工具缺失、正常无数据和认证失败分别处理；缺少 HRV 时只说明现有
+数据能支持的结论，不从心率推算 HRV，也不自行合成恢复评分。
 
 解释训练方法时，调用 `get_running_skill_advice` 并设置 `mode="explain"`。
 提供个性化建议或计划时，使用 `mode="personalized"`，收集工具返回的全部缺失

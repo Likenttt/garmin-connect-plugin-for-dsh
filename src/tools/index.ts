@@ -330,7 +330,12 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
       'training background, availability, health/recovery constraints, and preferred load pattern ' +
       '(steady, clearly separated hard/easy, or mixed), including quality-session and intensity-guidance preferences. ' +
       'If warning symptoms are reported, stop planning and follow the tool\'s medical-clearance guidance. Never guess missing answers. ' +
-      'Recent Garmin running activities can supplement but never replace the intake. ' +
+      'Recent Garmin running activities and recovery metrics can supplement but never replace the intake. ' +
+      'Use only tools and schemas actually available: HRV trends via get_garmin_hrv_summaries, ' +
+      'daily HRV details via get_garmin_hrv; readiness decisions combine get_garmin_training_readiness ' +
+      'with sleep, recent activities, and subjective state, adding stress, Body Battery, or training status as needed. ' +
+      'Fetch only relevant metrics, keep calls on one stable account ID, and never set intensity from one reading or score. ' +
+      'Distinguish unavailable tools, empty data, and authentication failures. ' +
       'Concept explanations and intake questions do not require an account.',
     parameters: {
       type: 'object',

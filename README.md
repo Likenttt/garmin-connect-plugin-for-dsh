@@ -886,6 +886,14 @@ to `~/.workbuddy/skills/garmin-connect/`. If the skill is already installed,
 update that installed copy as well; upgrading the npm package alone does not
 update it. Reload WorkBuddy's skills and MCP service, then start a new session.
 
+The development skill includes
+[`references/recovery-analysis.md`](skills/garmin-connect/references/recovery-analysis.md)
+for HRV trends, readiness, stress, Body Battery, load, and performance queries.
+It selects tools from the connected session's actual schemas; updating the
+skill or standalone SDK does not add the new tools to an older plugin. DSH and
+MCP coaching guidance is also returned by `get_running_skill_advice`; the host
+does not automatically load this skill's Markdown files.
+
 The skill can use `create_garmin_workout` on request: preview the workout first,
 then create it after the user confirms the preview. To download a requested
 activity with `download_garmin_activity_fit`, set `GARMIN_FIT_DOWNLOAD_DIR` to

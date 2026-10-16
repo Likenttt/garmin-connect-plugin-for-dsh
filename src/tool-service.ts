@@ -441,6 +441,11 @@ export class GarminToolService {
           '每个调整周期只改变有限变量，不同时明显增加跑量、跑频、长跑和高强度。',
           '默认不安排双阈值；质量课必须受控、可恢复，并写明降级与停止规则。',
           '若用户描述当前疼痛、疾病或心血管健康警示症状，不安排高强度训练；建议先取得医疗专业人员许可，但不要自行诊断。',
+          '按当前会话实际提供的工具和参数补充 Garmin 恢复数据，不要根据插件版本号假定工具存在，也不要一次查询所有指标。DSH 后续调用使用同一账号的稳定 account ID；MCP 使用该账号对应的服务器或当前进程，不混用不同账号数据。',
+          '分析 HRV 趋势时按问题涉及的日期调用 get_garmin_hrv_summaries；需要单日基线、状态或夜间读数时再调用 get_garmin_hrv。先核对日期、数据覆盖和设备来源，不能把单次 HRV 波动直接解释为可以或不能做强度。',
+          '判断当天能否做强度时，结合 get_garmin_training_readiness、get_garmin_sleep、get_garmin_activities 和用户主观疲劳、疼痛等状态；有具体疑问时再补 get_garmin_stress、get_garmin_body_battery 或 get_garmin_daily_training_status。某个分数不能自动决定训练强度。',
+          '评估训练负荷或表现时，按需选择 get_garmin_training_status、get_garmin_training_load_balance、get_garmin_max_metrics 或 get_garmin_race_predictions；需要表现趋势时选择 get_garmin_max_metrics_range 或 get_garmin_race_predictions_range。Garmin 估算和预测不能替代当前真实成绩，也不能直接转成目标训练配速。',
+          '区分当前未提供工具、返回空数据和认证失败；空数据不代表数值为零、恢复正常或状态差。说明缺失证据；认证失败时走账号登录流程。恢复指标不能替代用户目标、训练背景、可用时间、健康约束和主观状态，也不能跳过必需的个性化信息补问。',
           '计划必须服从可训练时间、伤病健康和恢复约束；安排 2–4 周复评，并根据完成率、RPE、疼痛、睡眠以及必要的比赛或计时测试更新，不能自动按目标配速升级。',
         ]
         : [
@@ -452,6 +457,11 @@ export class GarminToolService {
           'Change only a limited number of variables per adjustment cycle; do not simultaneously raise volume, frequency, long-run load, and intensity.',
           'Do not prescribe double threshold by default; quality work must be controlled and recoverable with downgrade and stop rules.',
           'If the athlete reports current pain, illness, or cardiovascular warning symptoms, do not prescribe hard training; advise medical clearance without diagnosing.',
+          'Use only Garmin tools and parameters actually available in the current session; do not infer availability from a plugin version or fetch every metric. Keep subsequent DSH calls on the same stable account ID; for MCP, use the server or current process for that account and never combine accounts.',
+          'For HRV trends, call get_garmin_hrv_summaries for the dates relevant to the question; add get_garmin_hrv only for daily baseline, status, or overnight readings. Check dates, coverage, and device source before interpreting changes; one HRV reading cannot decide whether hard training is appropriate.',
+          'For a decision about hard training today, combine get_garmin_training_readiness, get_garmin_sleep, get_garmin_activities, and the athlete\'s fatigue, pain, and other subjective state. Add get_garmin_stress, get_garmin_body_battery, or get_garmin_daily_training_status when a specific question calls for them; no single score automatically sets training intensity.',
+          'For load or performance questions, choose get_garmin_training_status, get_garmin_training_load_balance, get_garmin_max_metrics, or get_garmin_race_predictions as needed; choose get_garmin_max_metrics_range or get_garmin_race_predictions_range for performance trends. Garmin estimates and predictions cannot replace recent measured performance or directly set training pace.',
+          'Distinguish an unavailable tool, empty data, and an authentication failure. Empty data means neither zero nor good or poor recovery. State the missing evidence and use account login for authentication failures. Recovery metrics cannot replace goals, training background, availability, health constraints, or subjective state, and never bypass required personalized intake.',
           'Respect availability, injury, health, and recovery constraints; reassess in 2–4 weeks using completion rate, RPE, pain, sleep, and any needed race or time-trial update, never an automatic progression toward goal pace.',
         ]
       if (args.performanceBasis === 'no_recent_benchmark') {

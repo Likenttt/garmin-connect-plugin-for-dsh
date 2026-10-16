@@ -248,7 +248,14 @@ export function createMcpServer(
       'recommendation or plan. Personalized mode must collect goal, current performance and its ' +
       'basis, training background, availability, health/recovery constraints and warning-symptom ' +
       'status, plus load, quality-session, and intensity-guidance preferences before returning ' +
-      'planning material; missing fields become questions and warning symptoms stop planning.',
+      'planning material; missing fields become questions and warning symptoms stop planning. ' +
+      'Recent activities and recovery metrics supplement, never replace, intake. Use only tools and schemas ' +
+      'actually available: HRV trends via get_garmin_hrv_summaries and daily details via get_garmin_hrv; ' +
+      'readiness decisions combine get_garmin_training_readiness with sleep, recent activities, and subjective state, ' +
+      'adding stress, Body Battery, or training status as needed. Fetch only relevant metrics, use the server or ' +
+      'current process for the intended account, and never set intensity from one reading or score. ' +
+      'Distinguish unavailable tools, empty data, and authentication failures. ' +
+      'Concept explanations and intake questions do not require an account.',
     {
       mode: z.enum(RUNNING_ADVICE_MODES).describe(
         'Use explain for concepts only. Use personalized for any athlete-specific recommendation or plan.',

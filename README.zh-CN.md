@@ -768,6 +768,12 @@ session 文件；多个条目可共享同一个 FIT 父目录，“区域+邮箱
 也需要同步更新已安装副本；仅升级 npm 包不会自动更新技能。重新加载 WorkBuddy 的
 技能与 MCP 服务，再新开会话使用。
 
+开发版技能已加入
+[`references/recovery-analysis.md`](skills/garmin-connect/references/recovery-analysis.md)，
+用于 HRV 趋势、训练准备度、压力、Body Battery、负荷与表现查询。按当前会话实际工具
+及 schema 选择调用；单独更新技能或 SDK 不会给旧插件增加工具。DSH/MCP 的训练建议
+指导也已接入 `get_running_skill_advice`，宿主不会自动读取这份 Markdown 技能。
+
 技能可按用户请求调用 `create_garmin_workout`，先预览训练，经用户确认后创建。
 使用 `download_garmin_activity_fit` 下载指定活动时，需在 MCP 服务的 `env` 中设置
 `GARMIN_FIT_DOWNLOAD_DIR`，值为可信本地父目录的绝对路径。完整配置步骤见随包附带的
