@@ -112,7 +112,7 @@
     "axios-cookiejar-support": "5.0.5",
     "dotenv": "^16.4.0",
     "fflate": "0.8.3",
-    "garmin-connect": "git+https://github.com/Likenttt/garmin-connect.git#7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b",
+    "garmin-connect": "npm:@likenttt/garmin-connect@1.7.0",
     "tough-cookie": "5.1.2",
     "zod": "^3.25.76"
   },

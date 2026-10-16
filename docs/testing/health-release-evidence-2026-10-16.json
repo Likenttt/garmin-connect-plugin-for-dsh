@@ -7,7 +7,15 @@
     "repository": "git+https://github.com/Likenttt/garmin-connect.git",
     "gitCommit": "7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b",
     "resolvePath": "/Users/kent/.dsh/profiles/desktop/node_modules/garmin-connect/package.json",
-    "runtimeCodeMatchesLiveValidatedBuild": true
+    "runtimeCodeMatchesLiveValidatedBuild": true,
+    "publication": {
+      "status": "published",
+      "date": "2026-10-17",
+      "registry": "https://registry.npmjs.org/",
+      "version": "1.7.0",
+      "integrity": "sha512-P8oLO9ykOfceUlIDphO1Dw2be9wbmqtt32ojyPCgZQ55SJ2a53+eqVHCYZFM8dlbYXvgX7qdkG0/SJvCsYn5+g==",
+      "matchesValidatedTarball": true
+    }
   },
   "queryDate": "2026-10-15",
   "startDate": "2026-10-09",
@@ -448,18 +456,98 @@
     "sdkDependencyCheck": "passed",
     "testSuites": 42,
     "testsPassed": 992,
-    "testsFailed": 0
+    "testsFailed": 0,
+    "candidateSource": "historical-maintained-git-sha"
   },
   "desktopInstall": {
-    "kind": "local-development-overlay",
+    "kind": "official-cli-local-tarball",
+    "status": "passed",
+    "candidateVersion": "0.1.13",
+    "registeredPlugin": "file:/Users/kent/.codex/garmin-release-checks/2026-10-17/plugin-npm-candidate/dsh-plugin-garmin-connect-0.1.13.tgz",
+    "registry": "https://registry.npmjs.org/",
+    "ignoreScripts": true,
+    "exitCode": 0,
+    "verifiedAt": "2026-10-16T16:54:36.250Z",
     "dependencyCheck": {
       "ok": true,
-      "dependencySource": "maintained-git-sha",
+      "dependencySource": "scoped-npm-alias",
       "methodCount": 13,
       "missingMethodCount": 0,
       "errors": []
     },
-    "formalInstallBlockedBy": "ERR_PNPM_EXOTIC_SUBDEP",
-    "hostPoliciesMatchOriginal": true
+    "installedSdk": {
+      "name": "@likenttt/garmin-connect",
+      "version": "1.7.0",
+      "path": "/Users/kent/.dsh/profiles/desktop/node_modules/garmin-connect"
+    },
+    "sdkDistFilesMatch": 60,
+    "registryIntegrity": "sha512-P8oLO9ykOfceUlIDphO1Dw2be9wbmqtt32ojyPCgZQ55SJ2a53+eqVHCYZFM8dlbYXvgX7qdkG0/SJvCsYn5+g==",
+    "policyChanges": {
+      "minimumReleaseAgeExcludeAdded": [
+        "@likenttt/garmin-connect@1.7.0"
+      ],
+      "otherPolicyChanges": false
+    },
+    "developmentMarkerPresent": false,
+    "historicalGitInstall": {
+      "status": "blocked",
+      "errorCode": "ERR_PNPM_EXOTIC_SUBDEP",
+      "hostPoliciesMatchOriginal": true
+    },
+    "uiVerification": {
+      "harnessVersion": "0.2.0-rc.2",
+      "component": "running",
+      "mainAccountsSignedIn": 2,
+      "additionalAccountsAwaitingLogin": 1,
+      "modelConversationSent": false
+    },
+    "liveApiRerunAfterRegistryInstall": false,
+    "publishedSdkDistMatchesPreviouslyValidatedBuild": true,
+    "backupPath": "/Users/kent/.codex/garmin-release-checks/2026-10-17/desktop-before-npm-source",
+    "backupIncludesSessions": false
+  },
+  "updatedDate": "2026-10-17",
+  "registryDependency": {
+    "status": "configured",
+    "alias": "npm:@likenttt/garmin-connect@1.7.0",
+    "manifestAndLockfileUpdated": true,
+    "desktopCliInstall": "passed",
+    "build": "passed",
+    "sdkDependencyCheck": "passed",
+    "lockChecks": [
+      "root-dependency-specifier",
+      "installed-sdk-name-and-version",
+      "exact-official-registry-tarball-url"
+    ],
+    "cleanSourceInstallRepeatedForAlias": false
+  },
+  "registryChecks": {
+    "fullTestRun": {
+      "suites": 42,
+      "passed": 992,
+      "failed": 0
+    },
+    "subsequentGuardTestsAdded": 8,
+    "guardSuiteRun": {
+      "passed": 28,
+      "failed": 0
+    },
+    "currentTestCaseCount": 1000,
+    "singleFullRunOfAllCurrentCases": false
+  },
+  "pluginTarball": {
+    "version": "0.1.13",
+    "fileCount": 185,
+    "sizeBytes": 353420,
+    "integrity": "sha512-7Hz+9xXtMajKF3FyGpQEgeRMYNh4tTFRopNPkchE6xexfDRby30qJ+8J6Ya9TQcyjAVv3mi23u7qSH2r0oOTug==",
+    "containsCredentials": false,
+    "publicEnvironmentTemplateIncluded": true,
+    "kind": "installed-local-candidate",
+    "publishedToNpm": false,
+    "finalDocumentationUpdatedAfterPacking": true
+  },
+  "pluginPublication": {
+    "status": "not-published",
+    "publicReleaseAuthorizedThisRound": false
   }
 }

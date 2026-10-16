@@ -69,8 +69,8 @@
 当前开发源码共注册 **23 个工具**，其中 21 个用于读取数据或本地知识查询；
 `download_garmin_activity_fit` 会在 MCP/dsh 所在主机写入一个本地文件，
 `create_garmin_workout` 会修改用户的 Garmin 训练库。
-下方新增的 13 个恢复与训练工具尚未发布。当前源码已通过固定 Git 提交依赖自行维护的
-SDK，详见[自行维护的 SDK 依赖](#自行维护的-sdk-依赖)。
+下方新增的 13 个恢复与训练工具尚未随插件发布。当前源码已通过精确 npm 别名依赖
+已发布的维护版 SDK，详见[自行维护的 SDK 依赖](#自行维护的-sdk-依赖)。
 
 | 工具名 | 用途 | 参数示例 |
 |---|---|---|
@@ -978,34 +978,33 @@ npm test
 
 ### 自行维护的 SDK 依赖
 
-插件现已真正使用 **`@likenttt/garmin-connect@1.7.0`**，代码位于
-[Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect)，已推送至 GitHub。
-插件的依赖清单和锁文件固定到
-[提交 `7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b`](https://github.com/Likenttt/garmin-connect/commit/7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b)：
+插件使用已发布的 **[`@likenttt/garmin-connect@1.7.0`](https://www.npmjs.com/package/@likenttt/garmin-connect)**，
+代码位于 [Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect)。
+SDK 已于 2026-10-17 发布到官方 npm。插件依赖清单使用以下精确别名，锁文件记录了
+官方 registry tarball 与完整性校验值：
 
 ```json
 {
   "dependencies": {
-    "garmin-connect": "git+https://github.com/Likenttt/garmin-connect.git#7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b"
+    "garmin-connect": "npm:@likenttt/garmin-connect@1.7.0"
   }
 }
 ```
 
 代码继续使用 `garmin-connect` 导入别名，实际安装包名是
-`@likenttt/garmin-connect`。通过 **npm 干净安装源码**，已能按照提交的清单与锁文件
-选中维护版实现；禁用 SSH 后的 `npm ci`、编译和 SDK 检查均已通过。这条路径需要
-Git、通过 HTTPS 访问 GitHub，并允许执行 SDK 的 `prepare` 构建，不需要用户提供
-GitHub SSH key。首次从源码安装时不要使用 `--ignore-scripts`。
+`@likenttt/garmin-connect`。registry 包包含编译好的代码与 TypeScript 声明，安装
+SDK 已不再需要 Git、访问 GitHub 或执行依赖的 `prepare` 编译。
 
-**Harness 桌面端默认安装器目前仍拒绝这项依赖。** pnpm 11 首先通过
-`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 禁止 Git 依赖构建；即使仅允许该精确提交
-构建，仍会因为禁止 Git 子依赖而报 `ERR_PNPM_EXOTIC_SUBDEP`。这些策略没有被关闭。
-本机桌面端当前运行的是开发覆盖文件，正式插件安装记录仍为 `0.1.13`。
+此前 Git 依赖曾被 Harness pnpm 11 的 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 和
+`ERR_PNPM_EXOTIC_SUBDEP` 拒绝。发布预编译 SDK 并改用 npm 别名已去掉这项 Git
+依赖。2026-10-17，registry 依赖候选已通过 Harness 桌面官方 CLI 安装，使用
+`--ignore-scripts` 与官方 npm registry。SDK 全部 60 个 `dist` 文件与已发布包逐字节
+一致，13 个方法均存在，锁文件完整性与 npm 一致，旧开发覆盖标记已删除。Git 安全
+策略保持启用；pnpm 仅为新的精确 SDK 版本追加 `minimumReleaseAgeExclude`。
 
-SDK 尚未单独发布 npm 包。下一次正式分发应先把
-`@likenttt/garmin-connect@1.7.0` 发布到官方 npm，再把 Git 来源替换为精确的
-`npm:@likenttt/garmin-connect@1.7.0` 别名，保留现有导入并去掉 Git 构建要求。
-这两步尚未执行，因此当前源码还不具备桌面端常规分发条件。
+当前安装的是本地 `0.1.13` 候选包，profile 登记本地 tarball，不等于 npm 上公开的
+旧 `0.1.13` 已包含新增功能。Harness 0.2.0-rc.2 重启后，Garmin 组件显示运行中，
+两个主账号显示已登录。新增工具尚未随新版插件发布 npm。
 
 ```bash
 npm ci --registry=https://registry.npmjs.org/
@@ -1013,20 +1012,24 @@ npm run build
 npm run check:sdk
 ```
 
-`check:sdk` 是发布门槛：依赖来源必须是自行维护仓库的完整提交 SHA，或未来正式发布
-的精确 scoped npm 别名；同时检查已安装包的名称、仓库，以及其真实原型上是否存在
-全部 13 个新增方法。该检查不请求 Garmin，也不加载凭证。退回上游 registry 包、
-使用浮动分支或缺少方法都会失败。`prepublishOnly` 会执行编译和此检查，
-`pack:smoke` 也会在检查 npm 包内容前执行两者。
+`check:sdk` 是发布门槛：检查维护版依赖来源、已安装包的名称与仓库，以及其真实
+原型上的全部 13 个新增方法。存在锁文件时，还校验根依赖别名、安装包名/版本与
+官方 registry 的精确 tarball URL。该检查不请求 Garmin，也不加载凭证。退回上游
+包、npm 别名残留旧 Git 锁记录或缺少方法都会失败。`prepublishOnly` 会执行编译和
+此检查，`pack:smoke` 也会在检查 npm 包内容前执行两者。
 
 ### 恢复接口发布检查（开发版）
 
-2026-10-16，干净源码安装后的插件 **42 套、992/992 测试通过**，其中包含本轮新增
-的 **95 项开发测试**；自行维护的 SDK 测试 **59/59 通过**，SDK 对外类型声明的严格
-检查也已通过。禁用 SSH 后的干净 `npm ci`、编译和 `check:sdk` 均已通过。这些本地
-开发验证与旧版 npm 发布报告分开记录；桌面安装器禁止 Git 子依赖的问题仍需通过
-正式 npm 依赖解决。新增插件工具与独立 scoped SDK 均尚未发布到 npm。已完成检查及
-剩余分发步骤见[当前发布就绪报告](docs/testing/health-release-readiness-2026-10-16.md)。
+npm alias 候选已通过 host、client declarations、client bundle 构建与 `check:sdk`，
+以及插件 **42 套、992/992 全量测试**。随后新增 8 项 SDK 锁文件校验测试，相关专项
+**28/28 通过**。当前源码共 **1,000 个用例**；全量测试发生在这 8 项新增之前，因此
+没有把两次运行写成一次 1,000 项全量通过。维护 SDK 的 **59/59 测试**与严格对外
+类型声明检查也已通过。较早 Git 候选的干净安装与真实账号验证在报告中单独保留。
+
+独立 SDK 已发布官方 npm，registry 依赖候选经桌面官方 CLI 的正式安装也已通过。
+安装的 SDK 与此前真实 API 验证的构建逐字节一致，因此本次未重复 26 次 API 调用，
+也没有发送模型对话。新增插件工具尚未发布 npm。已完成检查及剩余分发步骤见
+[当前发布就绪报告](docs/testing/health-release-readiness-2026-10-16.md)。
 
 源码中的 `scripts/check-health-release.cjs` 可以用已有 DI session 检查安装好的开发
 构建。先编译插件并通过 `npm run check:sdk`，再创建包含 1 至 5 个账号的私密 JSON

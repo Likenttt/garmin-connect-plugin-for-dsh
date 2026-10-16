@@ -8,7 +8,7 @@ const PINNED_ALIAS = new RegExp(`^npm:@likenttt/garmin-connect@(${VERSION})$`)
 const OWN_REPOSITORY = /^(?:(?:git\+)?https:\/\/github\.com\/|git@github\.com:)Likenttt\/garmin-connect(?:\.git)?$/
 
 /** Pure release gate. Never loads credentials, contacts a registry or calls SDK methods. */
-function validateSdkDependency({ manifest, sdkPackage, GarminConnect, methods } = {}) {
+function validateSdkDependency({ manifest, sdkPackage, GarminConnect, methods, lockfile } = {}) {
   const errors = []
   const dependency = manifest?.dependencies?.['garmin-connect']
   const git = typeof dependency === 'string' && PINNED_GIT.test(dependency)
@@ -21,6 +21,20 @@ function validateSdkDependency({ manifest, sdkPackage, GarminConnect, methods } 
     errors.push('SDK_REPOSITORY_MISMATCH')
   }
   if (alias && sdkPackage?.version !== alias[1]) errors.push('SDK_ALIAS_VERSION_MISMATCH')
+  // A same-version Git package may be reused when only the manifest changes.
+  // Validate source checkouts' lockfiles while allowing installed tarballs,
+  // which deliberately do not ship package-lock.json, to use identity checks.
+  if (alias && lockfile !== undefined) {
+    if (lockfile?.packages?.['']?.dependencies?.['garmin-connect'] !== dependency) {
+      errors.push('SDK_LOCK_SPEC_MISMATCH')
+    }
+    const locked = lockfile?.packages?.['node_modules/garmin-connect']
+    if (locked?.name !== MAINTAINED_PACKAGE || locked?.version !== alias[1]) {
+      errors.push('SDK_LOCK_PACKAGE_MISMATCH')
+    }
+    const tarball = `https://registry.npmjs.org/@likenttt/garmin-connect/-/garmin-connect-${alias[1]}.tgz`
+    if (locked?.resolved !== tarball) errors.push('SDK_LOCK_REGISTRY_RESOLUTION_MISMATCH')
+  }
   const catalogValid = Array.isArray(methods) && methods.length === 13
     && new Set(methods).size === 13
     && methods.every(method => typeof method === 'string' && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(method))
@@ -45,12 +59,17 @@ module.exports = { validateSdkDependency }
 
 if (require.main === module) {
   try {
+    const fs = require('node:fs')
+    const path = require('node:path')
     const manifest = require('../package.json')
     const sdkPackage = require('garmin-connect/package.json')
     const { GarminConnect } = require('garmin-connect')
     const { HEALTH_TOOLS } = require('../lib/health-tools.js')
+    const lockPath = path.join(__dirname, '../package-lock.json')
+    const lockfile = fs.existsSync(lockPath)
+      ? JSON.parse(fs.readFileSync(lockPath, 'utf8')) : undefined
     const result = validateSdkDependency({
-      manifest, sdkPackage, GarminConnect,
+      manifest, sdkPackage, GarminConnect, lockfile,
       methods: HEALTH_TOOLS.map(definition => definition.method),
     })
     process.stdout.write(`${JSON.stringify(result)}\n`)

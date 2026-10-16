@@ -66,7 +66,7 @@ The development checkout registers **23 tools**. Twenty-one provide queries or l
 `download_garmin_activity_fit` writes one local file on the MCP/dsh host, and
 `create_garmin_workout` changes the user's Garmin workout library.
 The 13 recovery and training tools below are unreleased. This checkout now
-depends on the maintained SDK from a fixed Git commit; see
+depends on the published maintained SDK through an exact npm alias; see
 [Maintained SDK dependency](#maintained-sdk-dependency).
 
 | Tool | Description | Example Args |
@@ -1117,41 +1117,40 @@ npm test
 
 ### Maintained SDK dependency
 
-The plugin now uses **`@likenttt/garmin-connect@1.7.0`**, maintained in
-[Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect). Its source
-has been pushed to GitHub. Both the dependency manifest and lockfile pin
-[commit `7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b`](https://github.com/Likenttt/garmin-connect/commit/7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b):
+The plugin uses the published **[`@likenttt/garmin-connect@1.7.0`](https://www.npmjs.com/package/@likenttt/garmin-connect)**,
+maintained in [Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect).
+The SDK was published to the official npm registry on 2026-10-17. The plugin's
+dependency manifest uses the exact alias below, and its lockfile records the
+official registry tarball and integrity:
 
 ```json
 {
   "dependencies": {
-    "garmin-connect": "git+https://github.com/Likenttt/garmin-connect.git#7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b"
+    "garmin-connect": "npm:@likenttt/garmin-connect@1.7.0"
   }
 }
 ```
 
 `garmin-connect` remains the import alias; the installed package identifies
-itself as `@likenttt/garmin-connect`. A clean **npm source installation** now
-selects the maintained implementation from the committed manifest and lockfile.
-It passed `npm ci`, build and SDK checks with SSH disabled. This route requires
-Git, access to GitHub over HTTPS, and permission to run the SDK's `prepare`
-build; it does not require a GitHub SSH key. Do not use `--ignore-scripts` for a
-fresh source install.
+itself as `@likenttt/garmin-connect`. The registry package ships compiled code
+and TypeScript declarations. Installing the SDK no longer needs Git, GitHub
+access, or a dependency `prepare` build.
 
-**The default Harness desktop installer does not yet accept this dependency.**
-Its pnpm 11 policy first rejects Git dependency preparation with
-`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`; allowing the exact commit's build still
-leaves `ERR_PNPM_EXOTIC_SUBDEP` because Git subdependencies are blocked. These
-policies have not been disabled. The local desktop currently runs development
-files; its official plugin installation record remains `0.1.13`.
+The earlier Git dependency failed Harness pnpm 11 checks with
+`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` and `ERR_PNPM_EXOTIC_SUBDEP`. Publishing
+the precompiled SDK and switching the dependency to an npm alias remove that
+Git dependency. On 2026-10-17, the registry-backed candidate was installed
+successfully through Harness's official desktop CLI with `--ignore-scripts`
+and the official npm registry. All 60 SDK `dist` files match the published
+package byte for byte, all 13 methods are present, and the lockfile integrity
+matches npm. The earlier development overlay marker is gone. Harness keeps
+its Git restrictions; pnpm added only the exact new SDK version to
+`minimumReleaseAgeExclude`.
 
-The standalone SDK has not been published to npm. The next supported release
-route is to publish `@likenttt/garmin-connect@1.7.0` to the official npm registry,
-then replace the Git source with the exact
-`npm:@likenttt/garmin-connect@1.7.0` alias. This preserves existing imports and
-removes the Git build requirement. Those publication and dependency changes
-have not been performed, so the current checkout is not ready for normal
-desktop distribution.
+The installed plugin remains a local `0.1.13` candidate, registered from its
+local tarball. It is not the public npm `0.1.13` package and does not imply that
+the new plugin tools have been published. After restart, Harness 0.2.0-rc.2
+shows the Garmin component running and the two main accounts signed in.
 
 ```bash
 npm ci --registry=https://registry.npmjs.org/
@@ -1159,25 +1158,33 @@ npm run build
 npm run check:sdk
 ```
 
-`check:sdk` is a release gate: it requires the maintained Git repository with
-a full commit SHA, or a future exact scoped npm alias; checks the installed
-package name and repository; and verifies all 13 methods on the installed SDK
-prototype. It makes no Garmin requests and loads no credentials. A fallback to
-the original registry SDK, a floating Git branch, or missing methods fails the
-gate. `prepublishOnly` runs the build and this check; `pack:smoke` runs them
-before inspecting the npm tarball.
+`check:sdk` is a release gate: it checks the maintained dependency source,
+installed package name and repository, and all 13 methods on the installed SDK
+prototype. When a lockfile is present, it also verifies the root dependency
+specifier, installed package identity/version, and exact official registry
+tarball URL. It makes no Garmin requests and loads no credentials. Falling
+back to the original SDK, retaining an old Git lock entry for the npm alias,
+or missing methods fails the gate. `prepublishOnly` runs the build and this
+check; `pack:smoke` runs them before inspecting the npm tarball.
 
 ### Recovery release checks (development)
 
-On 2026-10-16, the clean source installation passed **992/992 plugin tests in
-42 suites**, including **95 new development tests**, plus **59/59 maintained
-SDK tests** and the SDK's strict public-type check. The clean `npm ci` run,
-build and `check:sdk` also passed with SSH disabled. These are local development
-results, separate from the historical npm release reports; they do not resolve
-the desktop installer's Git subdependency restriction. The new plugin tools
-and standalone scoped SDK have not been released on npm. See the
+The registry-alias candidate passed the host, client declarations and client
+bundle builds, `check:sdk`, and **992/992 plugin tests in 42 suites**. Eight
+additional tests then strengthened the SDK lockfile checks; that targeted
+suite passed **28/28**. The source now contains **1,000 test cases**; the full
+suite was run before those eight additions, so these are not a single full
+1,000-test run. The maintained SDK passed **59/59 tests** and its strict
+public-type check. Earlier Git-based clean-install and live-account checks
+are recorded separately in the report.
+
+The standalone SDK is published on official npm, and formal desktop CLI
+installation of the registry-backed candidate has passed. The installed SDK
+is byte-identical to the previously live-tested build; the 26 API calls were
+not repeated after installation, and no model conversation was sent. The new
+plugin tools remain unreleased on npm. See the
 [current release-readiness report](docs/testing/health-release-readiness-2026-10-16.md)
-for the completed checks and remaining distribution step.
+for completed checks and the remaining distribution step.
 
 To test an installed development build against existing DI sessions, use
 `scripts/check-health-release.cjs` from this source checkout. First build the
