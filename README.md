@@ -1149,6 +1149,16 @@ the Git dependency preparation and exotic-subdependency errors encountered by
 earlier development candidates. Version 0.1.15 adds DeepSeek Harness
 0.2.1-rc.1 compatibility while retaining the earlier supported client versions.
 
+The **0.1.16 candidate** expands the 0.2.1 client clause to
+`>=0.2.1-rc.1 <0.2.2-0`, preserving earlier supported ranges. Harness uses
+`semver.satisfies(..., { includePrerelease: true })`; the boundary accepts
+0.2.1-rc.1, rc.2, rc.99 and stable 0.2.1, and excludes every 0.2.2 prerelease
+and release. The rc.2 API comparison found the connection and Cordis JavaScript
+unchanged, with layout differences limited to CSS hashes and build paths;
+this compatibility patch has no runtime code changes. Build, manifest
+regression, local installation and publication checks remain pending. See the
+[compatibility verification record](docs/testing/harness-compatibility-2026-10-17.md).
+
 Before this release, a local `0.1.13` development candidate passed installation
 through Harness's official desktop CLI with `--ignore-scripts` and the official
 npm registry. Its 60 SDK `dist` files matched the published package byte for

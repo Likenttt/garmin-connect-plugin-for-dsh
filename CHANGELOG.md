@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.16] - 2026-10-17
+
+### Fixed
+- Support DeepSeek Harness `0.2.1-rc.2` and subsequent release candidates in the `0.2.1` version line with the bounded peer range `>=0.2.1-rc.1 <0.2.2-0`. Preserve the previously supported versions and exclude the next version line, including its prereleases.
+- Build against the matching `0.2.1-rc.2` client SDKs. The connection, settings and layout interfaces used by the plugin remain compatible.
+- Add a focused regression matrix using the Host's `includePrerelease: true` semantics and matching semver version, covering accepted release candidates and rejected version boundaries.
+
 ## [0.1.15] - 2026-10-17
 
 ### Fixed
