@@ -1146,8 +1146,8 @@ access, or a dependency `prepare` build.
 
 Version 0.1.14 packages these APIs with the precompiled registry SDK, removing
 the Git dependency preparation and exotic-subdependency errors encountered by
-earlier development candidates. DeepSeek Harness 0.2.0-rc.2 compatibility is
-retained.
+earlier development candidates. Version 0.1.15 adds DeepSeek Harness
+0.2.1-rc.1 compatibility while retaining the earlier supported client versions.
 
 Before this release, a local `0.1.13` development candidate passed installation
 through Harness's official desktop CLI with `--ignore-scripts` and the official

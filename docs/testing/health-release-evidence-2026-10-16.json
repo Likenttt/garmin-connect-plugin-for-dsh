@@ -547,7 +547,221 @@
     "finalDocumentationUpdatedAfterPacking": true
   },
   "pluginPublication": {
+    "version": "0.1.14",
+    "status": "published",
+    "publicReleaseAuthorizedThisRound": true,
+    "registry": "https://registry.npmjs.org/",
+    "registryConfirmed": true,
+    "publishedAt": "2026-10-17T07:29:06.060Z",
+    "verifiedAt": "2026-10-17T07:29:22.204239+00:00",
+    "latest": "0.1.14",
+    "tarball": "https://registry.npmjs.org/dsh-plugin-garmin-connect/-/dsh-plugin-garmin-connect-0.1.14.tgz",
+    "integrity": "sha512-YUpwapBZFC51+jbII80nj+877HQANMbgIP+4Qs1tYl3y7TfY66WFRiqcSZq9AsIXkjNB+TvpTuPmNk426/4gPg==",
+    "integrityMatches": true,
+    "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+    "fileCount": 186,
+    "unpackedSize": 1467464
+  },
+  "pluginRelease014": {
+    "date": "2026-10-17",
+    "version": "0.1.14",
+    "publication": {
+      "status": "published",
+      "publicReleaseAuthorizedThisRound": true,
+      "registry": "https://registry.npmjs.org/",
+      "registryConfirmed": true,
+      "publishedAt": "2026-10-17T07:29:06.060Z",
+      "verifiedAt": "2026-10-17T07:29:22.204239+00:00",
+      "latest": "0.1.14",
+      "tarball": "https://registry.npmjs.org/dsh-plugin-garmin-connect/-/dsh-plugin-garmin-connect-0.1.14.tgz",
+      "integrity": "sha512-YUpwapBZFC51+jbII80nj+877HQANMbgIP+4Qs1tYl3y7TfY66WFRiqcSZq9AsIXkjNB+TvpTuPmNk426/4gPg==",
+      "integrityMatches": true,
+      "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+      "fileCount": 186,
+      "unpackedSize": 1467464
+    },
+    "artifact": {
+      "name": "dsh-plugin-garmin-connect",
+      "version": "0.1.14",
+      "fileName": "dsh-plugin-garmin-connect-0.1.14.tgz",
+      "sizeBytes": 361188,
+      "unpackedSizeBytes": 1467464,
+      "fileCount": 186,
+      "integrity": "sha512-YUpwapBZFC51+jbII80nj+877HQANMbgIP+4Qs1tYl3y7TfY66WFRiqcSZq9AsIXkjNB+TvpTuPmNk426/4gPg==",
+      "sha256": "15dac70810e6f0480ba52ed8fa23725c386caf2ca2075cd909cc2263a5255153",
+      "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+      "requiredFilesPresent": true,
+      "privateFileCount": 0,
+      "publicEnvironmentTemplate": ".env.example",
+      "sourceCommit": "9e0f3858917081975de1ec5538ca589b142a2eba"
+    },
+    "gates": {
+      "build": "passed",
+      "maintainedSdk": "passed",
+      "localFullRun": {
+        "node": "26.3.0",
+        "status": "interrupted",
+        "exitCode": 130,
+        "fileIoTimeoutFailures": 25,
+        "timeoutMs": 5000,
+        "semanticAssertionDifferencesObserved": false
+      },
+      "hostRecoveryRegression": {
+        "node": "24.18.1",
+        "test": "loads the changed session snapshot even if the file is replaced again before restore",
+        "status": "passed",
+        "testTimeMs": 1485,
+        "timeoutMs": 5000
+      },
+      "previousSourceChecks": {
+        "fullPluginTestsPassed": 992,
+        "additionalGuardTests": 8,
+        "guardSuitePassed": 28,
+        "coachingRelatedTestsPassed": 135,
+        "sdkTestsPassed": 59
+      },
+      "hostSessionRegression": {
+        "node": "24.18.1",
+        "suites": 2,
+        "testsPassed": 99,
+        "elapsedSeconds": 4.558,
+        "timeoutMs": 5000,
+        "status": "passed"
+      }
+    },
+    "runtimeSourceUnchangedSince": "a358e6b",
+    "singleFullRunOfAllCurrentCases": false,
+    "desktop": {
+      "updated": true,
+      "source": "official-npm-registry",
+      "status": "formal-registry-installed-host-incompatible",
+      "hostVersion": "0.2.1-rc.1",
+      "installedVersion": "0.1.14",
+      "registryInstallation": {
+        "status": "completed",
+        "cliExitCode": 0,
+        "pnpmVersion": "11.7.0"
+      },
+      "officialRegistryInstallVerified": false,
+      "running": false,
+      "compatibility": {
+        "status": "failed",
+        "reason": "host-peer-range-excluded",
+        "hostVersion": "0.2.1-rc.1",
+        "supported02ClientVersions": [
+          "0.2.0-rc.1",
+          "0.2.0-rc.2"
+        ]
+      },
+      "ui": {
+        "version": "0.1.14",
+        "hostVersion": "0.2.1-rc.1",
+        "running": false,
+        "status": "error"
+      },
+      "historicalLocalTarballCheck": {
+        "updated": true,
+        "source": "local-release-tarball",
+        "officialRegistryInstallVerified": false,
+        "ui": {
+          "verifiedAt": "2026-10-17T06:24:53.521983+00:00",
+          "version": "0.1.14",
+          "enabled": true,
+          "runningComponents": 1,
+          "primaryAccountsLoggedIn": 2
+        },
+        "hostVersion": "0.2.0-rc.2",
+        "running": true
+      }
+    },
+    "priorCandidateRecordsRetained": true,
+    "recordAddedAfterArtifactWasPacked": true
+  },
+  "historicalPluginPublication": {
+    "version": "0.1.13",
     "status": "not-published",
     "publicReleaseAuthorizedThisRound": false
+  },
+  "pluginRelease015": {
+    "date": "2026-10-17",
+    "version": "0.1.15",
+    "status": "awaiting-publication",
+    "cause": {
+      "type": "automatic-host-upgrade",
+      "previousHostVersion": "0.2.0-rc.2",
+      "currentHostVersion": "0.2.1-rc.1",
+      "affectedPluginVersion": "0.1.14"
+    },
+    "compatibilityPatch": {
+      "runtimeCodeChanged": false,
+      "addedExactHostClientVersion": "0.2.1-rc.1",
+      "peerRanges": {
+        "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.1",
+        "@deepseek-ai/dsh-client-ui-layout": "^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.1"
+      },
+      "synchronizedDevDependencies": {
+        "@deepseek-ai/dsh-client-connection": "0.2.1-rc.1",
+        "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.1",
+        "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.1"
+      },
+      "apiAudit": "passed-readonly"
+    },
+    "retainedFeatures": {
+      "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+      "newSdkMethods": 13,
+      "totalTools": 23,
+      "bundledRecoverySkill": true
+    },
+    "gates": {
+      "build": {
+        "status": "passed",
+        "targets": [
+          "host",
+          "client-declarations",
+          "client-bundle"
+        ],
+        "node": "26.3.0"
+      },
+      "maintainedSdk": {
+        "status": "passed",
+        "methodCount": 13
+      },
+      "targetedTests": {
+        "status": "passed-across-runs",
+        "runtime": "Harness-embedded-Node",
+        "suiteCount": 2,
+        "totalCases": 32,
+        "initialRun": {
+          "passed": 31,
+          "failed": 1,
+          "failureType": "5000ms-test-timeout",
+          "parallelBuildAndMemoryPressure": true,
+          "timeoutMs": 5000
+        },
+        "singleCaseRetry": {
+          "scope": "only-the-dynamic-settings-script-timeout-case",
+          "passed": 1,
+          "failed": 0,
+          "testTimeMs": 1067,
+          "jestElapsedSeconds": 4.711,
+          "timeoutMs": 5000,
+          "testOrTimeoutChanged": false
+        },
+        "casesPassedAcrossRuns": 32,
+        "singleAllPassRun": false,
+        "node": "24.21.0",
+        "electron": "44.7.0"
+      }
+    },
+    "publication": {
+      "status": "not-started",
+      "registry": "https://registry.npmjs.org/",
+      "registryConfirmed": false
+    },
+    "desktop": {
+      "status": "awaiting-patch-install",
+      "hostVersion": "0.2.1-rc.1"
+    },
+    "previousReleaseHistoryRetained": true
   }
 }

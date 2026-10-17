@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.15] - 2026-10-17
+
+### Fixed
+- Declare compatibility with DeepSeek Harness `0.2.1-rc.1` client packages and build against its matching client interfaces. Retain the earlier supported Harness versions.
+- Follow the 0.1.14 recovery API release with a compatibility update after the local desktop automatically upgraded during restart.
+
+### Verification
+- Host compilation, client type compilation, browser bundling and the maintained SDK gate passed against the matching `0.2.1-rc.1` interfaces.
+- Of 32 targeted script/dependency checks, 31 passed on the initial run. The settings-client case exceeded the unchanged five-second limit while the release build was running; its isolated rerun passed in 1,067 ms under the same limit. No runtime or test logic changed.
+
 ## [0.1.14] - 2026-10-17
 
 ### Added

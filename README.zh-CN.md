@@ -1002,7 +1002,8 @@ SDK 已于 2026-10-17 发布到官方 npm。插件依赖清单使用以下精确
 SDK 已不再需要 Git、访问 GitHub 或执行依赖的 `prepare` 编译。
 
 0.1.14 将这些 API 与预编译 registry SDK 一起提供，去掉此前开发候选遇到的 Git
-依赖构建与 Git 子依赖策略错误，继续兼容 DeepSeek Harness 0.2.0-rc.2。
+依赖构建与 Git 子依赖策略错误。0.1.15 进一步支持 DeepSeek Harness 0.2.1-rc.1，
+并保留此前支持的客户端版本。
 
 发布前，本地 `0.1.13` 开发候选曾通过 Harness 桌面官方 CLI 安装，使用
 `--ignore-scripts` 与官方 npm registry。当时 SDK 全部 60 个 `dist` 文件与已发布包
