@@ -45,8 +45,28 @@
 | `check:sdk` | 通过；精确 `npm:@likenttt/garmin-connect@1.7.0` 别名，13 个方法齐全 |
 | 新 manifest 的 4 项回归 | 4/4 通过；Harness Node `24.21.0`，4.231 秒 |
 | 实际 Host 的 manifest 兼容矩阵 | 9 个版本通过 |
-| 本机 `0.2.1-rc.2` 安装与重启 UI | 待确认 |
-| 官方 npm 发布及来源读回 | 待确认 |
+| 本机 `0.2.1-rc.2` 本地 tarball 安装与重启 UI | 通过；精确 `0.1.16`，正式 registry 来源尚未切换 |
+| 安装后文件字节审计 | 通过；186 个插件文件及 SDK 60 个 `dist` 文件均匹配 |
+| 官方 npm 发布及来源读回 | 等待新安全密钥，尚未确认上架 |
 
-本记录不改写 `0.1.15` 的发布和测试历史。源码门禁已通过，本机安装、重启 UI 与
-官方发布结果仍待补充。
+## 本机恢复与发布进度
+
+精确 `0.1.16` tarball 已打包，源提交
+`be0224814a6b2cb7a5e16780630c0f93b43e7903` 已推送 GitHub。包共 186 个文件，
+其中 174 个 `lib` 文件与 3 个技能文件均与 `0.1.15` 逐字节一致，运行时代码未改；
+SDK 仍为精确维护版 `1.7.0`。
+
+官方 CLI 安装本地 tarball 退出 0，使用 pnpm `11.28.5`，耗时 **22.2 秒**，
+124 项锁策略检查通过。实际安装后的 manifest 经 Host 的
+`evaluatePluginCompatibility` 检查，对 `0.2.1-rc.2` 返回兼容。
+重启 UI 确认版本 `0.1.16` 正常、1 个组件运行、两个主账号已登录、设置正常，
+本机已恢复。当前来源仍为 **`file:` tarball**，安装后只读审计已完成：186 个插件
+文件与精确 tarball 匹配，SDK 的 60 个 `dist` 文件及官方 `1.7.0` SRI 一致，
+13 个方法齐全，两个 peer 对实际 `0.2.1-rc.2` 均兼容；workspace 未变更，
+`changedKeys=[]`。见[本机脱敏审计证据](/Users/kent/.codex/garmin-release-checks/2026-10-17/plugin-0.1.16/desktop-local-check.json)。
+
+首轮 npm 发布认证已过期，当前 **`publication=awaiting-security-key`**，等待新的
+安全密钥验证；尚未确认官方上架。**`registrySource=pending`**，本地安装与 UI
+通过不记为官方 registry 来源切换完成。
+
+本记录不改写 `0.1.15` 的发布和测试历史；正式发布及来源验收结果待补充。
