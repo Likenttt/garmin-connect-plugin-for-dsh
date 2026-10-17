@@ -547,20 +547,29 @@
     "finalDocumentationUpdatedAfterPacking": true
   },
   "pluginPublication": {
-    "version": "0.1.14",
+    "version": "0.1.15",
     "status": "published",
     "publicReleaseAuthorizedThisRound": true,
     "registry": "https://registry.npmjs.org/",
     "registryConfirmed": true,
-    "publishedAt": "2026-10-17T07:29:06.060Z",
-    "verifiedAt": "2026-10-17T07:29:22.204239+00:00",
-    "latest": "0.1.14",
-    "tarball": "https://registry.npmjs.org/dsh-plugin-garmin-connect/-/dsh-plugin-garmin-connect-0.1.14.tgz",
-    "integrity": "sha512-YUpwapBZFC51+jbII80nj+877HQANMbgIP+4Qs1tYl3y7TfY66WFRiqcSZq9AsIXkjNB+TvpTuPmNk426/4gPg==",
+    "publishedAt": "2026-10-17T09:51:07.891Z",
+    "verifiedAt": "2026-10-17T09:51:27.101397+00:00",
+    "latest": "0.1.15",
+    "tarball": "https://registry.npmjs.org/dsh-plugin-garmin-connect/-/dsh-plugin-garmin-connect-0.1.15.tgz",
+    "integrity": "sha512-eJkxY5Ti02n1fww9BM5bNwnOqMzXZVw/zVVorgnhIEkRyFWLK7zX4b2QSKjbmd36xq3r6dm03QQtavRBTcfeUQ==",
     "integrityMatches": true,
     "sdk": "npm:@likenttt/garmin-connect@1.7.0",
     "fileCount": 186,
-    "unpackedSize": 1467464
+    "unpackedSize": 1468379,
+    "previousAuthenticationAttempt": {
+      "status": "authentication-expired",
+      "exitCode": 1,
+      "errorCode": "E404",
+      "stage": "security-key-verification"
+    },
+    "gitTag": "v0.1.15",
+    "gitTagCommit": "faaffbb2db85028b4625408a67ad1054c2f53e80",
+    "gitTagPushed": true
   },
   "pluginRelease014": {
     "date": "2026-10-17",
@@ -685,7 +694,7 @@
   "pluginRelease015": {
     "date": "2026-10-17",
     "version": "0.1.15",
-    "status": "awaiting-publication",
+    "status": "published-and-desktop-verified",
     "cause": {
       "type": "automatic-host-upgrade",
       "previousHostVersion": "0.2.0-rc.2",
@@ -751,17 +760,142 @@
         "singleAllPassRun": false,
         "node": "24.21.0",
         "electron": "44.7.0"
+      },
+      "runtimeAndSkillParity": {
+        "status": "passed",
+        "baselineVersion": "0.1.14",
+        "libFiles": 174,
+        "skillFiles": 3,
+        "byteIdentical": true
+      },
+      "packageManagerLockPolicyChecks": {
+        "status": "passed",
+        "packageManager": "pnpm",
+        "version": "11.28.5",
+        "checks": 124
       }
     },
     "publication": {
-      "status": "not-started",
+      "status": "published",
+      "publicReleaseAuthorizedThisRound": true,
       "registry": "https://registry.npmjs.org/",
-      "registryConfirmed": false
+      "registryConfirmed": true,
+      "publishedAt": "2026-10-17T09:51:07.891Z",
+      "verifiedAt": "2026-10-17T09:51:27.101397+00:00",
+      "latest": "0.1.15",
+      "tarball": "https://registry.npmjs.org/dsh-plugin-garmin-connect/-/dsh-plugin-garmin-connect-0.1.15.tgz",
+      "integrity": "sha512-eJkxY5Ti02n1fww9BM5bNwnOqMzXZVw/zVVorgnhIEkRyFWLK7zX4b2QSKjbmd36xq3r6dm03QQtavRBTcfeUQ==",
+      "integrityMatches": true,
+      "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+      "fileCount": 186,
+      "unpackedSize": 1468379,
+      "previousAuthenticationAttempt": {
+        "status": "authentication-expired",
+        "exitCode": 1,
+        "errorCode": "E404",
+        "stage": "security-key-verification"
+      },
+      "gitTag": "v0.1.15",
+      "gitTagCommit": "faaffbb2db85028b4625408a67ad1054c2f53e80",
+      "gitTagPushed": true
     },
     "desktop": {
-      "status": "awaiting-patch-install",
-      "hostVersion": "0.2.1-rc.1"
+      "status": "formal-registry-installed-and-runtime-verified",
+      "hostVersion": "0.2.1-rc.1",
+      "node": "24.21.0",
+      "source": "official-npm-registry",
+      "registeredPlugin": "dsh-plugin-garmin-connect@0.1.15",
+      "installedVersion": "0.1.15",
+      "installation": {
+        "cliExitCode": 0,
+        "packageManager": "pnpm",
+        "packageManagerVersion": "11.28.5",
+        "elapsedSeconds": 7.5
+      },
+      "officialRegistryInstallVerified": true,
+      "officialRegistrySourceSwitch": "completed",
+      "localRuntimeVerified": true,
+      "running": true,
+      "sourceAudit": {
+        "status": "passed",
+        "verifiedAt": "2026-10-17T09:57:54.725142+00:00",
+        "reportFile": "desktop-registry-check.json",
+        "profileSpecifierExact": true,
+        "fileSourcePresent": false,
+        "officialRegistryIntegrityMatches": true,
+        "pluginFilesMatched": 186,
+        "pluginLibFilesMatched": 174,
+        "pluginSkillFilesMatched": 3,
+        "sdkDistFilesMatched": 60,
+        "sdkMethodsPresent": 13,
+        "hostClientPeerChecksPassed": 2,
+        "uiInspectedByThisAudit": false,
+        "credentialsOrSessionFilesRead": false
+      },
+      "policy": {
+        "semanticAdditionOnly": "dsh-plugin-garmin-connect@0.1.15",
+        "pluginMinimumReleaseAgeExclude": "dsh-plugin-garmin-connect@0.1.13 || 0.1.14 || 0.1.15",
+        "sdkMinimumReleaseAgeExclude": "@likenttt/garmin-connect@1.7.0",
+        "otherPoliciesUnchanged": true
+      },
+      "ui": {
+        "status": "verified",
+        "inspectedIndependently": true,
+        "hostVersion": "0.2.1-rc.1",
+        "version": "0.1.15",
+        "source": "dsh-plugin-garmin-connect@0.1.15",
+        "hasError": false,
+        "runningComponents": 1,
+        "primaryAccountsLoggedIn": 2,
+        "settingsFormVisible": true,
+        "addAccountButtonVisible": true
+      },
+      "historicalLocalTarballCheck": {
+        "status": "local-runtime-verified-registry-switch-pending",
+        "hostVersion": "0.2.1-rc.1",
+        "source": "local-release-tarball",
+        "previousVersion": "0.1.14",
+        "installedVersion": "0.1.15",
+        "installation": {
+          "cliExitCode": 0,
+          "packageManager": "pnpm",
+          "packageManagerVersion": "11.28.5",
+          "elapsedSeconds": 90.1,
+          "downloadedPackages": 3,
+          "addedPackages": 7
+        },
+        "officialRegistryInstallVerified": false,
+        "officialRegistrySourceSwitch": "pending",
+        "ui": {
+          "status": "verified",
+          "hostVersion": "0.2.1-rc.1",
+          "version": "0.1.15",
+          "hasError": false,
+          "runningComponents": 1,
+          "primaryAccountsLoggedIn": 2,
+          "settingsFormVisible": true,
+          "addAccountButtonVisible": true
+        },
+        "localRuntimeVerified": true,
+        "node": "24.21.0",
+        "running": true
+      }
     },
-    "previousReleaseHistoryRetained": true
+    "previousReleaseHistoryRetained": true,
+    "artifact": {
+      "name": "dsh-plugin-garmin-connect",
+      "version": "0.1.15",
+      "fileName": "dsh-plugin-garmin-connect-0.1.15.tgz",
+      "sizeBytes": 361462,
+      "unpackedSizeBytes": 1468379,
+      "fileCount": 186,
+      "integrity": "sha512-eJkxY5Ti02n1fww9BM5bNwnOqMzXZVw/zVVorgnhIEkRyFWLK7zX4b2QSKjbmd36xq3r6dm03QQtavRBTcfeUQ==",
+      "sha256": "a458b339456f9f78919d7898795c90801f8fbabf229c0ac6c297ff529f177848",
+      "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+      "privateFileCount": 0,
+      "sourceCommit": "faaffbb2db85028b4625408a67ad1054c2f53e80",
+      "sourcePushedToGitHub": true
+    },
+    "recordAddedAfterArtifactWasPacked": true
   }
 }

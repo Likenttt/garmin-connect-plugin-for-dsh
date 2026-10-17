@@ -1,10 +1,10 @@
 # 新版 Garmin SDK 与 DSH 插件发布检查（2026-10-16，更新于 2026-10-17）
 
-> **0.1.14 最新进度：** 已发布官方 npm，registry 完整性已确认；本机正式源安装已完成，但 Harness 重启时自动升级至 `0.2.1-rc.1`，超出插件声明的兼容范围，当前插件不能运行。状态为 `formal-registry-installed-host-incompatible`。旧 Host 上的成功运行仅作为历史记录，详见文末。
+> **最新进度：** `0.1.15` 已发布官方 npm并完成本机正式 registry 安装、来源审计及重启验收。Harness `0.2.1-rc.1` / Node `24.21.0` 下插件无异常，1 个组件运行、两个主账号已登录，设置表单及添加按钮正常；来源为 `dsh-plugin-garmin-connect@0.1.15`，已无 `file:` 来源。`0.1.14` 的发布和兼容阻断作为历史保留，最新记录见文末。
 
 ## 判断
 
-**维护 SDK 与插件 0.1.14 均已发布官方 npm，插件完整性与已校验 tarball 精确匹配。正式源安装已完成，但本机 Host 已升级至 0.2.1-rc.1，插件 0.1.14 与该 Host 的 peer 约束不兼容，本机运行验证未完成。**
+**维护 SDK 与插件 0.1.15 均已发布官方 npm，registry 完整性与精确发布包一致。插件已从官方 registry 安装至本机，并通过新 Host 上的完整性、兼容声明及重启 UI 验收。**
 
 新增接口已经接通 SDK、插件客户端、共享 service、DSH registry 和 MCP。中国区和国际区各一个账号的 13 个新方法实测均通过，完整数据与空数据都能通过工具层。
 
@@ -222,15 +222,49 @@ sha512-YUpwapBZFC51+jbII80nj+877HQANMbgIP+4Qs1tYl3y7TfY66WFRiqcSZq9AsIXkjNB+TvpT
 
 本次追加记录只更新 GitHub 源文档，不改变已校验发布包。机器可读新增条目位于[脱敏证据](health-release-evidence-2026-10-16.json)的 `pluginRelease014`；早期 `0.1.13` 候选记录保留。
 
-## 0.1.15 兼容补丁候选（2026-10-17）
+## 0.1.15 兼容补丁发布记录（2026-10-17）
 
-当前状态为 **`awaiting-publication`**。本机 Harness 自动从 `0.2.0-rc.2` 升级到 `0.2.1-rc.1`，使已发布的插件 `0.1.14` 超出原 peer 兼容声明；`0.1.15` 用于补齐这次兼容声明。
+当前发布状态为 **`published`**，官方 npm 已确认 `latest=0.1.15`，`registryConfirmed=true`，完整性与精确 tarball 一致；本机 `officialRegistryInstallVerified=true`，`localRuntimeVerified=true`。本机 Harness 自动从 `0.2.0-rc.2` 升级到 `0.2.1-rc.1`，使已发布的插件 `0.1.14` 超出原 peer 兼容声明；`0.1.15` 已补齐并通过正式 registry 安装后的运行验证。
 
 - `@deepseek-ai/dsh-client-connection` 和 `@deepseek-ai/dsh-client-ui-layout` 两个 peer 均追加精确版本 `0.2.1-rc.1`，三个相关 client 开发依赖同步到该版本。
 - 新 Host 的 API 已完成只读核对；此补丁没有运行时代码变更。
 - 维护 SDK 仍为 `npm:@likenttt/garmin-connect@1.7.0`，13 个新增 API、共 23 个工具及恢复数据技能保持不变。
 - host、client declarations、client bundle 构建均通过，使用固定 Node `26.3.0`；`check:sdk` 通过且 13 个方法齐全。
 - 新 Harness 内置 Node `24.21.0` / Electron `44.7.0` 下的两个专项 suite 首轮共 32 项：31 项通过，唯一 scripts 动态设置用例在与构建并行、内存压力期间超过默认 5,000 ms。仅该用例随后在同一运行时单独复测通过，用例耗时 1,067 ms，Jest 总耗时 4.711 秒；测试和默认超时均未修改。此运行时与前述 0.1.14 的 Node `24.18.1` 历史复测分开记录。
-- 这些结果是 **31 项首轮通过加 1 项单独复测通过**，覆盖全部 32 项，不能写成一次 32 项全通过。官方 npm 发布及新 Host 上的正式安装验证仍待完成。
+- 这些结果是 **31 项首轮通过加 1 项单独复测通过**，覆盖全部 32 项，不能写成一次 32 项全通过。
+- 已校验包中 174 个 `lib` 文件与 3 个技能文件均与 `0.1.14` 逐字节一致；实际 pnpm `11.28.5` 的 124 项锁文件策略检查通过，该计数独立于前述单元测试。
+- 之前一次 npm 安全密钥认证过期并退出 1（`E404`），作为历史尝试保留；随后正式上架、registry 读回、本机正式源安装及运行验收均已完成。
 
-机器可读候选记录为[脱敏证据](health-release-evidence-2026-10-16.json)中的 `pluginRelease015`。此前 `0.1.14` 的发布成功、旧 Host 运行及新 Host 兼容失败记录均保留。
+### 0.1.15 本机正式安装与运行验收
+
+此前本地候选安装使用 pnpm `11.28.5`，从 `0.1.14` 更新至精确的 `0.1.15` 本地 tarball，退出 0、耗时 1 分 30.1 秒，下载 3 个包、添加 7 个包。该阶段保留为历史，不作为当前来源。
+
+随后正式 registry 安装使用 pnpm **`11.28.5`**，命令退出 0，耗时 **7.5 秒**。当前本机状态为 **`formal-registry-installed-and-runtime-verified`**，正式来源切换已完成：
+
+- profile 和来源信息均为精确的 `dsh-plugin-garmin-connect@0.1.15`，不存在 `file:` 来源；锁文件 SRI 与官方 npm 发布记录匹配。
+- 插件全部 **186 个文件**、其中 **174 个 `lib` 文件与 3 个技能文件**，以及 SDK 的 **60 个 `dist` 文件**均通过一致性审计；13 个新增方法齐全，两个 Host client peer 对 `0.2.1-rc.1` 的兼容检查均通过。
+- root 独立确认重启后的 Harness **`0.2.1-rc.1` / Node `24.21.0`**：插件版本 `0.1.15`、无异常、1 个组件运行中、两个主账号均已登录、设置表单及添加按钮正常。
+- `officialRegistryInstallVerified=true`，`localRuntimeVerified=true`。来源审计不读取账号凭据或 session，UI 结果与文件审计分别记录。
+- 发布时间策略仅语义新增精确 `0.1.15`。pnpm 将已有插件年龄豁免合并为 `dsh-plugin-garmin-connect@0.1.13 || 0.1.14 || 0.1.15`；SDK 项仍为精确 `@likenttt/garmin-connect@1.7.0`，其他策略保持不变。
+
+### 0.1.15 精确发布包
+
+| 字段 | 记录 |
+| --- | --- |
+| 发布包 | `dsh-plugin-garmin-connect-0.1.15.tgz` |
+| Registry | `https://registry.npmjs.org/`，`latest=0.1.15` |
+| 发布时间 | `2026-10-17 17:51:07.891`（Asia/Shanghai） |
+| Registry 读回时间 | `2026-10-17 17:51:27.101`（Asia/Shanghai） |
+| Registry tarball | [官方 0.1.15 发布包](https://registry.npmjs.org/dsh-plugin-garmin-connect/-/dsh-plugin-garmin-connect-0.1.15.tgz) |
+| 源提交 | `faaffbb2db85028b4625408a67ad1054c2f53e80`，已推送 GitHub |
+| Git tag | `v0.1.15` 指向上述源提交，已推送 GitHub |
+| 大小 | 361,462 字节压缩，1,468,379 字节解压，186 个文件 |
+| SDK | `npm:@likenttt/garmin-connect@1.7.0` |
+| SHA-256 | `a458b339456f9f78919d7898795c90801f8fbabf229c0ac6c297ff529f177848` |
+| 私密文件检查 | 0 个私密文件 |
+
+```text
+sha512-eJkxY5Ti02n1fww9BM5bNwnOqMzXZVw/zVVorgnhIEkRyFWLK7zX4b2QSKjbmd36xq3r6dm03QQtavRBTcfeUQ==
+```
+
+机器可读发布记录为[脱敏证据](health-release-evidence-2026-10-16.json)中的 `pluginRelease015`。此前 `0.1.14` 的发布成功、旧 Host 运行及新 Host 兼容失败记录均保留。
