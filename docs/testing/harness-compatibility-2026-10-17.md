@@ -45,9 +45,10 @@
 | `check:sdk` | 通过；精确 `npm:@likenttt/garmin-connect@1.7.0` 别名，13 个方法齐全 |
 | 新 manifest 的 4 项回归 | 4/4 通过；Harness Node `24.21.0`，4.231 秒 |
 | 实际 Host 的 manifest 兼容矩阵 | 9 个版本通过 |
-| 本机 `0.2.1-rc.2` 本地 tarball 安装与重启 UI | 通过；精确 `0.1.16`，正式 registry 来源尚未切换 |
-| 安装后文件字节审计 | 通过；186 个插件文件及 SDK 60 个 `dist` 文件均匹配 |
-| 官方 npm 发布及来源读回 | 等待新安全密钥，尚未确认上架 |
+| 本机 `0.2.1-rc.2` 本地 tarball 安装与重启 UI | 通过；精确 `0.1.16`，保留为本地恢复阶段记录 |
+| 本地 tarball 安装后的文件字节审计 | 通过；186 个插件文件及 SDK 60 个 `dist` 文件均匹配 |
+| 官方 npm 发布及元数据读回 | 通过；`published=true`、`latest=0.1.16`，SRI 匹配 |
+| 正式 registry 来源安装、审计与重启 UI | 通过；`registrySource=verified`，精确 `0.1.16` 来源及新 Host 运行均已确认 |
 
 ## 本机恢复与发布进度
 
@@ -60,13 +61,40 @@ SDK 仍为精确维护版 `1.7.0`。
 124 项锁策略检查通过。实际安装后的 manifest 经 Host 的
 `evaluatePluginCompatibility` 检查，对 `0.2.1-rc.2` 返回兼容。
 重启 UI 确认版本 `0.1.16` 正常、1 个组件运行、两个主账号已登录、设置正常，
-本机已恢复。当前来源仍为 **`file:` tarball**，安装后只读审计已完成：186 个插件
+本机已恢复。该阶段来源为 **`file:` tarball**，安装后只读审计已完成：186 个插件
 文件与精确 tarball 匹配，SDK 的 60 个 `dist` 文件及官方 `1.7.0` SRI 一致，
 13 个方法齐全，两个 peer 对实际 `0.2.1-rc.2` 均兼容；workspace 未变更，
 `changedKeys=[]`。见[本机脱敏审计证据](/Users/kent/.codex/garmin-release-checks/2026-10-17/plugin-0.1.16/desktop-local-check.json)。
 
-首轮 npm 发布认证已过期，当前 **`publication=awaiting-security-key`**，等待新的
-安全密钥验证；尚未确认官方上架。**`registrySource=pending`**，本地安装与 UI
-通过不记为官方 registry 来源切换完成。
+## 官方发布与来源切换
 
-本记录不改写 `0.1.15` 的发布和测试历史；正式发布及来源验收结果待补充。
+首轮认证过期作为历史保留；随后官方 npm 发布已完成并核验，当前
+**`publication=published`**、**`published=true`**。发布时间为
+`2026-10-17 21:05:25.027`（Asia/Shanghai），核验时间为 `21:05:39.714`；
+exact、full、install-v1 三种元数据读取均返回 HTTP 200，`latest=0.1.16`。
+[官方发布核验证据](/Users/kent/.codex/garmin-release-checks/2026-10-17/plugin-0.1.16/npm-publication.json)
+确认发布包共 186 个文件、解压 1,470,311 字节，维护库仍为
+`npm:@likenttt/garmin-connect@1.7.0`，SRI 与精确 tarball 一致：
+
+```text
+sha512-8adU2LDvOcHtaQUzIld+6RAmSzlxH6UMlfF6ON4/pCWhDAxxkglKttD3Hru8VhvabPl/SjRRiDsqBMRYe+2ptA==
+```
+
+官方 desktop CLI 已将来源从本地 tarball 切换为 registry exact `0.1.16`，
+命令退出 0，pnpm `11.28.5`，耗时 **9.7 秒**。最终状态为
+**`publication=published`**、**`registrySource=verified`**。
+
+[正式来源脱敏审计证据](/Users/kent/.codex/garmin-release-checks/2026-10-17/plugin-0.1.16/desktop-registry-check.json)
+结果为 `registry-install-and-host-peers-verified`：profile 精确引用
+`dsh-plugin-garmin-connect@0.1.16`，无 `file:` 或 Git 来源，锁文件 SRI 与官方发布
+一致；插件全部 186 个文件（含 174 个 `lib`、3 个技能文件）及 SDK 的 60 个
+`dist` 文件匹配官方包，13 个方法齐全，实际 Host 与两个 peer 的 `0.2.1-rc.2`
+兼容检查通过。安全策略仅语义新增精确插件 `0.1.16` 的发布时间豁免。
+
+根 agent 通过 CUA 重启 `.app` 后独立确认：UI 版本 `0.1.16`，来源
+`dsh-plugin-garmin-connect@0.1.16`，1 个组件运行、两个主账号已登录、无兼容拦截。
+用户原有草稿保留且未发送。Git tag `v0.1.16` 已推送，指向文中源提交
+`be0224814a6b2cb7a5e16780630c0f93b43e7903`。
+
+前述本地恢复阶段保留为历史。本记录不改写 `0.1.15` 的发布和测试历史；本次未
+追加全量测试或健康 API 实测。
