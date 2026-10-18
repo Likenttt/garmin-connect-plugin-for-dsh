@@ -14,6 +14,7 @@ import type { Config } from './config'
 import { HEALTH_TOOLS } from './health-tools'
 import type { HealthMetricArgs } from './health-tools'
 import { McpGarminAuthCoordinator } from './mcp-auth'
+import { GARMIN_MCP_INSTRUCTIONS } from './mcp-instructions'
 import { installMcpShutdownHooks } from './mcp-shutdown'
 import {
   GarminToolService,
@@ -124,6 +125,8 @@ class GarminMcpServer extends McpServer {
     super({
       name: 'garmin-connect',
       version: MCP_SERVER_VERSION,
+    }, {
+      instructions: GARMIN_MCP_INSTRUCTIONS,
     })
     const previousOnClose = this.server.onclose
     this.server.onclose = (): void => {

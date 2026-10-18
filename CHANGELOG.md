@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Send concise MCP server instructions during connection initialization: discover actual tool schemas, verify the selected account for data queries, choose explicit dates and relevant tools, and verify capabilities again after an authorized update and reconnect. Initialization itself performs no Garmin requests or writes.
+- Guide HRV empty-data diagnosis by comparing the same account and dates with Garmin Connect. Keep unavailable tools, successful empty responses and authentication/HTTP failures distinct; an empty response alone does not establish a regional restriction.
+
 ## [0.1.16] - 2026-10-17
 
 ### Fixed

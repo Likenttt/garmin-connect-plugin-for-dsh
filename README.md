@@ -646,6 +646,20 @@ This plugin also ships as a standalone **MCP (Model Context Protocol) server**, 
 > **Current availability:** the standalone MCP entry point is included in npm
 > `0.1.5` and later. A local checkout remains useful for development.
 
+**New in development: agent workflow instructions on connection.** MCP initialization
+sends `instructions` covering actual tool schemas, account verification before the
+first account-data query or after an account change, explicit dates, and separate
+handling of empty data, authentication failures and other request errors. For empty
+HRV, compare the same account and date with Garmin Connect; an empty response alone
+does not establish a regional restriction. Initialization only sends guidance; it
+performs no health queries, software updates or Garmin writes.
+
+This requires a version containing the change, a restarted MCP process and a
+reloaded connector. Updating only the SDK or skill does not add tools to an old
+running connection. The client controls whether server instructions reach the
+model; the bundled `garmin-connect` skill remains available as a fallback. Guidance
+improves tool use but cannot guarantee data from Garmin.
+
 Build the local server first:
 
 ```bash
@@ -1149,14 +1163,14 @@ the Git dependency preparation and exotic-subdependency errors encountered by
 earlier development candidates. Version 0.1.15 adds DeepSeek Harness
 0.2.1-rc.1 compatibility while retaining the earlier supported client versions.
 
-The **0.1.16 candidate** expands the 0.2.1 client clause to
+Version **0.1.16** expands the 0.2.1 client clause to
 `>=0.2.1-rc.1 <0.2.2-0`, preserving earlier supported ranges. Harness uses
 `semver.satisfies(..., { includePrerelease: true })`; the boundary accepts
 0.2.1-rc.1, rc.2, rc.99 and stable 0.2.1, and excludes every 0.2.2 prerelease
 and release. The rc.2 API comparison found the connection and Cordis JavaScript
 unchanged, with layout differences limited to CSS hashes and build paths;
-this compatibility patch has no runtime code changes. Build, manifest
-regression, local installation and publication checks remain pending. See the
+this compatibility patch has no runtime code changes. Build, manifest regression,
+official npm publication and the local registry installation passed. See the
 [compatibility verification record](docs/testing/harness-compatibility-2026-10-17.md).
 
 Before this release, a local `0.1.13` development candidate passed installation

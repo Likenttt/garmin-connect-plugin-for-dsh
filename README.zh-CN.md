@@ -559,6 +559,17 @@ username、region 和 `profileIdHash`；为兼容旧版本，无绑定的 `oauth
 
 > **当前可用性：** npm `0.1.5` 及之后版本已包含独立 MCP 入口；本地源码方式仍适合开发。
 
+**开发版新增：连接时的 Agent 执行说明。** MCP 初始化会下发 `instructions`，指导
+Agent 检查实际工具 schema、在首次读取账号数据或账号变化时确认资料、使用明确日期，
+并区分空数据、认证失败和其他请求错误。HRV 返回空时，先核对同一账号、同一天在
+佳明 App 中是否有记录；空响应本身不能证明国内服不支持。初始化仅发送说明，不会
+自动查询健康数据、升级软件或写入 Garmin。
+
+使用此功能需要包含该改动的版本，并重启 MCP 进程、重载连接器。只更新 SDK 或
+skill 不会给正在运行的旧连接增加工具。客户端决定是否将 server instructions
+提供给模型；不支持时仍可使用随包的 `garmin-connect` skill。说明能改进调用流程，
+不能保证 Garmin 接口返回数据。
+
 先构建本地服务器：
 
 ```bash
@@ -1005,13 +1016,13 @@ SDK 已不再需要 Git、访问 GitHub 或执行依赖的 `prepare` 编译。
 依赖构建与 Git 子依赖策略错误。0.1.15 进一步支持 DeepSeek Harness 0.2.1-rc.1，
 并保留此前支持的客户端版本。
 
-**0.1.16 候选**将 0.2.1 系列 client 条款扩展为
+**0.1.16** 将 0.2.1 系列 client 条款扩展为
 `>=0.2.1-rc.1 <0.2.2-0`，保留旧支持项。Harness 使用
 `semver.satisfies(..., { includePrerelease: true })`；该边界接受
 0.2.1-rc.1、rc.2、rc.99 和稳定版 0.2.1，排除所有 0.2.2 预发布及正式版。
 rc.2 API 比较确认 connection 与 Cordis JavaScript 未变，layout 仅有 CSS hash
-及构建路径差异，此补丁无运行时代码改动。构建、真实 manifest 回归、本机安装
-与发布验证仍待完成，详见[兼容验证记录](docs/testing/harness-compatibility-2026-10-17.md)。
+及构建路径差异，此补丁无运行时代码改动。构建、真实 manifest 回归、官方 npm
+发布和本机正式来源安装均已通过，详见[兼容验证记录](docs/testing/harness-compatibility-2026-10-17.md)。
 
 发布前，本地 `0.1.13` 开发候选曾通过 Harness 桌面官方 CLI 安装，使用
 `--ignore-scripts` 与官方 npm registry。当时 SDK 全部 60 个 `dist` 文件与已发布包
