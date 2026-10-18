@@ -649,9 +649,8 @@ This plugin also ships as a standalone **MCP (Model Context Protocol) server**, 
 **New in development: agent workflow instructions on connection.** MCP initialization
 sends `instructions` covering actual tool schemas, account verification before the
 first account-data query or after an account change, explicit dates, and separate
-handling of empty data, authentication failures and other request errors. For empty
-HRV, compare the same account and date with Garmin Connect; an empty response alone
-does not establish a regional restriction. Initialization only sends guidance; it
+handling of empty data, authentication failures and other request errors.
+Initialization only sends guidance; it
 performs no health queries, software updates or Garmin writes.
 
 This requires a version containing the change, a restarted MCP process and a

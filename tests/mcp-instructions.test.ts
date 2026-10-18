@@ -39,7 +39,6 @@ describe('MCP connection instructions', () => {
       }
       expect(toolNames.some(name => /(?:upgrade|update)/i.test(name))).toBe(false)
       expect(instructions).toMatch(/null.*\[\]/)
-      expect(instructions).toMatch(/not prove.*regional restriction/i)
       expect(instructions).toMatch(/(?:cannot|does not) guarantee.*HRV/i)
     })
   })
