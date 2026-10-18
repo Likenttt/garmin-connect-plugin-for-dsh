@@ -202,7 +202,7 @@ definition or coaching inference is not misrepresented as comparative proof.
 ### 1. Install this plugin — from the npm registry (recommended)
 
 ```bash
-npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
+npx @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
 ```
 
 This single command installs the dependency **and** activates the plugin layer — the first run automatically initializes the `web` profile. You only need `pnpm` on your `PATH`:
@@ -211,12 +211,10 @@ This single command installs the dependency **and** activates the plugin layer �
 npm install -g pnpm
 ```
 
-> `--legacy-peer-deps=false` makes npm resolve peer dependencies normally. If your npm config has `legacy-peer-deps=true` (it skips peer packages), dsh would fail to boot with `ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/cordis-plugin-group'`. On machines without that setting the flag is a harmless no-op.
-
 Verify the plugin layer is composed without booting:
 
 ```bash
-npx --legacy-peer-deps=false @deepseek-ai/dsh --profile web --dump-config | grep -A 2 garmin-connect
+npx @deepseek-ai/dsh --profile web --dump-config | grep -A 2 garmin-connect
 ```
 
 Other install sources:
@@ -224,19 +222,19 @@ Other install sources:
 ```bash
 # Local checkout (development)
 cd garmin-connect-plugin-for-dsh && npm install
-npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .
+npx @deepseek-ai/dsh plugin --profile web add .
 
 # GitHub source install
-npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>
+npx @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>
 ```
 
 ### 2. Install the Harness CLI (if you haven't already)
 
 ```bash
-npx --legacy-peer-deps=false @deepseek-ai/dsh web
+npx @deepseek-ai/dsh web
 ```
 
-The web UI starts at `http://127.0.0.1:3080` by default. If you launch Harness via `npx`, keep using the same prefix for the commands below (`npx --legacy-peer-deps=false @deepseek-ai/dsh …`); if you have `dsh` installed globally, you can drop the `npx @deepseek-ai/` prefix.
+The web UI starts at `http://127.0.0.1:3080` by default. If you launch Harness via `npx`, keep using the same prefix for the commands below (`npx @deepseek-ai/dsh …`); if you have `dsh` installed globally, you can drop the `npx @deepseek-ai/` prefix.
 
 ### 3. Configure the Garmin account when you are ready to sign in
 
@@ -552,7 +550,7 @@ format.
 ### 4. Run
 
 ```bash
-npx --legacy-peer-deps=false @deepseek-ai/dsh web
+npx @deepseek-ai/dsh web
 ```
 
 Open `http://127.0.0.1:3080`. The plugin is loaded when **Settings → Plugins → Plugin list** shows `plugin-garmin-connect` as *mounted & enabled*. Then try: *"How was my sleep last night?"* or *"Show me my last 5 runs."*
@@ -613,6 +611,15 @@ explicitly want normalized details in your local terminal output.
 ```
 
 </details>
+
+### npm peer dependency troubleshooting
+
+The [npm default](https://docs.npmjs.com/cli/v11/using-npm/config/#legacy-peer-deps)
+for `legacy-peer-deps` is `false`, so regular commands need no override. If an
+`npx` launch reports missing dependencies, check `npm config get legacy-peer-deps`.
+Only if it returns `true`, try `npx --legacy-peer-deps=false @deepseek-ai/dsh web`
+to restore normal peer resolution for that invocation. A missing-module error
+can have other causes; also check the named package and installation state.
 
 ---
 
@@ -1336,14 +1343,14 @@ npm publish --registry=https://registry.npmjs.org/ --access public
 After publishing, users install with a single command:
 
 ```bash
-npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
+npx @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
 ```
 
 Distribution notes:
 
 - **npm registry (recommended)** — the tarball ships prebuilt `lib/`, so no build permission is needed at install time.
-- **Local checkout** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .` links the source directory; run `npm install` first.
-- **GitHub installs** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>` fetches sources and runs the package's `prepare` script with the locally installed TypeScript compiler; pnpm ≥ 10 refuses to run the script until you allow it — `dsh` prints the exact `allowBuilds` key for the profile's `pnpm-workspace.yaml`.
+- **Local checkout** — `npx @deepseek-ai/dsh plugin --profile web add .` links the source directory; run `npm install` first.
+- **GitHub installs** — `npx @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>` fetches sources and runs the package's `prepare` script with the locally installed TypeScript compiler; pnpm ≥ 10 refuses to run the script until you allow it — `dsh` prints the exact `allowBuilds` key for the profile's `pnpm-workspace.yaml`.
 - Add the `dsh-plugin` topic to your GitHub repository for discoverability.
 
 ---
