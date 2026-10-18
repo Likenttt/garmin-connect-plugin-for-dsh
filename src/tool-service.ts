@@ -28,6 +28,16 @@ import { parseLocalDate } from './utils/date'
 import { HEALTH_TOOLS } from './health-tools'
 import type { GarminRecoveryDataClient, HealthMetricArgs, HealthMetricMethod } from './health-tools'
 import {
+  canonicalGarminResourceId,
+  resolveScheduledWorkoutRange,
+} from './workout-management'
+import type {
+  DeleteWorkoutArgs,
+  GarminWorkoutManagementClient,
+  ScheduledWorkoutsArgs,
+  UnscheduleWorkoutArgs,
+} from './workout-management'
+import {
   formatActivity,
   formatHeartRate,
   formatProfile,
@@ -37,7 +47,7 @@ import {
   formatWorkout,
 } from './utils/format'
 
-export interface GarminDataClient extends Partial<GarminRecoveryDataClient> {
+export interface GarminDataClient extends Partial<GarminRecoveryDataClient>, Partial<GarminWorkoutManagementClient> {
   getActivities(start?: number, limit?: number): Promise<unknown[]>
   getSleep(date: string): Promise<unknown>
   getSteps(date: string): Promise<unknown>
@@ -54,6 +64,7 @@ export interface GarminToolServiceOptions {
   fitDownloadDir: string
   accountUsername: string
   accountRegion: GarminRegion
+  accountId?: string
 }
 
 export interface DateRangeArgs {
@@ -179,11 +190,24 @@ interface PendingWorkoutConfirmation {
   expiresAt: number
 }
 
+type WorkoutRemovalOperation = 'deleteWorkout' | 'unscheduleWorkout'
+
+interface PendingWorkoutRemovalConfirmation {
+  operation: WorkoutRemovalOperation
+  targetId: string
+  accountUsername: string
+  accountRegion: GarminRegion
+  accountId?: string
+  detailHash: string
+  expiresAt: number
+}
+
 const CONFIRMATION_TTL_MS = 10 * 60 * 1000
 const MAX_PENDING_CONFIRMATIONS = 20
 
 export class GarminToolService {
   private readonly workoutConfirmations = new Map<string, PendingWorkoutConfirmation>()
+  private readonly workoutRemovalConfirmations = new Map<string, PendingWorkoutRemovalConfirmation>()
   private readonly dateRequestLimiter = new AsyncSemaphore(4)
 
   constructor(
@@ -352,6 +376,120 @@ export class GarminToolService {
     const offset = Math.max(Math.trunc(args.offset ?? 0), 0)
     const workouts = await this.client.getWorkouts(offset, limit)
     return (workouts as Record<string, unknown>[]).map(formatWorkout)
+  }
+
+  async getScheduledWorkouts(args: ScheduledWorkoutsArgs = {}): Promise<unknown> {
+    validateWorkoutManagementArgs(args, ['startDate', 'endDate'])
+    const { startDate, endDate } = resolveScheduledWorkoutRange(args)
+    const action = this.client.getScheduledWorkouts
+    if (typeof action !== 'function') throw unsupportedWorkoutManagement()
+    return action.call(this.client, startDate, endDate)
+  }
+
+  async deleteWorkout(args: DeleteWorkoutArgs): Promise<Record<string, unknown>> {
+    return this.removeWorkout('deleteWorkout', args)
+  }
+
+  async unscheduleWorkout(args: UnscheduleWorkoutArgs): Promise<Record<string, unknown>> {
+    return this.removeWorkout('unscheduleWorkout', args)
+  }
+
+  private async removeWorkout(
+    operation: WorkoutRemovalOperation,
+    args: DeleteWorkoutArgs | UnscheduleWorkoutArgs,
+  ): Promise<Record<string, unknown>> {
+    const idField = operation === 'deleteWorkout' ? 'workoutId' : 'scheduleId'
+    validateWorkoutManagementArgs(args, [idField, 'confirmed', 'confirmationId'])
+    if (args.confirmed !== undefined && typeof args.confirmed !== 'boolean') {
+      throw new PublicToolError('confirmed must be a boolean')
+    }
+    if (args.confirmationId !== undefined
+      && (typeof args.confirmationId !== 'string' || args.confirmationId.trim().length === 0)) {
+      throw new PublicToolError('confirmationId must be a non-empty string')
+    }
+    if (args.confirmed !== true && args.confirmationId !== undefined) {
+      throw new PublicToolError('A confirmationId can only be used with confirmed=true')
+    }
+    // A typed confirmation attempt is one-shot, even if target validation fails.
+    const pending = args.confirmed === true && args.confirmationId !== undefined
+      ? this.workoutRemovalConfirmations.get(args.confirmationId)
+      : undefined
+    if (args.confirmed === true && args.confirmationId !== undefined) {
+      this.workoutRemovalConfirmations.delete(args.confirmationId)
+    }
+    const targetId = canonicalGarminResourceId((args as unknown as Record<string, unknown>)[idField], idField)
+
+    const read = operation === 'deleteWorkout'
+      ? this.client.getWorkoutDetail
+      : this.client.getScheduledWorkout
+    const write = operation === 'deleteWorkout'
+      ? this.client.deleteWorkout
+      : this.client.unscheduleWorkout
+    if (typeof read !== 'function' || typeof write !== 'function') {
+      throw unsupportedWorkoutManagement()
+    }
+
+    if (args.confirmed === true) {
+      if (!pending
+        || pending.expiresAt <= Date.now()
+        || pending.operation !== operation
+        || pending.targetId !== targetId
+        || pending.accountUsername !== this.options.accountUsername
+        || pending.accountRegion !== this.options.accountRegion
+        || pending.accountId !== this.options.accountId) {
+        throw invalidWorkoutRemovalConfirmation()
+      }
+      const detail = validateWorkoutRemovalDetail(await read.call(this.client, targetId), operation, targetId)
+      if (pending.detailHash !== workoutRemovalDetailHash(detail)) {
+        throw new PublicToolError('The workout changed after the preview; request a new preview and user confirmation')
+      }
+      // A resolved 204/empty response is success. Never retry a destructive request.
+      await write.call(this.client, targetId)
+      return {
+        success: true,
+        [idField]: targetId,
+        accountRegion: this.options.accountRegion,
+        ...(this.options.accountId ? { accountId: this.options.accountId } : {}),
+        action: operation === 'deleteWorkout' ? 'delete_workout' : 'cancel_scheduled_workout',
+        ...(operation === 'unscheduleWorkout' ? { workoutTemplatePreserved: true } : {}),
+        message: operation === 'deleteWorkout'
+          ? 'The workout was deleted from the Garmin workout library.'
+          : 'The workout calendar entry was cancelled; the workout library template was preserved.',
+      }
+    }
+
+    const detail = validateWorkoutRemovalDetail(await read.call(this.client, targetId), operation, targetId)
+    const now = Date.now()
+    for (const [id, confirmation] of this.workoutRemovalConfirmations) {
+      if (confirmation.expiresAt <= now) this.workoutRemovalConfirmations.delete(id)
+    }
+    while (this.workoutRemovalConfirmations.size >= MAX_PENDING_CONFIRMATIONS) {
+      const oldest = this.workoutRemovalConfirmations.keys().next().value
+      if (oldest === undefined) break
+      this.workoutRemovalConfirmations.delete(oldest)
+    }
+    const confirmationId = randomUUID()
+    this.workoutRemovalConfirmations.set(confirmationId, {
+      operation,
+      targetId,
+      accountUsername: this.options.accountUsername,
+      accountRegion: this.options.accountRegion,
+      accountId: this.options.accountId,
+      detailHash: workoutRemovalDetailHash(detail),
+      expiresAt: now + CONFIRMATION_TTL_MS,
+    })
+    return {
+      requiresConfirmation: true,
+      confirmationId,
+      expiresInSeconds: CONFIRMATION_TTL_MS / 1000,
+      preview: {
+        ...workoutRemovalPreview(detail, operation, targetId, this.options.accountRegion),
+        ...(this.options.accountId ? { accountId: this.options.accountId } : {}),
+      },
+      message: operation === 'deleteWorkout'
+        ? 'Review this single workout with the user. Only after explicit user confirmation, call delete_garmin_workout with the same workoutId, confirmed=true, and this confirmationId.'
+        : 'Review this single calendar entry with the user. Only after explicit user confirmation, call unschedule_garmin_workout with the same scheduleId, confirmed=true, and this confirmationId. This cancels the calendar entry and preserves the workout library template.',
+    }
   }
 
   async getRunningAdvice(args: RunningAdviceArgs): Promise<RunningAdviceResponse> {
@@ -1072,6 +1210,70 @@ class AsyncSemaphore {
       this.active -= 1
       this.waiters.shift()?.()
     }
+  }
+}
+
+function validateWorkoutManagementArgs(value: unknown, allowedKeys: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new PublicToolError('Workout management arguments must be an object')
+  }
+  if (Object.keys(value).some(key => !allowedKeys.includes(key))) {
+    throw new PublicToolError('Unsupported workout management argument')
+  }
+}
+
+function unsupportedWorkoutManagement(): PublicToolError {
+  return new PublicToolError('The installed Garmin SDK does not support this workout management operation; update the plugin')
+}
+
+function invalidWorkoutRemovalConfirmation(): PublicToolError {
+  return new PublicToolError('Invalid workout confirmation: request a new preview for this account and action; the confirmation is missing, expired, already used, or does not match the target')
+}
+
+function validateWorkoutRemovalDetail(
+  value: unknown,
+  operation: WorkoutRemovalOperation,
+  targetId: string,
+): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length === 0) {
+    throw new PublicToolError('Garmin did not return the target workout details; no change was made')
+  }
+  const detail = value as Record<string, unknown>
+  const identityFields = operation === 'deleteWorkout'
+    ? ['workoutId', 'id']
+    : ['workoutScheduleId', 'scheduledWorkoutId', 'scheduleId', 'id']
+  for (const field of identityFields) {
+    if (Object.hasOwn(detail, field)
+      && canonicalGarminResourceId(detail[field], field) !== targetId) {
+      throw new PublicToolError('Garmin returned details for a different workout target; no change was made')
+    }
+  }
+  return detail
+}
+
+function workoutRemovalDetailHash(detail: Record<string, unknown>): string {
+  return createHash('sha256').update(canonicalJson(detail)).digest('hex')
+}
+
+function workoutRemovalPreview(
+  detail: Record<string, unknown>,
+  operation: WorkoutRemovalOperation,
+  targetId: string,
+  region: GarminRegion,
+): Record<string, unknown> {
+  const nestedWorkout = detail.workout && typeof detail.workout === 'object' && !Array.isArray(detail.workout)
+    ? detail.workout as Record<string, unknown>
+    : undefined
+  const workoutName = [detail.workoutName, detail.name, nestedWorkout?.workoutName, nestedWorkout?.name]
+    .find(value => typeof value === 'string' && value.trim().length > 0)
+  const date = [detail.date, detail.scheduledDate, detail.calendarDate, detail.workoutDate]
+    .find(value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value))
+  return {
+    action: operation === 'deleteWorkout' ? 'delete_workout' : 'cancel_scheduled_workout',
+    ...(operation === 'deleteWorkout' ? { workoutId: targetId } : { scheduleId: targetId, workoutTemplatePreserved: true }),
+    accountRegion: region,
+    ...(typeof workoutName === 'string' ? { workoutName: workoutName.slice(0, 200) } : {}),
+    ...(typeof date === 'string' ? { scheduledDate: date.slice(0, 10) } : {}),
   }
 }
 

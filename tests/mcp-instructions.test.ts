@@ -57,6 +57,9 @@ function serviceStub() {
     createWorkout: jest.fn(),
     downloadActivityFit: jest.fn(),
     getHealthMetric: jest.fn(),
+    getScheduledWorkouts: jest.fn(),
+    deleteWorkout: jest.fn(),
+    unscheduleWorkout: jest.fn(),
   }
 }
 

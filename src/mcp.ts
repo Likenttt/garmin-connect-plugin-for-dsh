@@ -39,6 +39,12 @@ import {
   safeUpstreamLogLine,
 } from './utils/errors'
 import { resolveFitDownloadDir } from './utils/path'
+import { GARMIN_RESOURCE_ID_PATTERN } from './workout-management'
+import type {
+  DeleteWorkoutArgs,
+  ScheduledWorkoutsArgs,
+  UnscheduleWorkoutArgs,
+} from './workout-management'
 
 type ToolService = Pick<
   GarminToolService,
@@ -48,6 +54,9 @@ type ToolService = Pick<
   | 'getHeartRate'
   | 'getWeight'
   | 'getWorkouts'
+  | 'getScheduledWorkouts'
+  | 'deleteWorkout'
+  | 'unscheduleWorkout'
   | 'getProfile'
   | 'getRunningAdvice'
   | 'createWorkout'
@@ -66,6 +75,20 @@ const healthDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
 const healthDateRangeSchema = {
   startDate: healthDateSchema.describe('Inclusive start date in YYYY-MM-DD format (default: today).'),
   endDate: healthDateSchema.describe('Inclusive end date in YYYY-MM-DD format (default: startDate).'),
+}
+
+const garminResourceIdSchema = z.union([
+  z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+  z.string().regex(new RegExp(GARMIN_RESOURCE_ID_PATTERN)),
+])
+
+const destructiveConfirmationSchema = {
+  confirmed: z.boolean().optional().describe(
+    'Set true only after the user explicitly approves the account and object in the matching preview.',
+  ),
+  confirmationId: z.string().uuid().optional().describe(
+    'One-time ID returned by the matching preview for this account, operation, and resource ID.',
+  ),
 }
 
 const simpleWorkoutStepSchema = z.object({
@@ -103,6 +126,11 @@ const WRITE_ANNOTATIONS = {
   destructiveHint: false,
   idempotentHint: false,
   openWorldHint: true,
+}
+
+const DESTRUCTIVE_ANNOTATIONS = {
+  ...WRITE_ANNOTATIONS,
+  destructiveHint: true,
 }
 
 const MCP_SERVER_VERSION = (require('../package.json') as { version: string }).version
@@ -235,6 +263,55 @@ export function createMcpServer(
       offset: z.number().int().min(0).optional(),
     },
     (args: PaginationArgs) => invokeTool(() => service.getWorkouts(args)),
+  )
+
+  register(
+    'get_garmin_scheduled_workouts',
+    'Read Garmin calendar workout entries for an inclusive date range of at most 31 days ' +
+      '(default: today). Returns the full service response, including scheduleId values needed ' +
+      'to cancel a calendar entry. This is separate from the workout library returned by get_garmin_workouts.',
+    {
+      startDate: healthDateSchema.describe('Inclusive start date in YYYY-MM-DD format (default: today).'),
+      endDate: healthDateSchema.describe('Inclusive end date in YYYY-MM-DD format (default: startDate; at most 31 days).'),
+    },
+    (args: ScheduledWorkoutsArgs) => invokeTool(() => service.getScheduledWorkouts(args)),
+  )
+
+  register(
+    'delete_garmin_workout',
+    'Delete one workout template from the Garmin workout library; this does not cancel a single ' +
+      'calendar occurrence. First call without confirmed=true for a preview. Show the preview account ' +
+      'and workout to the user, then only after explicit approval call again with the same workoutId, ' +
+      'confirmed=true, and confirmationId. Never batch-delete or automatically retry. If the outcome ' +
+      'is unknown, use a read-only check before any further action.',
+    {
+      workoutId: garminResourceIdSchema.describe(
+        'Workout library ID returned by get_garmin_workouts. Use a decimal string for IDs larger than a safe integer.',
+      ),
+      ...destructiveConfirmationSchema,
+    },
+    (args: DeleteWorkoutArgs) => invokeTool(() => service.deleteWorkout(args)),
+    DESTRUCTIVE_ANNOTATIONS,
+    false,
+  )
+
+  register(
+    'unschedule_garmin_workout',
+    'Cancel one Garmin calendar workout occurrence while retaining its workout library template. ' +
+      'Use scheduleId from get_garmin_scheduled_workouts, never a workoutId. First call without ' +
+      'confirmed=true for a preview. Show the preview account and calendar entry to the user, then ' +
+      'only after explicit approval call again with the same scheduleId, confirmed=true, and ' +
+      'confirmationId. Never batch-cancel or automatically retry. If the outcome is unknown, ' +
+      'use a read-only calendar check before any further action.',
+    {
+      scheduleId: garminResourceIdSchema.describe(
+        'Calendar occurrence ID returned by get_garmin_scheduled_workouts, distinct from workoutId. Use a decimal string for large IDs.',
+      ),
+      ...destructiveConfirmationSchema,
+    },
+    (args: UnscheduleWorkoutArgs) => invokeTool(() => service.unscheduleWorkout(args)),
+    DESTRUCTIVE_ANNOTATIONS,
+    false,
   )
 
   register(
@@ -520,6 +597,7 @@ async function main(): Promise<void> {
   const account = standaloneAccountAlias()
   const client = new GarminClient(stderrContext(), config, { allowUnconfigured: true })
   const service = new GarminToolService(client, {
+    accountId: account,
     activityDetail: config.activityDetail,
     fitDownloadDir: config.fitDownloadDir,
     accountUsername: config.username,

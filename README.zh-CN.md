@@ -121,6 +121,22 @@ Harness 配置多个账号时，访问账号数据的工具调用需添加 `acco
 `confirmationId`；用户确认未更改的预览后，再使用相同训练定义、
 `confirmed: true` 及该 `confirmationId` 调用。确认 ID 10 分钟后失效，且不可复用。
 
+### 课表删除与取消排期（开发版）
+
+开发版在已发布版本的 23 个工具上新增以下 3 个，合计 **26 个工具**：
+
+| 工具 | 用途 | 预览参数示例 |
+| --- | --- | --- |
+| `get_garmin_scheduled_workouts` | 查询包含首尾、最多 31 天的日历课表排期，获得真实排期 ID | `{"startDate":"2026-10-18","endDate":"2026-10-24"}` |
+| `delete_garmin_workout` | 删除训练库中的课表模板 | `{"workoutId":"123456"}` |
+| `unschedule_garmin_workout` | 取消一次日历排期，保留训练库模板 | `{"scheduleId":"654321"}` |
+
+`workoutId` 与 `scheduleId` 是不同资源的 ID，不能互换。ID 支持正整数字符串；
+数字形式必须在 JavaScript 安全整数范围内。两个删除工具先读取目标并返回预览，
+用户确认后才以同一目标、`confirmed: true` 和对应 `confirmationId` 执行。确认
+绑定账号、动作与目标详情，10 分钟内一次有效；目标变化时重新预览。删除超时或
+返回结果不明确时先只读核对，不自动重放。此开发能力尚未发布到 npm。
+
 ### 个性化跑步训练问询
 
 `get_running_skill_advice` 明确区分“知识讲解”和“个性化规划”：
@@ -864,8 +880,8 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-当前开发版 MCP 服务器通过标准协议暴露与 dsh 插件**相同的 23 个工具及日期语义**：
-原有 10 个工具加上前述 13 个恢复与训练工具。独立 MCP 每个进程使用配置的账号，
+当前开发版 MCP 服务器通过标准协议暴露与 dsh 插件**相同的 26 个工具及日期语义**：
+原有 10 个工具、3 个课表管理工具，加上前述 13 个恢复与训练工具。独立 MCP 每个进程使用配置的账号，
 DSH 则支持工具级 `account` 选择。任何 AI 可调用工具都不接收密码/MFA，也不导出 Session Token；浏览器认证
 通过对话之外的本机 URL elicitation 完成，完成后由用户重试原工具。
 
@@ -1086,8 +1102,8 @@ node scripts/check-health-release.cjs \
 ```
 
 五个参数均必填，路径须为绝对路径，报告目标文件须尚不存在。脚本通过编译后的插件
-使用真实 DI 认证和 Garmin 只读请求，执行 DSH 注册的工具；随后校验 MCP 共 23 个
-工具，通过内存 MCP 连接调用 13 个新工具，检查结果一致性与缓存复用，并回归个人
+使用真实 DI 认证和 Garmin 只读请求，执行 DSH 注册的工具；随后校验 MCP 共 26 个
+工具，通过内存 MCP 连接调用 13 个恢复与训练工具，检查结果一致性与缓存复用，并回归个人
 资料、运动记录和睡眠工具。原始响应仅留在内存，终端与报告只输出状态、结构/数量及
 请求元信息。该检查不覆盖 Harness 桌面 UI，也不会重新发起浏览器登录；任一检查
 失败时进程以非零状态退出。
@@ -1119,7 +1135,7 @@ src/
 │   ├── running-skills.ts  # 8 种课型 + 4 套精简训练理念
 │   └── workout-schema.ts  # 训练定义 → Garmin JSON 构建器
 ├── tools/
-│   └── index.ts      # 工具定义与注册（开发版 23 个工具）
+│   └── index.ts      # 工具定义与注册（开发版 26 个工具）
 └── utils/
     ├── errors.ts      # 安全错误输出与上游日志脱敏
     ├── cache.ts       # 内存 TTL/LRU 缓存与 single-flight 刷新

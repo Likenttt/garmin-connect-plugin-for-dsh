@@ -24,6 +24,12 @@ import {
 import { MemoryCache } from './utils/cache'
 import { parseLocalDate } from './utils/date'
 import {
+  canonicalGarminResourceId,
+  resolveScheduledWorkoutRange,
+  type GarminResourceId,
+  type GarminWorkoutManagementClient,
+} from './workout-management'
+import {
   GARMIN_BROWSER_AUTH_COMMAND,
   GarminAuthenticationRequiredError,
   type GarminAuthenticationRequiredReason,
@@ -87,7 +93,7 @@ interface GarminRecoverySdk extends Omit<GarminRecoveryDataClient, 'getRacePredi
  *   - An in-memory cache to reduce API calls and avoid rate limits
  *   - Automatic retries on rate-limit / session expiration
  */
-export class GarminClient implements GarminRecoveryDataClient {
+export class GarminClient implements GarminRecoveryDataClient, GarminWorkoutManagementClient {
   private gc: GarminConnect
   private cache: MemoryCache
   private ctx: Context
@@ -938,6 +944,127 @@ export class GarminClient implements GarminRecoveryDataClient {
   async getWorkouts(start = 0, limit = 10): Promise<unknown[]> {
     const key = `workouts:${start}:${limit}`
     return this.getCachedForCurrentAuth(key, () => this.gc.getWorkouts(start, limit))
+  }
+
+  /** Always fetch a fresh template before a destructive preview or confirmation. */
+  async getWorkoutDetail(workoutId: GarminResourceId): Promise<unknown> {
+    const id = canonicalGarminResourceId(workoutId, 'workoutId')
+    return this.withRetry(() => this.withRequestTimeout(
+      () => this.gc.getWorkoutDetail({ workoutId: id }),
+    ))
+  }
+
+  /** Preserve Garmin's original schedule envelope, including its schedule IDs. */
+  async getScheduledWorkouts(startDate: string, endDate: string): Promise<unknown> {
+    validateRecoveryDate(startDate)
+    validateRecoveryDate(endDate)
+    const range = resolveScheduledWorkoutRange({ startDate, endDate })
+    return this.withRetry(() => this.withRequestTimeout(
+      () => this.gc.client.get(
+        `${this.workoutScheduleUrl}/workoutScheduleByPeriod`,
+        { params: range },
+      ),
+    ))
+  }
+
+  /** Schedule IDs identify calendar entries, separately from workout template IDs. */
+  async getScheduledWorkout(scheduleId: GarminResourceId): Promise<unknown> {
+    const id = canonicalGarminResourceId(scheduleId, 'scheduleId')
+    return this.withRetry(() => this.withRequestTimeout(
+      () => this.gc.client.get(`${this.workoutScheduleUrl}/${id}`),
+    ))
+  }
+
+  async deleteWorkout(workoutId: GarminResourceId): Promise<void> {
+    const id = canonicalGarminResourceId(workoutId, 'workoutId')
+    await this.mutateWorkoutResource(
+      'workout deletion',
+      () => this.gc.deleteWorkout({ workoutId: id }),
+      'the Garmin workout library',
+    )
+  }
+
+  async unscheduleWorkout(scheduleId: GarminResourceId): Promise<void> {
+    const id = canonicalGarminResourceId(scheduleId, 'scheduleId')
+    await this.mutateWorkoutResource(
+      'schedule cancellation',
+      // The maintained SDK implements delete as POST + method override. Keep
+      // its authenticated transport and the existing DI/error interceptors.
+      () => this.gc.client.delete(`${this.workoutScheduleUrl}/${id}`),
+      'the Garmin workout calendar',
+    )
+  }
+
+  private get workoutScheduleUrl(): string {
+    const domain = this.config.region === 'cn' ? 'garmin.cn' : 'garmin.com'
+    return `https://connectapi.${domain}/workout-service/schedule`
+  }
+
+  private invalidateWorkoutLists(): void {
+    this.cache.invalidatePrefix('workouts:')
+    this.cache.invalidatePrefix('scheduled-workouts:')
+  }
+
+  /** Never replay a destructive request after authentication, rate-limit or timeout errors. */
+  private async mutateWorkoutResource(
+    operation: string,
+    factory: () => Promise<unknown>,
+    verificationTarget: string,
+  ): Promise<void> {
+    await this.ensureConnected()
+    const attemptEpoch = this.authEpoch
+    const unknownOutcome = `outcome is unknown; check ${verificationTarget} with a read-only query before retrying`
+    const authChangedMessage = `Garmin authentication changed during ${operation}; ${unknownOutcome}`
+    const timeoutMessage = `Garmin ${operation} timed out after ${this.requestTimeoutMs}ms; ${unknownOutcome}`
+    this.invalidateWorkoutLists()
+    try {
+      await this.withRequestTimeout(async () => {
+        try {
+          return await factory()
+        } finally {
+          // A request may finish after the caller's deadline. Detach any list
+          // fetched while the remote mutation was still pending as well.
+          this.invalidateWorkoutLists()
+        }
+      }, timeoutMessage)
+      if (attemptEpoch !== this.authEpoch) {
+        throw new PublicToolError(authChangedMessage)
+      }
+    } catch (error) {
+      if (attemptEpoch !== this.authEpoch) {
+        throw new PublicToolError(authChangedMessage)
+      }
+      if (error instanceof GarminAuthenticationRequiredError) {
+        this.publishAuthenticationRequirement(error.reason)
+        if (this.diSessionSelected) this.rejectConfiguredSessionToken()
+        throw error
+      }
+      const status = getHttpStatus(error)
+      if (status === 401 || status === 403) {
+        if (!(this.diSessionSelected && status === 403)) {
+          if (this.hasConfiguredSession() && !this.sessionTokenRejected) {
+            this.rejectConfiguredSessionToken()
+          } else {
+            this.connected = false
+            this.authenticatedAccount = undefined
+          }
+        }
+        throw new PublicToolError(
+          `Garmin authentication expired or was denied during ${operation} (HTTP ${status}); ` +
+          `${unknownOutcome}; request a new preview and confirmation before trying again`,
+        )
+      }
+      if (error instanceof PublicToolError && error.message === timeoutMessage) throw error
+      const code = isRecord(error) ? error.code : undefined
+      if (code === 'ECONNABORTED' || code === 'ETIMEDOUT') {
+        throw new PublicToolError(timeoutMessage)
+      }
+      throw new PublicToolError(
+        `Garmin ${operation} failed${status ? ` (HTTP ${status})` : ''}; ${unknownOutcome}`,
+      )
+    } finally {
+      this.invalidateWorkoutLists()
+    }
   }
 
   /** Create a workout in Garmin Connect. Returns the created workout object. */

@@ -123,6 +123,25 @@ Workout creation is a two-call flow. The preview response includes a one-time
 again with the same definition, `confirmed: true`, and that `confirmationId`.
 An ID expires after 10 minutes and cannot be reused.
 
+### Workout deletion and calendar cancellation (development)
+
+Development adds three tools to the 23 released tools, bringing the total to **26**:
+
+| Tool | Purpose | Preview arguments |
+| --- | --- | --- |
+| `get_garmin_scheduled_workouts` | Read an inclusive range of up to 31 calendar days and discover actual schedule IDs | `{"startDate":"2026-10-18","endDate":"2026-10-24"}` |
+| `delete_garmin_workout` | Delete a template from the workout library | `{"workoutId":"123456"}` |
+| `unschedule_garmin_workout` | Cancel one calendar entry while retaining its library template | `{"scheduleId":"654321"}` |
+
+`workoutId` and `scheduleId` identify different resources. Positive decimal ID
+strings are accepted; numeric IDs must be JavaScript safe integers. Both destructive
+tools first read the target and return a preview. After user approval, submit the
+same target, `confirmed: true` and its `confirmationId`. Confirmations bind the
+account, operation and target details, expire after ten minutes and work once;
+a changed target requires a new preview. Read back uncertain outcomes before
+another attempt; writes are not automatically replayed. These development tools
+have not been published to npm yet.
+
 ### Personalized running coaching
 
 `get_running_skill_advice` deliberately separates explanation from planning:
@@ -996,9 +1015,9 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-The development MCP server exposes the same **23 tools and date semantics** as
-the dsh plugin: the original ten tools plus the 13 recovery and training tools
-listed above. Account selection differs: each standalone MCP process uses its
+The development MCP server exposes the same **26 tools and date semantics** as
+the dsh plugin: the original ten tools, three workout management tools, and the
+13 recovery and training tools listed above. Account selection differs: each standalone MCP process uses its
 configured account, while DSH accepts an explicit `account` selector.
 No AI-callable tool accepts a password/MFA code or exports a session token.
 Browser authentication is an out-of-band local URL elicitation, and the user
@@ -1252,7 +1271,7 @@ node scripts/check-health-release.cjs \
 All five flags are required; path arguments must be absolute and the report
 destination must not already exist. The runner uses real DI authentication and
 read-only Garmin requests through the compiled plugin's DSH tool registry. It
-also checks all 23 MCP registrations, calls the 13 new tools through an
+also checks all 26 MCP registrations, calls the 13 recovery and training tools through an
 in-memory MCP connection, verifies response parity and cache reuse, and checks
 profile/activity/sleep regressions. Raw responses remain in memory; terminal
 and report output contain only status, response shape/count and request
@@ -1286,7 +1305,7 @@ src/
 │   ├── running-skills.ts  # 8 workout types + 4 compact training philosophies
 │   └── workout-schema.ts  # Workout definition → Garmin JSON builder
 ├── tools/
-│   └── index.ts      # Tool definitions & registration (23 tools in development)
+│   └── index.ts      # Tool definitions & registration (26 tools in development)
 └── utils/
     ├── errors.ts      # Safe public errors and upstream-log redaction
     ├── cache.ts       # In-memory TTL/LRU cache with single-flight refresh

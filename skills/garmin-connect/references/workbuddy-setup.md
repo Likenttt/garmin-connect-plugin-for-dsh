@@ -159,7 +159,9 @@ install -d -m 700 "$HOME/.garmin-connect-auth/accounts"
 重新加载 WorkBuddy 的技能与 MCP 服务，再新开会话调用 `garmin-connect`。
 按用户准备使用的能力检查当前会话工具：HRV 趋势需要
 `get_garmin_hrv_summaries`，单日详情需要 `get_garmin_hrv`；写操作分别检查
-`create_garmin_workout` 或 `download_garmin_activity_fit`。以实际工具 schema
+`create_garmin_workout`、`delete_garmin_workout`、`unschedule_garmin_workout` 或
+`download_garmin_activity_fit`；取消排期前还需 `get_garmin_scheduled_workouts` 获取
+真实排期 ID。以实际工具 schema
 为准，不仅看版本号。独立 SDK 升级不会给旧插件自动增加工具；skill 文件更新
 也不会升级 MCP 服务。修改项目里的副本或仅在旧会话中继续对话，不能保证已安装
 技能和工具得到更新。工具不可用时说明缺少的能力，按恢复参考中的规则降级。

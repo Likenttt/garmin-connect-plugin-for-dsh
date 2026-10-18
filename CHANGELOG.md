@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Add workout management tools shared by MCP and DSH: list scheduled workouts, preview and confirm deletion of a workout-library template, and separately cancel one calendar entry while retaining its template. Use fresh target details and account-bound, expiring, one-use confirmations; writes are not automatically replayed.
+- Add a bilingual introduction preview crediting 李二牛 and explaining the recommended browser login, local session storage and data sent to the chosen AI client.
 - Send concise MCP server instructions during connection initialization: discover actual tool schemas, verify the selected account for data queries, choose explicit dates and relevant tools, and verify capabilities again after an authorized update and reconnect. Initialization itself performs no Garmin requests or writes.
 - Keep unavailable tools, successful empty responses and authentication/HTTP failures distinct in the MCP execution guidance.
 

@@ -39,7 +39,7 @@ describe('Tools Utils', () => {
     })
   })
 
-  it('registers all twenty-three non-secret Garmin tools for the DSH adapter', () => {
+  it('registers all twenty-six non-secret Garmin tools for the DSH adapter', () => {
     const definitions: Array<{ name: string; description?: string; parameters?: any }> = []
     const ctx = {
       tools: { register: (definition: { name: string }) => definitions.push(definition) },
@@ -87,6 +87,9 @@ describe('Tools Utils', () => {
       'get_garmin_heart_rate',
       'get_garmin_weight',
       'get_garmin_workouts',
+      'get_garmin_scheduled_workouts',
+      'delete_garmin_workout',
+      'unschedule_garmin_workout',
       'get_garmin_profile',
       'get_running_skill_advice',
       'create_garmin_workout',
