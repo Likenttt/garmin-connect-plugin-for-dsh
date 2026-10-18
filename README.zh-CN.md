@@ -125,6 +125,8 @@ Harness 配置多个账号时，访问账号数据的工具调用需添加 `acco
 
 开发版在已发布版本的 23 个工具上新增以下 3 个，合计 **26 个工具**：
 
+已通过大陆主账号的真实 Harness 桌面验收，详见[取消排期与删除课表实测记录](docs/testing/workout-management-harness-2026-10-18.md)。
+
 | 工具 | 用途 | 预览参数示例 |
 | --- | --- | --- |
 | `get_garmin_scheduled_workouts` | 查询包含首尾、最多 31 天的日历课表排期，获得真实排期 ID | `{"startDate":"2026-10-18","endDate":"2026-10-24"}` |

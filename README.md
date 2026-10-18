@@ -127,6 +127,8 @@ An ID expires after 10 minutes and cannot be reused.
 
 Development adds three tools to the 23 released tools, bringing the total to **26**:
 
+Both write operations passed a live Harness desktop check with the China account; see the [workout management verification record](docs/testing/workout-management-harness-2026-10-18.md) (Chinese).
+
 | Tool | Purpose | Preview arguments |
 | --- | --- | --- |
 | `get_garmin_scheduled_workouts` | Read an inclusive range of up to 31 calendar days and discover actual schedule IDs | `{"startDate":"2026-10-18","endDate":"2026-10-24"}` |
