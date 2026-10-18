@@ -193,7 +193,7 @@ Garmin 活动；它只建议先取得医疗专业人员许可，不自行诊断�
 ### 1. 安装本插件 — 从 npm registry(推荐)
 
 ```bash
-npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
+npx @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
 ```
 
 这一条命令会同时安装依赖并激活插件层,首次运行会自动初始化 `web` profile。你只需要 `pnpm` 在你的 `PATH` 中:
@@ -202,12 +202,10 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugi
 npm install -g pnpm
 ```
 
-> `--legacy-peer-deps=false` 让 npm 正常解析 peer 依赖。如果你的 npm 配置了 `legacy-peer-deps=true`(会跳过 peer 包),dsh 会因缺少 `@deepseek-ai/cordis-plugin-group` 而报 `ERR_MODULE_NOT_FOUND`;没有该配置的机器上,这个参数是无害的默认行为。
-
 不启动即可验证插件层是否已组合进配置:
 
 ```bash
-npx --legacy-peer-deps=false @deepseek-ai/dsh --profile web --dump-config | grep -A 2 garmin-connect
+npx @deepseek-ai/dsh --profile web --dump-config | grep -A 2 garmin-connect
 ```
 
 其他安装方式:
@@ -215,19 +213,19 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh --profile web --dump-config | grep
 ```bash
 # 本地源码调试
 cd garmin-connect-plugin-for-dsh && npm install
-npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .
+npx @deepseek-ai/dsh plugin --profile web add .
 
 # GitHub 源码安装
-npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>
+npx @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>
 ```
 
 ### 2. 安装 Harness CLI(如果还没有)
 
 ```bash
-npx --legacy-peer-deps=false @deepseek-ai/dsh web
+npx @deepseek-ai/dsh web
 ```
 
-默认在 `http://127.0.0.1:3080` 打开 Web 界面。如果通过 `npx` 启动,下面的命令同样加上 `npx --legacy-peer-deps=false @deepseek-ai/dsh` 前缀;如果已全局安装 `dsh`,则可以去掉 `npx @deepseek-ai/` 前缀。
+默认在 `http://127.0.0.1:3080` 打开 Web 界面。如果通过 `npx` 启动,下面的命令同样加上 `npx @deepseek-ai/dsh` 前缀;如果已全局安装 `dsh`,则可以去掉 `npx @deepseek-ai/` 前缀。
 
 ### 3. 准备登录时再配置 Garmin 账号
 
@@ -471,7 +469,7 @@ Garmin 的“原始文件”并不保证一定是 FIT。如果归档中没有唯
 ### 4. 启动
 
 ```bash
-npx --legacy-peer-deps=false @deepseek-ai/dsh web
+npx @deepseek-ai/dsh web
 ```
 
 打开 `http://127.0.0.1:3080`。当 **设置 → 插件 → 插件列表** 中显示 `plugin-garmin-connect` 为 *已挂载、已启用* 时,说明插件已成功加载。然后直接对话:*"我昨晚睡得怎么样?"* 或 *"帮我看一下最近 5 次跑步。"*
@@ -530,6 +528,14 @@ npm run test:integration
 ```
 
 </details>
+
+### npm peer 依赖排错
+
+`legacy-peer-deps` 的 [npm 默认值](https://docs.npmjs.com/cli/v11/using-npm/config/#legacy-peer-deps)
+就是 `false`，常规命令无需额外指定。若通过 `npx` 启动时报依赖缺失，先用
+`npm config get legacy-peer-deps` 检查；仅当结果为 `true` 时，可尝试
+`npx --legacy-peer-deps=false @deepseek-ai/dsh web`，让本次命令恢复正常的 peer
+依赖解析。缺少模块也可能有其他原因，仍需结合报错中的包名与安装状态排查。
 
 ---
 
@@ -1167,14 +1173,14 @@ npm publish --registry=https://registry.npmjs.org/ --access public
 发布后,用户只需一条命令即可安装:
 
 ```bash
-npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
+npx @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
 ```
 
 分发说明:
 
 - **npm registry(推荐)** — 包内自带编译好的 `lib/`,安装时无需任何构建授权。
-- **本地源码** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add .` 会链接源码目录,先执行 `npm install`。
-- **GitHub 安装** — `npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>` 拉取源码并执行包的 `prepare` 脚本，使用本地安装的 TypeScript 编译器构建；pnpm ≥ 10 默认拒绝执行构建脚本，`dsh` 会打印需要在 profile 的 `pnpm-workspace.yaml` 中填写的 `allowBuilds` 键。
+- **本地源码** — `npx @deepseek-ai/dsh plugin --profile web add .` 会链接源码目录,先执行 `npm install`。
+- **GitHub 安装** — `npx @deepseek-ai/dsh plugin --profile web add github:<owner>/<repo>` 拉取源码并执行包的 `prepare` 脚本，使用本地安装的 TypeScript 编译器构建；pnpm ≥ 10 默认拒绝执行构建脚本，`dsh` 会打印需要在 profile 的 `pnpm-workspace.yaml` 中填写的 `allowBuilds` 键。
 - 给 GitHub 仓库加上 `dsh-plugin` topic,方便用户发现。
 
 ---
