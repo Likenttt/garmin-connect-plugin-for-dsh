@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-garmin-connect",
-  "version": "0.1.13",
+  "version": "0.1.17",
   "description": "A TypeScript-based Garmin Connect plugin and MCP server with secure browser-based MFA for DeepSeek Harness and other AI agents",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -66,9 +66,10 @@
     "auth:canary": "node lib/auth-cli.js canary",
     "preauth:serve": "npm run build",
     "auth:serve": "node lib/auth-cli.js serve --open",
-    "pack:smoke": "npm pack --dry-run",
-    "prepublishOnly": "npm run build",
-    "prepare": "npm run build"
+    "pack:smoke": "npm run build && npm run check:sdk && npm pack --dry-run --ignore-scripts",
+    "prepublishOnly": "npm run build && npm run check:sdk",
+    "prepare": "npm run build",
+    "check:sdk": "node scripts/check-sdk-dependency.cjs"
   },
   "keywords": [
     "deepseek",
@@ -89,8 +90,8 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.2.0-rc.1 || 0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-layout": "^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.2.0-rc.1 || 0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.2.0-rc.1 || 0.2.0-rc.2 || >=0.2.1-rc.1 <0.2.2-0",
+    "@deepseek-ai/dsh-client-ui-layout": "^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.2.0-rc.1 || 0.2.0-rc.2 || >=0.2.1-rc.1 <0.2.2-0",
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
@@ -111,15 +112,15 @@
     "axios-cookiejar-support": "5.0.5",
     "dotenv": "^16.4.0",
     "fflate": "0.8.3",
-    "garmin-connect": "1.6.2",
+    "garmin-connect": "npm:@likenttt/garmin-connect@1.7.0",
     "tough-cookie": "5.1.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
-    "@deepseek-ai/dsh-client-connection": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-layout": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@types/jest": "^29.5.0",
     "@types/node": "^22.0.0",
@@ -129,7 +130,8 @@
     "react": "^18.3.1",
     "ts-jest": "^29.2.0",
     "tsx": "4.23.12",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "semver": "7.8.5"
   },
   "engines": {
     "node": ">=20.0.0"

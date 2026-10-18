@@ -11,7 +11,10 @@ import {
 } from './account-session'
 import { GarminClient } from './client'
 import type { Config } from './config'
+import { HEALTH_TOOLS } from './health-tools'
+import type { HealthMetricArgs } from './health-tools'
 import { McpGarminAuthCoordinator } from './mcp-auth'
+import { GARMIN_MCP_INSTRUCTIONS } from './mcp-instructions'
 import { installMcpShutdownHooks } from './mcp-shutdown'
 import {
   GarminToolService,
@@ -36,6 +39,12 @@ import {
   safeUpstreamLogLine,
 } from './utils/errors'
 import { resolveFitDownloadDir } from './utils/path'
+import { GARMIN_RESOURCE_ID_PATTERN } from './workout-management'
+import type {
+  DeleteWorkoutArgs,
+  ScheduledWorkoutsArgs,
+  UnscheduleWorkoutArgs,
+} from './workout-management'
 
 type ToolService = Pick<
   GarminToolService,
@@ -45,10 +54,14 @@ type ToolService = Pick<
   | 'getHeartRate'
   | 'getWeight'
   | 'getWorkouts'
+  | 'getScheduledWorkouts'
+  | 'deleteWorkout'
+  | 'unscheduleWorkout'
   | 'getProfile'
   | 'getRunningAdvice'
   | 'createWorkout'
   | 'downloadActivityFit'
+  | 'getHealthMetric'
 >
 
 const dateRangeSchema = {
@@ -56,6 +69,26 @@ const dateRangeSchema = {
     .describe('Start date in YYYY-MM-DD format (default: today)'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
     .describe('Inclusive end date in YYYY-MM-DD format (maximum 30 days)'),
+}
+
+const healthDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+const healthDateRangeSchema = {
+  startDate: healthDateSchema.describe('Inclusive start date in YYYY-MM-DD format (default: today).'),
+  endDate: healthDateSchema.describe('Inclusive end date in YYYY-MM-DD format (default: startDate).'),
+}
+
+const garminResourceIdSchema = z.union([
+  z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+  z.string().regex(new RegExp(GARMIN_RESOURCE_ID_PATTERN)),
+])
+
+const destructiveConfirmationSchema = {
+  confirmed: z.boolean().optional().describe(
+    'Set true only after the user explicitly approves the account and object in the matching preview.',
+  ),
+  confirmationId: z.string().uuid().optional().describe(
+    'One-time ID returned by the matching preview for this account, operation, and resource ID.',
+  ),
 }
 
 const simpleWorkoutStepSchema = z.object({
@@ -95,6 +128,11 @@ const WRITE_ANNOTATIONS = {
   openWorldHint: true,
 }
 
+const DESTRUCTIVE_ANNOTATIONS = {
+  ...WRITE_ANNOTATIONS,
+  destructiveHint: true,
+}
+
 const MCP_SERVER_VERSION = (require('../package.json') as { version: string }).version
 
 export interface McpAuthenticationHandler {
@@ -115,6 +153,8 @@ class GarminMcpServer extends McpServer {
     super({
       name: 'garmin-connect',
       version: MCP_SERVER_VERSION,
+    }, {
+      instructions: GARMIN_MCP_INSTRUCTIONS,
     })
     const previousOnClose = this.server.onclose
     this.server.onclose = (): void => {
@@ -226,6 +266,55 @@ export function createMcpServer(
   )
 
   register(
+    'get_garmin_scheduled_workouts',
+    'Read Garmin calendar workout entries for an inclusive date range of at most 31 days ' +
+      '(default: today). Returns the full service response, including scheduleId values needed ' +
+      'to cancel a calendar entry. This is separate from the workout library returned by get_garmin_workouts.',
+    {
+      startDate: healthDateSchema.describe('Inclusive start date in YYYY-MM-DD format (default: today).'),
+      endDate: healthDateSchema.describe('Inclusive end date in YYYY-MM-DD format (default: startDate; at most 31 days).'),
+    },
+    (args: ScheduledWorkoutsArgs) => invokeTool(() => service.getScheduledWorkouts(args)),
+  )
+
+  register(
+    'delete_garmin_workout',
+    'Delete one workout template from the Garmin workout library; this does not cancel a single ' +
+      'calendar occurrence. First call without confirmed=true for a preview. Show the preview account ' +
+      'and workout to the user, then only after explicit approval call again with the same workoutId, ' +
+      'confirmed=true, and confirmationId. Never batch-delete or automatically retry. If the outcome ' +
+      'is unknown, use a read-only check before any further action.',
+    {
+      workoutId: garminResourceIdSchema.describe(
+        'Workout library ID returned by get_garmin_workouts. Use a decimal string for IDs larger than a safe integer.',
+      ),
+      ...destructiveConfirmationSchema,
+    },
+    (args: DeleteWorkoutArgs) => invokeTool(() => service.deleteWorkout(args)),
+    DESTRUCTIVE_ANNOTATIONS,
+    false,
+  )
+
+  register(
+    'unschedule_garmin_workout',
+    'Cancel one Garmin calendar workout occurrence while retaining its workout library template. ' +
+      'Use scheduleId from get_garmin_scheduled_workouts, never a workoutId. First call without ' +
+      'confirmed=true for a preview. Show the preview account and calendar entry to the user, then ' +
+      'only after explicit approval call again with the same scheduleId, confirmed=true, and ' +
+      'confirmationId. Never batch-cancel or automatically retry. If the outcome is unknown, ' +
+      'use a read-only calendar check before any further action.',
+    {
+      scheduleId: garminResourceIdSchema.describe(
+        'Calendar occurrence ID returned by get_garmin_scheduled_workouts, distinct from workoutId. Use a decimal string for large IDs.',
+      ),
+      ...destructiveConfirmationSchema,
+    },
+    (args: UnscheduleWorkoutArgs) => invokeTool(() => service.unscheduleWorkout(args)),
+    DESTRUCTIVE_ANNOTATIONS,
+    false,
+  )
+
+  register(
     'get_garmin_profile',
     'Get an allow-listed Garmin profile summary.',
     {},
@@ -239,7 +328,14 @@ export function createMcpServer(
       'recommendation or plan. Personalized mode must collect goal, current performance and its ' +
       'basis, training background, availability, health/recovery constraints and warning-symptom ' +
       'status, plus load, quality-session, and intensity-guidance preferences before returning ' +
-      'planning material; missing fields become questions and warning symptoms stop planning.',
+      'planning material; missing fields become questions and warning symptoms stop planning. ' +
+      'Recent activities and recovery metrics supplement, never replace, intake. Use only tools and schemas ' +
+      'actually available: HRV trends via get_garmin_hrv_summaries and daily details via get_garmin_hrv; ' +
+      'readiness decisions combine get_garmin_training_readiness with sleep, recent activities, and subjective state, ' +
+      'adding stress, Body Battery, or training status as needed. Fetch only relevant metrics, use the server or ' +
+      'current process for the intended account, and never set intensity from one reading or score. ' +
+      'Distinguish unavailable tools, empty data, and authentication failures. ' +
+      'Concept explanations and intake questions do not require an account.',
     {
       mode: z.enum(RUNNING_ADVICE_MODES).describe(
         'Use explain for concepts only. Use personalized for any athlete-specific recommendation or plan.',
@@ -322,6 +418,23 @@ export function createMcpServer(
     WRITE_ANNOTATIONS,
     false,
   )
+
+  for (const definition of HEALTH_TOOLS) {
+    const schema: Record<string, z.ZodTypeAny> = definition.kind === 'latest'
+      ? {}
+      : definition.kind === 'daily'
+        ? { date: healthDateSchema.describe('Date in YYYY-MM-DD format (default: today).') }
+        : definition.kind === 'raceRange'
+          ? { ...healthDateRangeSchema, aggregation: z.enum(['daily', 'monthly']).optional() }
+          : healthDateRangeSchema
+
+    register(
+      definition.name,
+      definition.description,
+      schema,
+      (args: HealthMetricArgs) => invokeTool(() => service.getHealthMetric(definition.method, args)),
+    )
+  }
 
   return server
 }
@@ -484,6 +597,7 @@ async function main(): Promise<void> {
   const account = standaloneAccountAlias()
   const client = new GarminClient(stderrContext(), config, { allowUnconfigured: true })
   const service = new GarminToolService(client, {
+    accountId: account,
     activityDetail: config.activityDetail,
     fitDownloadDir: config.fitDownloadDir,
     accountUsername: config.username,

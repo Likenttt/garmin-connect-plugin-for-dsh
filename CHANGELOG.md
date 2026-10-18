@@ -2,7 +2,55 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.1.17] - 2026-10-19
+
+### Added
+- Add workout management tools shared by MCP and DSH: list scheduled workouts, preview and confirm deletion of a workout-library template, and separately cancel one calendar entry while retaining its template. Use fresh target details and account-bound, expiring, one-use confirmations; writes are not automatically replayed.
+- Add bilingual product introductions crediting 李二牛 and explaining the recommended Garmin browser login, local session storage and data sent to the chosen AI client.
+- Send concise MCP server instructions during connection initialization: discover actual tool schemas, verify the selected account for data queries, choose explicit dates and relevant tools, and verify capabilities again after an authorized update and reconnect. Initialization itself performs no Garmin requests or writes.
+- Keep unavailable tools, successful empty responses and authentication/HTTP failures distinct in the MCP execution guidance.
+
+### Verification
+- Host/client compilation, browser bundling and the maintained SDK gate passed. Release preparation verified 66 targeted tests: 57 new transport, service and MCP/DSH adapter cases, five existing tool-discovery and MCP-instruction cases, and four Harness compatibility cases. These focused results are separate from historical full-suite runs.
+- On 2026-10-18, the development candidate passed a real DeepSeek Harness `0.2.1-rc.2` check with the China main account. Cancelling the dedicated test calendar entry retained its template; deleting that template removed it from the library and returned HTTP 404 on detail readback. The original 42 workout IDs were unchanged and test data was cleaned up. This live check covers one China account, one template and one calendar entry; see the [verification record](docs/testing/workout-management-harness-2026-10-18.md).
+
+## [0.1.16] - 2026-10-17
+
+### Fixed
+- Support DeepSeek Harness `0.2.1-rc.2` and subsequent release candidates in the `0.2.1` version line with the bounded peer range `>=0.2.1-rc.1 <0.2.2-0`. Preserve the previously supported versions and exclude the next version line, including its prereleases.
+- Build against the matching `0.2.1-rc.2` client SDKs. The connection, settings and layout interfaces used by the plugin remain compatible.
+- Add a focused regression matrix using the Host's `includePrerelease: true` semantics and matching semver version, covering accepted release candidates and rejected version boundaries.
+
+## [0.1.15] - 2026-10-17
+
+### Fixed
+- Declare compatibility with DeepSeek Harness `0.2.1-rc.1` client packages and build against its matching client interfaces. Retain the earlier supported Harness versions.
+- Follow the 0.1.14 recovery API release with a compatibility update after the local desktop automatically upgraded during restart.
+
+### Verification
+- Host compilation, client type compilation, browser bundling and the maintained SDK gate passed against the matching `0.2.1-rc.1` interfaces.
+- Of 32 targeted script/dependency checks, 31 passed on the initial run. The settings-client case exceeded the unchanged five-second limit while the release build was running; its isolated rerun passed in 1,067 ms under the same limit. No runtime or test logic changed.
+
+## [0.1.14] - 2026-10-17
+
+### Added
+- Integrate recovery APIs into the bundled Garmin skill and a focused HRV/recovery reference: discover actual tool schemas, choose summaries or daily detail by task, handle account/date/device differences and missing data, and document skill/MCP reloads. Extend DSH/MCP coaching instructions with the same optional data selection while preserving intake and avoiding automatic recovery queries.
+- Add 13 recovery and training tools to both DSH and MCP, bringing the total to 23: daily HRV and summaries, daily stress and summaries, Body Battery, training readiness, daily and aggregated training status, training load balance, daily and range max metrics, and latest and range race predictions. These correspond directly to the maintained SDK's 13 new methods.
+- Support explicit calendar dates, native inclusive date ranges, and daily/monthly race prediction history with a maximum 366-day calendar span. Preserve complete response fields, all returned devices and time series, unknown fields, and normal `null`/empty-array results.
+- Reuse existing account selection, session refresh, cache, timeout, retry, and authentication-change isolation for the new tools. DSH uses stable account IDs; standalone MCP uses its configured process account.
+- Add `scripts/check-health-release.cjs` for read-only checks against existing private DI session files, covering DSH execution, all 23 MCP registrations, new-tool response parity/cache reuse, and profile/activity/sleep regressions. Its private account manifest and report use mode `0600`; raw health data and credentials are not printed.
+- Add `npm run check:sdk` and 28 release-gate unit cases. The gate checks the maintained dependency source and exact scoped npm alias, verifies the installed SDK's package/repository identity and all 13 methods, rejects stale Git lock entries behind an npm alias, checks the exact official registry tarball URL, and runs after the build in `prepublishOnly` and `pack:smoke`.
+
+### Changed
+- Replace the upstream SDK dependency with the published `@likenttt/garmin-connect@1.7.0` from [Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect). Use the exact `npm:@likenttt/garmin-connect@1.7.0` alias in the manifest and official registry tarball/integrity in the lockfile, retaining `garmin-connect` imports.
+- Publish the standalone maintained SDK to the official npm registry on 2026-10-17. Its precompiled package removes Git dependency preparation and Git subdependency requirements. The previous Git candidate encountered pnpm 11 policy errors; those policies remain enabled, and the registry-backed local candidate has now passed formal desktop CLI installation.
+
+### Verification
+- The 0.1.14 release build and maintained-SDK dependency gate passed. A fresh full run was interrupted after 25 file-I/O timeout failures during severe local memory pressure; it is not recorded as a 1,000-case pass. A timed-out session-restore case passed on Harness Node 24.18.1 under the unchanged five-second limit (1,485 ms). Earlier full and targeted results below remain separate evidence.
+- On 2026-10-16, clean npm source installation passed all 42 suites and 992/992 plugin tests, including 95 new development tests, plus 59/59 maintained SDK tests and the SDK's strict public-type check. Clean `npm ci`, build and `check:sdk` also passed with SSH disabled. These development checks are separate from historical release reports and do not assert a fresh browser login or a completed official desktop installation.
+- The earlier desktop installation rejected the Git dependency with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`, then `ERR_PNPM_EXOTIC_SUBDEP` after allowing preparation for the exact commit. The policies remain enabled; the earlier development overlay has since been replaced by the official CLI installation described below.
+- The registry-alias candidate passed host/client builds, `check:sdk`, and all 42 suites / 992 plugin tests. After eight further lockfile guard cases were added, the targeted release-gate suite passed 28/28. The checkout now has 1,000 cases; these results are the 992-case full run plus eight additional targeted cases, not a single 1,000-case full run.
+- The standalone scoped SDK is published on official npm. Before 0.1.14, a local `0.1.13` development candidate passed official desktop CLI installation using `--ignore-scripts` and the official registry. Its SDK name/version, all 13 methods, official lockfile integrity and all 60 published `dist` files match; the development marker is removed. pnpm added only the exact SDK version to `minimumReleaseAgeExclude`, leaving other policies unchanged. Harness 0.2.0-rc.2 restarted successfully with the Garmin component running and two main accounts signed in. The 26 previously successful API calls were not repeated against the identical SDK build, and no model conversation was sent. Version 0.1.14 packages these features and the bundled recovery skill reference. See the [integration verification report](docs/testing/health-release-readiness-2026-10-16.md) for the historical checks and coverage.
 
 ## [0.1.13] - 2026-10-05
 

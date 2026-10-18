@@ -121,9 +121,10 @@ install -d -m 700 "$HOME/.garmin-connect-auth/accounts"
 路径；插件会创建或验证仅限当前用户的精确 ACL。如果现有目录权限不安全，插件
 应直接失败，而不是放宽其权限。
 
-配置两个账号时，添加两个不同名称的 MCP 服务，并分别设置不同的
-`GARMIN_ACCOUNT`、`GARMIN_REGION` 和 `GARMIN_SESSION_TOKEN_FILE`。并发客户端
-或不同账号绝不能共用同一个会话文件。
+配置多个账号时，为每个账号添加不同名称的 MCP 服务，并使用各自独立的
+`GARMIN_ACCOUNT` 和 `GARMIN_SESSION_TOKEN_FILE`；`GARMIN_REGION` 按各账号的
+实际区域设置，多个账号可以使用相同区域。并发客户端或不同账号绝不能共用
+同一个会话文件。
 
 保存配置，重新加载 WorkBuddy MCP 服务，并确认服务已经连接。然后开始一个新
 请求并再次调用 `garmin-connect`。WorkBuddy 重新加载前，原会话无法使用刚注册
@@ -150,15 +151,20 @@ install -d -m 700 "$HOME/.garmin-connect-auth/accounts"
 
 ## 更新已安装技能
 
-升级 npm 软件包不会自动替换 WorkBuddy 已安装的技能文件。要启用本技能中的
-写操作流程，应将当前版本的 `skills/garmin-connect/SKILL.md` 与
-`skills/garmin-connect/references/workbuddy-setup.md` 同步到 WorkBuddy 实际
-安装的 `garmin-connect` 技能目录，保留用户与本次更新无关的本地修改和其他技能。
+升级 npm 软件包不会自动替换 WorkBuddy 已安装的技能文件。应将当前版本的完整
+`skills/garmin-connect/` 目录（包括 `references/recovery-analysis.md` 和配置
+参考）同步到 WorkBuddy 实际安装的 `garmin-connect` 技能目录，保留用户与本次
+更新无关的本地修改和其他技能。
 
 重新加载 WorkBuddy 的技能与 MCP 服务，再新开会话调用 `garmin-connect`。
-确认当前会话能看到 `create_garmin_workout` 和 `download_garmin_activity_fit`
-后，按技能中的写操作流程执行用户请求。修改项目里的副本或仅在旧会话中继续
-对话，不能保证已安装技能和工具得到更新。
+按用户准备使用的能力检查当前会话工具：HRV 趋势需要
+`get_garmin_hrv_summaries`，单日详情需要 `get_garmin_hrv`；写操作分别检查
+`create_garmin_workout`、`delete_garmin_workout`、`unschedule_garmin_workout` 或
+`download_garmin_activity_fit`；取消排期前还需 `get_garmin_scheduled_workouts` 获取
+真实排期 ID。以实际工具 schema
+为准，不仅看版本号。独立 SDK 升级不会给旧插件自动增加工具；skill 文件更新
+也不会升级 MCP 服务。修改项目里的副本或仅在旧会话中继续对话，不能保证已安装
+技能和工具得到更新。工具不可用时说明缺少的能力，按恢复参考中的规则降级。
 
 ## 浏览器认证
 

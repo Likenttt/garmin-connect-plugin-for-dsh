@@ -1,0 +1,901 @@
+{
+  "date": "2026-10-16",
+  "nodeVersion": "v24.18.1",
+  "sdk": {
+    "name": "@likenttt/garmin-connect",
+    "version": "1.7.0",
+    "repository": "git+https://github.com/Likenttt/garmin-connect.git",
+    "gitCommit": "7d4cfe4b3c0e85d14946adeaa7f86031104c7c8b",
+    "resolvePath": "/Users/kent/.dsh/profiles/desktop/node_modules/garmin-connect/package.json",
+    "runtimeCodeMatchesLiveValidatedBuild": true,
+    "publication": {
+      "status": "published",
+      "date": "2026-10-17",
+      "registry": "https://registry.npmjs.org/",
+      "version": "1.7.0",
+      "integrity": "sha512-P8oLO9ykOfceUlIDphO1Dw2be9wbmqtt32ojyPCgZQ55SJ2a53+eqVHCYZFM8dlbYXvgX7qdkG0/SJvCsYn5+g==",
+      "matchesValidatedTarball": true
+    }
+  },
+  "queryDate": "2026-10-15",
+  "startDate": "2026-10-09",
+  "registration": {
+    "dsh-tools": {
+      "status": "passed",
+      "count": 23
+    }
+  },
+  "methods": {
+    "getHrvData": {
+      "status": "passed"
+    },
+    "getHrvSummaries": {
+      "status": "passed"
+    },
+    "getStressData": {
+      "status": "passed"
+    },
+    "getStressSummaries": {
+      "status": "passed"
+    },
+    "getBodyBattery": {
+      "status": "passed"
+    },
+    "getTrainingReadiness": {
+      "status": "passed"
+    },
+    "getDailyTrainingStatus": {
+      "status": "passed"
+    },
+    "getTrainingStatus": {
+      "status": "passed"
+    },
+    "getTrainingLoadBalance": {
+      "status": "passed"
+    },
+    "getMaxMetrics": {
+      "status": "passed"
+    },
+    "getMaxMetricsRange": {
+      "status": "passed"
+    },
+    "getRacePredictions": {
+      "status": "passed"
+    },
+    "getRacePredictionsRange": {
+      "status": "passed"
+    }
+  },
+  "accounts": [
+    {
+      "accountId": "test-cn",
+      "region": "cn",
+      "authStages": [],
+      "connection": {
+        "session-profile": {
+          "status": "passed"
+        }
+      },
+      "methods": {
+        "getHrvData": {
+          "status": "passed",
+          "shape": "null",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getHrvSummaries": {
+          "status": "passed",
+          "shape": "null",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getStressData": {
+          "status": "passed",
+          "shape": "object",
+          "count": 12,
+          "httpResponses": 1
+        },
+        "getStressSummaries": {
+          "status": "passed",
+          "shape": "array",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getBodyBattery": {
+          "status": "passed",
+          "shape": "array",
+          "count": 7,
+          "httpResponses": 1
+        },
+        "getTrainingReadiness": {
+          "status": "passed",
+          "shape": "array",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getDailyTrainingStatus": {
+          "status": "passed",
+          "shape": "object",
+          "count": 5,
+          "httpResponses": 1
+        },
+        "getTrainingStatus": {
+          "status": "passed",
+          "shape": "object",
+          "count": 5,
+          "httpResponses": 1
+        },
+        "getTrainingLoadBalance": {
+          "status": "passed",
+          "shape": "object",
+          "count": 3,
+          "httpResponses": 1
+        },
+        "getMaxMetrics": {
+          "status": "passed",
+          "shape": "array",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getMaxMetricsRange": {
+          "status": "passed",
+          "shape": "array",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getRacePredictions": {
+          "status": "passed",
+          "shape": "object",
+          "count": 8,
+          "httpResponses": 2
+        },
+        "getRacePredictionsRange": {
+          "status": "passed",
+          "shape": "array",
+          "count": 0,
+          "httpResponses": 2
+        }
+      },
+      "mcp": {
+        "tool-registration": {
+          "status": "passed",
+          "count": 23
+        },
+        "getHrvData": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getHrvSummaries": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getStressData": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getStressSummaries": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getBodyBattery": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingReadiness": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getDailyTrainingStatus": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingStatus": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingLoadBalance": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getMaxMetrics": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getMaxMetricsRange": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getRacePredictions": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getRacePredictionsRange": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        }
+      },
+      "baseline": {
+        "get_garmin_profile": {
+          "status": "passed",
+          "shape": "object",
+          "count": 4
+        },
+        "get_garmin_activities": {
+          "status": "passed",
+          "shape": "array",
+          "count": 1
+        },
+        "get_garmin_sleep": {
+          "status": "passed",
+          "shape": "object",
+          "count": 7
+        }
+      },
+      "httpStatuses": {
+        "200": 15,
+        "204": 2
+      }
+    },
+    {
+      "accountId": "test-global",
+      "region": "global",
+      "connection": {
+        "session-profile": {
+          "status": "passed"
+        }
+      },
+      "methods": {
+        "getHrvData": {
+          "status": "passed",
+          "shape": "null",
+          "count": 0,
+          "httpResponses": 1
+        },
+        "getHrvSummaries": {
+          "status": "passed",
+          "shape": "object",
+          "count": 2,
+          "httpResponses": 1
+        },
+        "getStressData": {
+          "status": "passed",
+          "shape": "object",
+          "count": 14,
+          "httpResponses": 1
+        },
+        "getStressSummaries": {
+          "status": "passed",
+          "shape": "array",
+          "count": 7,
+          "httpResponses": 1
+        },
+        "getBodyBattery": {
+          "status": "passed",
+          "shape": "array",
+          "count": 7,
+          "httpResponses": 1
+        },
+        "getTrainingReadiness": {
+          "status": "passed",
+          "shape": "array",
+          "count": 2,
+          "httpResponses": 1
+        },
+        "getDailyTrainingStatus": {
+          "status": "passed",
+          "shape": "object",
+          "count": 5,
+          "httpResponses": 1
+        },
+        "getTrainingStatus": {
+          "status": "passed",
+          "shape": "object",
+          "count": 5,
+          "httpResponses": 1
+        },
+        "getTrainingLoadBalance": {
+          "status": "passed",
+          "shape": "object",
+          "count": 3,
+          "httpResponses": 1
+        },
+        "getMaxMetrics": {
+          "status": "passed",
+          "shape": "array",
+          "count": 1,
+          "httpResponses": 1
+        },
+        "getMaxMetricsRange": {
+          "status": "passed",
+          "shape": "array",
+          "count": 4,
+          "httpResponses": 1
+        },
+        "getRacePredictions": {
+          "status": "passed",
+          "shape": "object",
+          "count": 8,
+          "httpResponses": 2
+        },
+        "getRacePredictionsRange": {
+          "status": "passed",
+          "shape": "array",
+          "count": 7,
+          "httpResponses": 2
+        }
+      },
+      "mcp": {
+        "tool-registration": {
+          "status": "passed",
+          "count": 23
+        },
+        "getHrvData": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getHrvSummaries": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getStressData": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getStressSummaries": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getBodyBattery": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingReadiness": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getDailyTrainingStatus": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingStatus": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getTrainingLoadBalance": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getMaxMetrics": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getMaxMetricsRange": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getRacePredictions": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        },
+        "getRacePredictionsRange": {
+          "status": "passed",
+          "parity": true,
+          "httpResponses": 0
+        }
+      },
+      "baseline": {
+        "get_garmin_profile": {
+          "status": "passed",
+          "shape": "object",
+          "count": 4
+        },
+        "get_garmin_activities": {
+          "status": "passed",
+          "shape": "array",
+          "count": 1
+        },
+        "get_garmin_sleep": {
+          "status": "passed",
+          "shape": "object",
+          "count": 7
+        }
+      },
+      "httpStatuses": {
+        "200": 16,
+        "204": 1
+      }
+    }
+  ],
+  "initialAttempt": {
+    "chinaConnection": "failed",
+    "diagnosticDetail": "Only error class PublicToolError was recorded; root cause not established",
+    "chinaRetry": "passed without new browser login",
+    "global": "passed"
+  },
+  "scope": "read-only-existing-sessions-no-password-or-browser",
+  "summary": {
+    "healthDshPassed": 26,
+    "healthMcpParityPassed": 26,
+    "legacyBaselinePassed": 6,
+    "status": "passed-after-china-retry"
+  },
+  "initialSdk": {
+    "name": "garmin-connect",
+    "version": "1.6.2",
+    "resolvePath": "/Users/kent/.dsh/profiles/desktop/node_modules/garmin-connect/package.json"
+  },
+  "cleanInstall": {
+    "source": "committed package-lock.json in clean directory",
+    "sshDisabled": true,
+    "build": "passed",
+    "sdkDependencyCheck": "passed",
+    "testSuites": 42,
+    "testsPassed": 992,
+    "testsFailed": 0,
+    "candidateSource": "historical-maintained-git-sha"
+  },
+  "desktopInstall": {
+    "kind": "official-cli-local-tarball",
+    "status": "passed",
+    "candidateVersion": "0.1.13",
+    "registeredPlugin": "file:/Users/kent/.codex/garmin-release-checks/2026-10-17/plugin-npm-candidate/dsh-plugin-garmin-connect-0.1.13.tgz",
+    "registry": "https://registry.npmjs.org/",
+    "ignoreScripts": true,
+    "exitCode": 0,
+    "verifiedAt": "2026-10-16T16:54:36.250Z",
+    "dependencyCheck": {
+      "ok": true,
+      "dependencySource": "scoped-npm-alias",
+      "methodCount": 13,
+      "missingMethodCount": 0,
+      "errors": []
+    },
+    "installedSdk": {
+      "name": "@likenttt/garmin-connect",
+      "version": "1.7.0",
+      "path": "/Users/kent/.dsh/profiles/desktop/node_modules/garmin-connect"
+    },
+    "sdkDistFilesMatch": 60,
+    "registryIntegrity": "sha512-P8oLO9ykOfceUlIDphO1Dw2be9wbmqtt32ojyPCgZQ55SJ2a53+eqVHCYZFM8dlbYXvgX7qdkG0/SJvCsYn5+g==",
+    "policyChanges": {
+      "minimumReleaseAgeExcludeAdded": [
+        "@likenttt/garmin-connect@1.7.0"
+      ],
+      "otherPolicyChanges": false
+    },
+    "developmentMarkerPresent": false,
+    "historicalGitInstall": {
+      "status": "blocked",
+      "errorCode": "ERR_PNPM_EXOTIC_SUBDEP",
+      "hostPoliciesMatchOriginal": true
+    },
+    "uiVerification": {
+      "harnessVersion": "0.2.0-rc.2",
+      "component": "running",
+      "mainAccountsSignedIn": 2,
+      "additionalAccountsAwaitingLogin": 1,
+      "modelConversationSent": false
+    },
+    "liveApiRerunAfterRegistryInstall": false,
+    "publishedSdkDistMatchesPreviouslyValidatedBuild": true,
+    "backupPath": "/Users/kent/.codex/garmin-release-checks/2026-10-17/desktop-before-npm-source",
+    "backupIncludesSessions": false
+  },
+  "updatedDate": "2026-10-17",
+  "registryDependency": {
+    "status": "configured",
+    "alias": "npm:@likenttt/garmin-connect@1.7.0",
+    "manifestAndLockfileUpdated": true,
+    "desktopCliInstall": "passed",
+    "build": "passed",
+    "sdkDependencyCheck": "passed",
+    "lockChecks": [
+      "root-dependency-specifier",
+      "installed-sdk-name-and-version",
+      "exact-official-registry-tarball-url"
+    ],
+    "cleanSourceInstallRepeatedForAlias": false
+  },
+  "registryChecks": {
+    "fullTestRun": {
+      "suites": 42,
+      "passed": 992,
+      "failed": 0
+    },
+    "subsequentGuardTestsAdded": 8,
+    "guardSuiteRun": {
+      "passed": 28,
+      "failed": 0
+    },
+    "currentTestCaseCount": 1000,
+    "singleFullRunOfAllCurrentCases": false
+  },
+  "pluginTarball": {
+    "version": "0.1.13",
+    "fileCount": 185,
+    "sizeBytes": 353420,
+    "integrity": "sha512-7Hz+9xXtMajKF3FyGpQEgeRMYNh4tTFRopNPkchE6xexfDRby30qJ+8J6Ya9TQcyjAVv3mi23u7qSH2r0oOTug==",
+    "containsCredentials": false,
+    "publicEnvironmentTemplateIncluded": true,
+    "kind": "installed-local-candidate",
+    "publishedToNpm": false,
+    "finalDocumentationUpdatedAfterPacking": true
+  },
+  "pluginPublication": {
+    "version": "0.1.15",
+    "status": "published",
+    "publicReleaseAuthorizedThisRound": true,
+    "registry": "https://registry.npmjs.org/",
+    "registryConfirmed": true,
+    "publishedAt": "2026-10-17T09:51:07.891Z",
+    "verifiedAt": "2026-10-17T09:51:27.101397+00:00",
+    "latest": "0.1.15",
+    "tarball": "https://registry.npmjs.org/dsh-plugin-garmin-connect/-/dsh-plugin-garmin-connect-0.1.15.tgz",
+    "integrity": "sha512-eJkxY5Ti02n1fww9BM5bNwnOqMzXZVw/zVVorgnhIEkRyFWLK7zX4b2QSKjbmd36xq3r6dm03QQtavRBTcfeUQ==",
+    "integrityMatches": true,
+    "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+    "fileCount": 186,
+    "unpackedSize": 1468379,
+    "previousAuthenticationAttempt": {
+      "status": "authentication-expired",
+      "exitCode": 1,
+      "errorCode": "E404",
+      "stage": "security-key-verification"
+    },
+    "gitTag": "v0.1.15",
+    "gitTagCommit": "faaffbb2db85028b4625408a67ad1054c2f53e80",
+    "gitTagPushed": true
+  },
+  "pluginRelease014": {
+    "date": "2026-10-17",
+    "version": "0.1.14",
+    "publication": {
+      "status": "published",
+      "publicReleaseAuthorizedThisRound": true,
+      "registry": "https://registry.npmjs.org/",
+      "registryConfirmed": true,
+      "publishedAt": "2026-10-17T07:29:06.060Z",
+      "verifiedAt": "2026-10-17T07:29:22.204239+00:00",
+      "latest": "0.1.14",
+      "tarball": "https://registry.npmjs.org/dsh-plugin-garmin-connect/-/dsh-plugin-garmin-connect-0.1.14.tgz",
+      "integrity": "sha512-YUpwapBZFC51+jbII80nj+877HQANMbgIP+4Qs1tYl3y7TfY66WFRiqcSZq9AsIXkjNB+TvpTuPmNk426/4gPg==",
+      "integrityMatches": true,
+      "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+      "fileCount": 186,
+      "unpackedSize": 1467464
+    },
+    "artifact": {
+      "name": "dsh-plugin-garmin-connect",
+      "version": "0.1.14",
+      "fileName": "dsh-plugin-garmin-connect-0.1.14.tgz",
+      "sizeBytes": 361188,
+      "unpackedSizeBytes": 1467464,
+      "fileCount": 186,
+      "integrity": "sha512-YUpwapBZFC51+jbII80nj+877HQANMbgIP+4Qs1tYl3y7TfY66WFRiqcSZq9AsIXkjNB+TvpTuPmNk426/4gPg==",
+      "sha256": "15dac70810e6f0480ba52ed8fa23725c386caf2ca2075cd909cc2263a5255153",
+      "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+      "requiredFilesPresent": true,
+      "privateFileCount": 0,
+      "publicEnvironmentTemplate": ".env.example",
+      "sourceCommit": "9e0f3858917081975de1ec5538ca589b142a2eba"
+    },
+    "gates": {
+      "build": "passed",
+      "maintainedSdk": "passed",
+      "localFullRun": {
+        "node": "26.3.0",
+        "status": "interrupted",
+        "exitCode": 130,
+        "fileIoTimeoutFailures": 25,
+        "timeoutMs": 5000,
+        "semanticAssertionDifferencesObserved": false
+      },
+      "hostRecoveryRegression": {
+        "node": "24.18.1",
+        "test": "loads the changed session snapshot even if the file is replaced again before restore",
+        "status": "passed",
+        "testTimeMs": 1485,
+        "timeoutMs": 5000
+      },
+      "previousSourceChecks": {
+        "fullPluginTestsPassed": 992,
+        "additionalGuardTests": 8,
+        "guardSuitePassed": 28,
+        "coachingRelatedTestsPassed": 135,
+        "sdkTestsPassed": 59
+      },
+      "hostSessionRegression": {
+        "node": "24.18.1",
+        "suites": 2,
+        "testsPassed": 99,
+        "elapsedSeconds": 4.558,
+        "timeoutMs": 5000,
+        "status": "passed"
+      }
+    },
+    "runtimeSourceUnchangedSince": "a358e6b",
+    "singleFullRunOfAllCurrentCases": false,
+    "desktop": {
+      "updated": true,
+      "source": "official-npm-registry",
+      "status": "formal-registry-installed-host-incompatible",
+      "hostVersion": "0.2.1-rc.1",
+      "installedVersion": "0.1.14",
+      "registryInstallation": {
+        "status": "completed",
+        "cliExitCode": 0,
+        "pnpmVersion": "11.7.0"
+      },
+      "officialRegistryInstallVerified": false,
+      "running": false,
+      "compatibility": {
+        "status": "failed",
+        "reason": "host-peer-range-excluded",
+        "hostVersion": "0.2.1-rc.1",
+        "supported02ClientVersions": [
+          "0.2.0-rc.1",
+          "0.2.0-rc.2"
+        ]
+      },
+      "ui": {
+        "version": "0.1.14",
+        "hostVersion": "0.2.1-rc.1",
+        "running": false,
+        "status": "error"
+      },
+      "historicalLocalTarballCheck": {
+        "updated": true,
+        "source": "local-release-tarball",
+        "officialRegistryInstallVerified": false,
+        "ui": {
+          "verifiedAt": "2026-10-17T06:24:53.521983+00:00",
+          "version": "0.1.14",
+          "enabled": true,
+          "runningComponents": 1,
+          "primaryAccountsLoggedIn": 2
+        },
+        "hostVersion": "0.2.0-rc.2",
+        "running": true
+      }
+    },
+    "priorCandidateRecordsRetained": true,
+    "recordAddedAfterArtifactWasPacked": true
+  },
+  "historicalPluginPublication": {
+    "version": "0.1.13",
+    "status": "not-published",
+    "publicReleaseAuthorizedThisRound": false
+  },
+  "pluginRelease015": {
+    "date": "2026-10-17",
+    "version": "0.1.15",
+    "status": "published-and-desktop-verified",
+    "cause": {
+      "type": "automatic-host-upgrade",
+      "previousHostVersion": "0.2.0-rc.2",
+      "currentHostVersion": "0.2.1-rc.1",
+      "affectedPluginVersion": "0.1.14"
+    },
+    "compatibilityPatch": {
+      "runtimeCodeChanged": false,
+      "addedExactHostClientVersion": "0.2.1-rc.1",
+      "peerRanges": {
+        "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.1",
+        "@deepseek-ai/dsh-client-ui-layout": "^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.1"
+      },
+      "synchronizedDevDependencies": {
+        "@deepseek-ai/dsh-client-connection": "0.2.1-rc.1",
+        "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.1",
+        "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.1"
+      },
+      "apiAudit": "passed-readonly"
+    },
+    "retainedFeatures": {
+      "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+      "newSdkMethods": 13,
+      "totalTools": 23,
+      "bundledRecoverySkill": true
+    },
+    "gates": {
+      "build": {
+        "status": "passed",
+        "targets": [
+          "host",
+          "client-declarations",
+          "client-bundle"
+        ],
+        "node": "26.3.0"
+      },
+      "maintainedSdk": {
+        "status": "passed",
+        "methodCount": 13
+      },
+      "targetedTests": {
+        "status": "passed-across-runs",
+        "runtime": "Harness-embedded-Node",
+        "suiteCount": 2,
+        "totalCases": 32,
+        "initialRun": {
+          "passed": 31,
+          "failed": 1,
+          "failureType": "5000ms-test-timeout",
+          "parallelBuildAndMemoryPressure": true,
+          "timeoutMs": 5000
+        },
+        "singleCaseRetry": {
+          "scope": "only-the-dynamic-settings-script-timeout-case",
+          "passed": 1,
+          "failed": 0,
+          "testTimeMs": 1067,
+          "jestElapsedSeconds": 4.711,
+          "timeoutMs": 5000,
+          "testOrTimeoutChanged": false
+        },
+        "casesPassedAcrossRuns": 32,
+        "singleAllPassRun": false,
+        "node": "24.21.0",
+        "electron": "44.7.0"
+      },
+      "runtimeAndSkillParity": {
+        "status": "passed",
+        "baselineVersion": "0.1.14",
+        "libFiles": 174,
+        "skillFiles": 3,
+        "byteIdentical": true
+      },
+      "packageManagerLockPolicyChecks": {
+        "status": "passed",
+        "packageManager": "pnpm",
+        "version": "11.28.5",
+        "checks": 124
+      }
+    },
+    "publication": {
+      "status": "published",
+      "publicReleaseAuthorizedThisRound": true,
+      "registry": "https://registry.npmjs.org/",
+      "registryConfirmed": true,
+      "publishedAt": "2026-10-17T09:51:07.891Z",
+      "verifiedAt": "2026-10-17T09:51:27.101397+00:00",
+      "latest": "0.1.15",
+      "tarball": "https://registry.npmjs.org/dsh-plugin-garmin-connect/-/dsh-plugin-garmin-connect-0.1.15.tgz",
+      "integrity": "sha512-eJkxY5Ti02n1fww9BM5bNwnOqMzXZVw/zVVorgnhIEkRyFWLK7zX4b2QSKjbmd36xq3r6dm03QQtavRBTcfeUQ==",
+      "integrityMatches": true,
+      "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+      "fileCount": 186,
+      "unpackedSize": 1468379,
+      "previousAuthenticationAttempt": {
+        "status": "authentication-expired",
+        "exitCode": 1,
+        "errorCode": "E404",
+        "stage": "security-key-verification"
+      },
+      "gitTag": "v0.1.15",
+      "gitTagCommit": "faaffbb2db85028b4625408a67ad1054c2f53e80",
+      "gitTagPushed": true
+    },
+    "desktop": {
+      "status": "formal-registry-installed-and-runtime-verified",
+      "hostVersion": "0.2.1-rc.1",
+      "node": "24.21.0",
+      "source": "official-npm-registry",
+      "registeredPlugin": "dsh-plugin-garmin-connect@0.1.15",
+      "installedVersion": "0.1.15",
+      "installation": {
+        "cliExitCode": 0,
+        "packageManager": "pnpm",
+        "packageManagerVersion": "11.28.5",
+        "elapsedSeconds": 7.5
+      },
+      "officialRegistryInstallVerified": true,
+      "officialRegistrySourceSwitch": "completed",
+      "localRuntimeVerified": true,
+      "running": true,
+      "sourceAudit": {
+        "status": "passed",
+        "verifiedAt": "2026-10-17T09:57:54.725142+00:00",
+        "reportFile": "desktop-registry-check.json",
+        "profileSpecifierExact": true,
+        "fileSourcePresent": false,
+        "officialRegistryIntegrityMatches": true,
+        "pluginFilesMatched": 186,
+        "pluginLibFilesMatched": 174,
+        "pluginSkillFilesMatched": 3,
+        "sdkDistFilesMatched": 60,
+        "sdkMethodsPresent": 13,
+        "hostClientPeerChecksPassed": 2,
+        "uiInspectedByThisAudit": false,
+        "credentialsOrSessionFilesRead": false
+      },
+      "policy": {
+        "semanticAdditionOnly": "dsh-plugin-garmin-connect@0.1.15",
+        "pluginMinimumReleaseAgeExclude": "dsh-plugin-garmin-connect@0.1.13 || 0.1.14 || 0.1.15",
+        "sdkMinimumReleaseAgeExclude": "@likenttt/garmin-connect@1.7.0",
+        "otherPoliciesUnchanged": true
+      },
+      "ui": {
+        "status": "verified",
+        "inspectedIndependently": true,
+        "hostVersion": "0.2.1-rc.1",
+        "version": "0.1.15",
+        "source": "dsh-plugin-garmin-connect@0.1.15",
+        "hasError": false,
+        "runningComponents": 1,
+        "primaryAccountsLoggedIn": 2,
+        "settingsFormVisible": true,
+        "addAccountButtonVisible": true
+      },
+      "historicalLocalTarballCheck": {
+        "status": "local-runtime-verified-registry-switch-pending",
+        "hostVersion": "0.2.1-rc.1",
+        "source": "local-release-tarball",
+        "previousVersion": "0.1.14",
+        "installedVersion": "0.1.15",
+        "installation": {
+          "cliExitCode": 0,
+          "packageManager": "pnpm",
+          "packageManagerVersion": "11.28.5",
+          "elapsedSeconds": 90.1,
+          "downloadedPackages": 3,
+          "addedPackages": 7
+        },
+        "officialRegistryInstallVerified": false,
+        "officialRegistrySourceSwitch": "pending",
+        "ui": {
+          "status": "verified",
+          "hostVersion": "0.2.1-rc.1",
+          "version": "0.1.15",
+          "hasError": false,
+          "runningComponents": 1,
+          "primaryAccountsLoggedIn": 2,
+          "settingsFormVisible": true,
+          "addAccountButtonVisible": true
+        },
+        "localRuntimeVerified": true,
+        "node": "24.21.0",
+        "running": true
+      }
+    },
+    "previousReleaseHistoryRetained": true,
+    "artifact": {
+      "name": "dsh-plugin-garmin-connect",
+      "version": "0.1.15",
+      "fileName": "dsh-plugin-garmin-connect-0.1.15.tgz",
+      "sizeBytes": 361462,
+      "unpackedSizeBytes": 1468379,
+      "fileCount": 186,
+      "integrity": "sha512-eJkxY5Ti02n1fww9BM5bNwnOqMzXZVw/zVVorgnhIEkRyFWLK7zX4b2QSKjbmd36xq3r6dm03QQtavRBTcfeUQ==",
+      "sha256": "a458b339456f9f78919d7898795c90801f8fbabf229c0ac6c297ff529f177848",
+      "sdk": "npm:@likenttt/garmin-connect@1.7.0",
+      "privateFileCount": 0,
+      "sourceCommit": "faaffbb2db85028b4625408a67ad1054c2f53e80",
+      "sourcePushedToGitHub": true
+    },
+    "recordAddedAfterArtifactWasPacked": true
+  }
+}

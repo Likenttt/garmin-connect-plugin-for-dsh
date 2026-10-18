@@ -25,6 +25,18 @@ import {
 import type { WorkoutDef } from './knowledge/workout-schema'
 import { PublicToolError } from './utils/errors'
 import { parseLocalDate } from './utils/date'
+import { HEALTH_TOOLS } from './health-tools'
+import type { GarminRecoveryDataClient, HealthMetricArgs, HealthMetricMethod } from './health-tools'
+import {
+  canonicalGarminResourceId,
+  resolveScheduledWorkoutRange,
+} from './workout-management'
+import type {
+  DeleteWorkoutArgs,
+  GarminWorkoutManagementClient,
+  ScheduledWorkoutsArgs,
+  UnscheduleWorkoutArgs,
+} from './workout-management'
 import {
   formatActivity,
   formatHeartRate,
@@ -35,7 +47,7 @@ import {
   formatWorkout,
 } from './utils/format'
 
-export interface GarminDataClient {
+export interface GarminDataClient extends Partial<GarminRecoveryDataClient>, Partial<GarminWorkoutManagementClient> {
   getActivities(start?: number, limit?: number): Promise<unknown[]>
   getSleep(date: string): Promise<unknown>
   getSteps(date: string): Promise<unknown>
@@ -52,6 +64,7 @@ export interface GarminToolServiceOptions {
   fitDownloadDir: string
   accountUsername: string
   accountRegion: GarminRegion
+  accountId?: string
 }
 
 export interface DateRangeArgs {
@@ -177,17 +190,78 @@ interface PendingWorkoutConfirmation {
   expiresAt: number
 }
 
+type WorkoutRemovalOperation = 'deleteWorkout' | 'unscheduleWorkout'
+
+interface PendingWorkoutRemovalConfirmation {
+  operation: WorkoutRemovalOperation
+  targetId: string
+  accountUsername: string
+  accountRegion: GarminRegion
+  accountId?: string
+  detailHash: string
+  expiresAt: number
+}
+
 const CONFIRMATION_TTL_MS = 10 * 60 * 1000
 const MAX_PENDING_CONFIRMATIONS = 20
 
 export class GarminToolService {
   private readonly workoutConfirmations = new Map<string, PendingWorkoutConfirmation>()
+  private readonly workoutRemovalConfirmations = new Map<string, PendingWorkoutRemovalConfirmation>()
   private readonly dateRequestLimiter = new AsyncSemaphore(4)
 
   constructor(
     private readonly client: GarminDataClient,
     private readonly options: GarminToolServiceOptions,
   ) {}
+
+  /** Native SDK requests; preserve every returned field, reading and snapshot. */
+  async getHealthMetric(method: HealthMetricMethod, args: HealthMetricArgs = {}): Promise<unknown> {
+    const definition = HEALTH_TOOLS.find(tool => tool.method === method)
+    if (!definition) throw new PublicToolError('Unknown Garmin health metric')
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      throw new PublicToolError('Health metric arguments must be an object')
+    }
+    const allowed = definition.kind === 'latest' ? []
+      : definition.kind === 'daily' ? ['date']
+        : definition.kind === 'raceRange' ? ['startDate', 'endDate', 'aggregation']
+          : ['startDate', 'endDate']
+    if (Object.keys(args).some(key => !allowed.includes(key))) {
+      throw new PublicToolError('Unsupported health metric argument')
+    }
+    const calendarDate = (value: unknown, field: string): string => {
+      try {
+        if (typeof value !== 'string') throw new Error()
+        parseLocalDate(value)
+        return value
+      } catch {
+        throw new PublicToolError(`Invalid ${field}: expected a real date in YYYY-MM-DD format`)
+      }
+    }
+    let parameters: unknown[] = []
+    if (definition.kind === 'daily') {
+      parameters = [calendarDate(args.date === undefined ? todayLocal() : args.date, 'date')]
+    } else if (definition.kind !== 'latest') {
+      const start = calendarDate(args.startDate === undefined ? todayLocal() : args.startDate, 'startDate')
+      const end = calendarDate(args.endDate === undefined ? start : args.endDate, 'endDate')
+      if (start > end) throw new PublicToolError('startDate must not be after endDate')
+      parameters = [start, end]
+      if (definition.kind === 'raceRange') {
+        const aggregation = args.aggregation === undefined ? 'daily' : args.aggregation
+        if (aggregation !== 'daily' && aggregation !== 'monthly') {
+          throw new PublicToolError('aggregation must be daily or monthly')
+        }
+        const span = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000
+        if (span > 366) throw new PublicToolError('Race prediction ranges cannot span more than 366 days')
+        parameters.push(aggregation)
+      }
+    }
+    const action = this.client[method]
+    if (typeof action !== 'function') {
+      throw new PublicToolError('The installed Garmin SDK does not support this health metric; update the plugin')
+    }
+    return Reflect.apply(action, this.client, parameters)
+  }
 
   async getActivities(args: ActivityArgs = {}): Promise<unknown[]> {
     const limit = Math.min(Math.max(Math.trunc(args.limit ?? 5), 1), 100)
@@ -304,6 +378,120 @@ export class GarminToolService {
     return (workouts as Record<string, unknown>[]).map(formatWorkout)
   }
 
+  async getScheduledWorkouts(args: ScheduledWorkoutsArgs = {}): Promise<unknown> {
+    validateWorkoutManagementArgs(args, ['startDate', 'endDate'])
+    const { startDate, endDate } = resolveScheduledWorkoutRange(args)
+    const action = this.client.getScheduledWorkouts
+    if (typeof action !== 'function') throw unsupportedWorkoutManagement()
+    return action.call(this.client, startDate, endDate)
+  }
+
+  async deleteWorkout(args: DeleteWorkoutArgs): Promise<Record<string, unknown>> {
+    return this.removeWorkout('deleteWorkout', args)
+  }
+
+  async unscheduleWorkout(args: UnscheduleWorkoutArgs): Promise<Record<string, unknown>> {
+    return this.removeWorkout('unscheduleWorkout', args)
+  }
+
+  private async removeWorkout(
+    operation: WorkoutRemovalOperation,
+    args: DeleteWorkoutArgs | UnscheduleWorkoutArgs,
+  ): Promise<Record<string, unknown>> {
+    const idField = operation === 'deleteWorkout' ? 'workoutId' : 'scheduleId'
+    validateWorkoutManagementArgs(args, [idField, 'confirmed', 'confirmationId'])
+    if (args.confirmed !== undefined && typeof args.confirmed !== 'boolean') {
+      throw new PublicToolError('confirmed must be a boolean')
+    }
+    if (args.confirmationId !== undefined
+      && (typeof args.confirmationId !== 'string' || args.confirmationId.trim().length === 0)) {
+      throw new PublicToolError('confirmationId must be a non-empty string')
+    }
+    if (args.confirmed !== true && args.confirmationId !== undefined) {
+      throw new PublicToolError('A confirmationId can only be used with confirmed=true')
+    }
+    // A typed confirmation attempt is one-shot, even if target validation fails.
+    const pending = args.confirmed === true && args.confirmationId !== undefined
+      ? this.workoutRemovalConfirmations.get(args.confirmationId)
+      : undefined
+    if (args.confirmed === true && args.confirmationId !== undefined) {
+      this.workoutRemovalConfirmations.delete(args.confirmationId)
+    }
+    const targetId = canonicalGarminResourceId((args as unknown as Record<string, unknown>)[idField], idField)
+
+    const read = operation === 'deleteWorkout'
+      ? this.client.getWorkoutDetail
+      : this.client.getScheduledWorkout
+    const write = operation === 'deleteWorkout'
+      ? this.client.deleteWorkout
+      : this.client.unscheduleWorkout
+    if (typeof read !== 'function' || typeof write !== 'function') {
+      throw unsupportedWorkoutManagement()
+    }
+
+    if (args.confirmed === true) {
+      if (!pending
+        || pending.expiresAt <= Date.now()
+        || pending.operation !== operation
+        || pending.targetId !== targetId
+        || pending.accountUsername !== this.options.accountUsername
+        || pending.accountRegion !== this.options.accountRegion
+        || pending.accountId !== this.options.accountId) {
+        throw invalidWorkoutRemovalConfirmation()
+      }
+      const detail = validateWorkoutRemovalDetail(await read.call(this.client, targetId), operation, targetId)
+      if (pending.detailHash !== workoutRemovalDetailHash(detail)) {
+        throw new PublicToolError('The workout changed after the preview; request a new preview and user confirmation')
+      }
+      // A resolved 204/empty response is success. Never retry a destructive request.
+      await write.call(this.client, targetId)
+      return {
+        success: true,
+        [idField]: targetId,
+        accountRegion: this.options.accountRegion,
+        ...(this.options.accountId ? { accountId: this.options.accountId } : {}),
+        action: operation === 'deleteWorkout' ? 'delete_workout' : 'cancel_scheduled_workout',
+        ...(operation === 'unscheduleWorkout' ? { workoutTemplatePreserved: true } : {}),
+        message: operation === 'deleteWorkout'
+          ? 'The workout was deleted from the Garmin workout library.'
+          : 'The workout calendar entry was cancelled; the workout library template was preserved.',
+      }
+    }
+
+    const detail = validateWorkoutRemovalDetail(await read.call(this.client, targetId), operation, targetId)
+    const now = Date.now()
+    for (const [id, confirmation] of this.workoutRemovalConfirmations) {
+      if (confirmation.expiresAt <= now) this.workoutRemovalConfirmations.delete(id)
+    }
+    while (this.workoutRemovalConfirmations.size >= MAX_PENDING_CONFIRMATIONS) {
+      const oldest = this.workoutRemovalConfirmations.keys().next().value
+      if (oldest === undefined) break
+      this.workoutRemovalConfirmations.delete(oldest)
+    }
+    const confirmationId = randomUUID()
+    this.workoutRemovalConfirmations.set(confirmationId, {
+      operation,
+      targetId,
+      accountUsername: this.options.accountUsername,
+      accountRegion: this.options.accountRegion,
+      accountId: this.options.accountId,
+      detailHash: workoutRemovalDetailHash(detail),
+      expiresAt: now + CONFIRMATION_TTL_MS,
+    })
+    return {
+      requiresConfirmation: true,
+      confirmationId,
+      expiresInSeconds: CONFIRMATION_TTL_MS / 1000,
+      preview: {
+        ...workoutRemovalPreview(detail, operation, targetId, this.options.accountRegion),
+        ...(this.options.accountId ? { accountId: this.options.accountId } : {}),
+      },
+      message: operation === 'deleteWorkout'
+        ? 'Review this single workout with the user. Only after explicit user confirmation, call delete_garmin_workout with the same workoutId, confirmed=true, and this confirmationId.'
+        : 'Review this single calendar entry with the user. Only after explicit user confirmation, call unschedule_garmin_workout with the same scheduleId, confirmed=true, and this confirmationId. This cancels the calendar entry and preserves the workout library template.',
+    }
+  }
+
   async getRunningAdvice(args: RunningAdviceArgs): Promise<RunningAdviceResponse> {
     const mode = args?.mode
     if (!isOneOf(RUNNING_ADVICE_MODES, mode)) {
@@ -391,6 +579,11 @@ export class GarminToolService {
           '每个调整周期只改变有限变量，不同时明显增加跑量、跑频、长跑和高强度。',
           '默认不安排双阈值；质量课必须受控、可恢复，并写明降级与停止规则。',
           '若用户描述当前疼痛、疾病或心血管健康警示症状，不安排高强度训练；建议先取得医疗专业人员许可，但不要自行诊断。',
+          '按当前会话实际提供的工具和参数补充 Garmin 恢复数据，不要根据插件版本号假定工具存在，也不要一次查询所有指标。DSH 后续调用使用同一账号的稳定 account ID；MCP 使用该账号对应的服务器或当前进程，不混用不同账号数据。',
+          '分析 HRV 趋势时按问题涉及的日期调用 get_garmin_hrv_summaries；需要单日基线、状态或夜间读数时再调用 get_garmin_hrv。先核对日期、数据覆盖和设备来源，不能把单次 HRV 波动直接解释为可以或不能做强度。',
+          '判断当天能否做强度时，结合 get_garmin_training_readiness、get_garmin_sleep、get_garmin_activities 和用户主观疲劳、疼痛等状态；有具体疑问时再补 get_garmin_stress、get_garmin_body_battery 或 get_garmin_daily_training_status。某个分数不能自动决定训练强度。',
+          '评估训练负荷或表现时，按需选择 get_garmin_training_status、get_garmin_training_load_balance、get_garmin_max_metrics 或 get_garmin_race_predictions；需要表现趋势时选择 get_garmin_max_metrics_range 或 get_garmin_race_predictions_range。Garmin 估算和预测不能替代当前真实成绩，也不能直接转成目标训练配速。',
+          '区分当前未提供工具、返回空数据和认证失败；空数据不代表数值为零、恢复正常或状态差。说明缺失证据；认证失败时走账号登录流程。恢复指标不能替代用户目标、训练背景、可用时间、健康约束和主观状态，也不能跳过必需的个性化信息补问。',
           '计划必须服从可训练时间、伤病健康和恢复约束；安排 2–4 周复评，并根据完成率、RPE、疼痛、睡眠以及必要的比赛或计时测试更新，不能自动按目标配速升级。',
         ]
         : [
@@ -402,6 +595,11 @@ export class GarminToolService {
           'Change only a limited number of variables per adjustment cycle; do not simultaneously raise volume, frequency, long-run load, and intensity.',
           'Do not prescribe double threshold by default; quality work must be controlled and recoverable with downgrade and stop rules.',
           'If the athlete reports current pain, illness, or cardiovascular warning symptoms, do not prescribe hard training; advise medical clearance without diagnosing.',
+          'Use only Garmin tools and parameters actually available in the current session; do not infer availability from a plugin version or fetch every metric. Keep subsequent DSH calls on the same stable account ID; for MCP, use the server or current process for that account and never combine accounts.',
+          'For HRV trends, call get_garmin_hrv_summaries for the dates relevant to the question; add get_garmin_hrv only for daily baseline, status, or overnight readings. Check dates, coverage, and device source before interpreting changes; one HRV reading cannot decide whether hard training is appropriate.',
+          'For a decision about hard training today, combine get_garmin_training_readiness, get_garmin_sleep, get_garmin_activities, and the athlete\'s fatigue, pain, and other subjective state. Add get_garmin_stress, get_garmin_body_battery, or get_garmin_daily_training_status when a specific question calls for them; no single score automatically sets training intensity.',
+          'For load or performance questions, choose get_garmin_training_status, get_garmin_training_load_balance, get_garmin_max_metrics, or get_garmin_race_predictions as needed; choose get_garmin_max_metrics_range or get_garmin_race_predictions_range for performance trends. Garmin estimates and predictions cannot replace recent measured performance or directly set training pace.',
+          'Distinguish an unavailable tool, empty data, and an authentication failure. Empty data means neither zero nor good or poor recovery. State the missing evidence and use account login for authentication failures. Recovery metrics cannot replace goals, training background, availability, health constraints, or subjective state, and never bypass required personalized intake.',
           'Respect availability, injury, health, and recovery constraints; reassess in 2–4 weeks using completion rate, RPE, pain, sleep, and any needed race or time-trial update, never an automatic progression toward goal pace.',
         ]
       if (args.performanceBasis === 'no_recent_benchmark') {
@@ -1012,6 +1210,70 @@ class AsyncSemaphore {
       this.active -= 1
       this.waiters.shift()?.()
     }
+  }
+}
+
+function validateWorkoutManagementArgs(value: unknown, allowedKeys: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new PublicToolError('Workout management arguments must be an object')
+  }
+  if (Object.keys(value).some(key => !allowedKeys.includes(key))) {
+    throw new PublicToolError('Unsupported workout management argument')
+  }
+}
+
+function unsupportedWorkoutManagement(): PublicToolError {
+  return new PublicToolError('The installed Garmin SDK does not support this workout management operation; update the plugin')
+}
+
+function invalidWorkoutRemovalConfirmation(): PublicToolError {
+  return new PublicToolError('Invalid workout confirmation: request a new preview for this account and action; the confirmation is missing, expired, already used, or does not match the target')
+}
+
+function validateWorkoutRemovalDetail(
+  value: unknown,
+  operation: WorkoutRemovalOperation,
+  targetId: string,
+): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length === 0) {
+    throw new PublicToolError('Garmin did not return the target workout details; no change was made')
+  }
+  const detail = value as Record<string, unknown>
+  const identityFields = operation === 'deleteWorkout'
+    ? ['workoutId', 'id']
+    : ['workoutScheduleId', 'scheduledWorkoutId', 'scheduleId', 'id']
+  for (const field of identityFields) {
+    if (Object.hasOwn(detail, field)
+      && canonicalGarminResourceId(detail[field], field) !== targetId) {
+      throw new PublicToolError('Garmin returned details for a different workout target; no change was made')
+    }
+  }
+  return detail
+}
+
+function workoutRemovalDetailHash(detail: Record<string, unknown>): string {
+  return createHash('sha256').update(canonicalJson(detail)).digest('hex')
+}
+
+function workoutRemovalPreview(
+  detail: Record<string, unknown>,
+  operation: WorkoutRemovalOperation,
+  targetId: string,
+  region: GarminRegion,
+): Record<string, unknown> {
+  const nestedWorkout = detail.workout && typeof detail.workout === 'object' && !Array.isArray(detail.workout)
+    ? detail.workout as Record<string, unknown>
+    : undefined
+  const workoutName = [detail.workoutName, detail.name, nestedWorkout?.workoutName, nestedWorkout?.name]
+    .find(value => typeof value === 'string' && value.trim().length > 0)
+  const date = [detail.date, detail.scheduledDate, detail.calendarDate, detail.workoutDate]
+    .find(value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value))
+  return {
+    action: operation === 'deleteWorkout' ? 'delete_workout' : 'cancel_scheduled_workout',
+    ...(operation === 'deleteWorkout' ? { workoutId: targetId } : { scheduleId: targetId, workoutTemplatePreserved: true }),
+    accountRegion: region,
+    ...(typeof workoutName === 'string' ? { workoutName: workoutName.slice(0, 200) } : {}),
+    ...(typeof date === 'string' ? { scheduledDate: date.slice(0, 10) } : {}),
   }
 }
 

@@ -1,6 +1,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { GarminClient } from '../client'
 import type { Config, GarminRegion } from '../config'
+import { HEALTH_TOOLS } from '../health-tools'
+import type { HealthMetricArgs } from '../health-tools'
 import { PublicToolError, publicErrorMessage } from '../utils/errors'
 import {
   GarminToolService,
@@ -20,6 +22,12 @@ import type {
   PaginationArgs,
   RunningAdviceArgs,
 } from '../tool-service'
+import { GARMIN_RESOURCE_ID_PATTERN } from '../workout-management'
+import type {
+  DeleteWorkoutArgs,
+  ScheduledWorkoutsArgs,
+  UnscheduleWorkoutArgs,
+} from '../workout-management'
 
 export { getDatesInRange, todayLocal } from '../tool-service'
 
@@ -57,6 +65,7 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
   const services = new Map(accounts.map(({ accountId, region, client, config }) => [
     accountId,
     new GarminToolService(client, {
+      accountId,
       activityDetail: config.activityDetail,
       fitDownloadDir: config.fitDownloadDir,
       accountUsername: config.username,
@@ -99,6 +108,34 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
       accountUsername: '',
       accountRegion: 'cn',
     })
+
+  // Native range endpoints return full reports in a single request.
+  for (const definition of HEALTH_TOOLS) {
+    const dateProperty = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Calendar date in YYYY-MM-DD format.' }
+    const properties: Record<string, unknown> = { account: accountParameter }
+    if (definition.kind === 'daily') properties.date = dateProperty
+    if (definition.kind === 'range' || definition.kind === 'raceRange') {
+      properties.startDate = { ...dateProperty, description: 'Inclusive start date (default: today).' }
+      properties.endDate = { ...dateProperty, description: 'Inclusive end date (default: startDate).' }
+    }
+    if (definition.kind === 'raceRange') {
+      properties.aggregation = { type: 'string', enum: ['daily', 'monthly'], description: 'History aggregation (default: daily).' }
+    }
+    tools.register({
+      name: definition.name,
+      description: `${definition.description} Returns the full service response; null or empty arrays can mean no data for this account/date.`,
+      parameters: { type: 'object', additionalProperties: false, properties },
+      output: flexibleOutput,
+      execute: async (args: HealthMetricArgs & AccountArgs = {}) => {
+        try {
+          const { account, ...request } = args
+          return await selectService(account).getHealthMetric(definition.method, request)
+        } catch (error) {
+          return toolError(error, 'Failed to fetch Garmin health data')
+        }
+      },
+    })
+  }
 
   // ------------------------------------------------------------------
   // 1. get_garmin_activities
@@ -269,6 +306,105 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
   // 7. get_garmin_profile
   // ------------------------------------------------------------------
   tools.register({
+    name: 'get_garmin_scheduled_workouts',
+    description:
+      'Read Garmin calendar workout entries for an inclusive date range of at most 31 days ' +
+      '(default: today). Returns the full service response, including scheduleId values needed ' +
+      'to cancel a calendar entry. This is separate from get_garmin_workouts, which reads the workout library.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        account: accountParameter,
+        startDate: {
+          type: 'string',
+          pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+          description: 'Inclusive start date (default: today).',
+        },
+        endDate: {
+          type: 'string',
+          pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+          description: 'Inclusive end date (default: startDate); at most 31 days.',
+        },
+      },
+    },
+    output: flexibleOutput,
+    execute: async (args: ScheduledWorkoutsArgs & AccountArgs = {}) => {
+      try {
+        const { account, ...request } = args
+        return await selectService(account).getScheduledWorkouts(request)
+      } catch (error) {
+        return toolError(error, 'Failed to fetch scheduled workouts')
+      }
+    },
+  })
+
+  tools.register({
+    name: 'delete_garmin_workout',
+    description:
+      'Delete one workout template from the selected Garmin account library; this does not cancel ' +
+      'a single calendar occurrence. First call without confirmed=true for a preview. Show the ' +
+      'preview account and workout to the user; only after explicit approval call again with the ' +
+      'same account, workoutId, confirmed=true, and confirmationId. Never batch-delete or ' +
+      'automatically retry. If the outcome is unknown, perform a read-only check before further action.',
+    parameters: {
+      type: 'object',
+      required: ['workoutId'],
+      additionalProperties: false,
+      properties: {
+        account: accountParameter,
+        workoutId: {
+          ...garminResourceIdParameter,
+          description: 'Workout library ID from get_garmin_workouts. Use a decimal string for IDs larger than a safe integer.',
+        },
+        ...destructiveConfirmationParameters,
+      },
+    },
+    output: flexibleOutput,
+    execute: async (args: DeleteWorkoutArgs & AccountArgs) => {
+      try {
+        const { account, ...request } = args
+        return await selectService(account).deleteWorkout(request)
+      } catch (error) {
+        return toolError(error, 'Failed to delete workout')
+      }
+    },
+  })
+
+  tools.register({
+    name: 'unschedule_garmin_workout',
+    description:
+      'Cancel one calendar workout occurrence from the selected Garmin account while retaining ' +
+      'its workout library template. Use scheduleId from get_garmin_scheduled_workouts, never a ' +
+      'workoutId. First call without confirmed=true for a preview. Show the preview account and ' +
+      'calendar entry to the user; only after explicit approval call again with the same account, ' +
+      'scheduleId, confirmed=true, and confirmationId. Never batch-cancel or automatically retry. ' +
+      'If the outcome is unknown, perform a read-only calendar check before further action.',
+    parameters: {
+      type: 'object',
+      required: ['scheduleId'],
+      additionalProperties: false,
+      properties: {
+        account: accountParameter,
+        scheduleId: {
+          ...garminResourceIdParameter,
+          description: 'Calendar occurrence ID from get_garmin_scheduled_workouts, distinct from workoutId. Use a decimal string for large IDs.',
+        },
+        ...destructiveConfirmationParameters,
+      },
+    },
+    output: flexibleOutput,
+    execute: async (args: UnscheduleWorkoutArgs & AccountArgs) => {
+      try {
+        const { account, ...request } = args
+        return await selectService(account).unscheduleWorkout(request)
+      } catch (error) {
+        return toolError(error, 'Failed to cancel scheduled workout')
+      }
+    },
+  })
+
+  tools.register({
     name: 'get_garmin_profile',
     description:
       'Get the user\'s Garmin profile summary (display name, profile image URL, etc.).',
@@ -300,7 +436,12 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
       'training background, availability, health/recovery constraints, and preferred load pattern ' +
       '(steady, clearly separated hard/easy, or mixed), including quality-session and intensity-guidance preferences. ' +
       'If warning symptoms are reported, stop planning and follow the tool\'s medical-clearance guidance. Never guess missing answers. ' +
-      'Recent Garmin running activities can supplement but never replace the intake. ' +
+      'Recent Garmin running activities and recovery metrics can supplement but never replace the intake. ' +
+      'Use only tools and schemas actually available: HRV trends via get_garmin_hrv_summaries, ' +
+      'daily HRV details via get_garmin_hrv; readiness decisions combine get_garmin_training_readiness ' +
+      'with sleep, recent activities, and subjective state, adding stress, Body Battery, or training status as needed. ' +
+      'Fetch only relevant metrics, keep calls on one stable account ID, and never set intensity from one reading or score. ' +
+      'Distinguish unavailable tools, empty data, and authentication failures. ' +
       'Concept explanations and intake questions do not require an account.',
     parameters: {
       type: 'object',
@@ -513,12 +654,31 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
     },
   })
 
-  ctx.logger.info('[garmin] Registered 10 tools.')
+  ctx.logger.info(`[garmin] Registered ${13 + HEALTH_TOOLS.length} tools.`)
 }
 
 // ---------------------------------------------------------------------------
 // Shared schema fragments
 // ---------------------------------------------------------------------------
+
+const garminResourceIdParameter = {
+  oneOf: [
+    { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+    { type: 'string', pattern: GARMIN_RESOURCE_ID_PATTERN },
+  ],
+}
+
+const destructiveConfirmationParameters = {
+  confirmed: {
+    type: 'boolean',
+    description: 'Set true only after the user explicitly approves the account and object in the matching preview.',
+  },
+  confirmationId: {
+    type: 'string',
+    format: 'uuid',
+    description: 'One-time ID from the matching preview for this account, operation, and resource ID.',
+  },
+}
 
 /** Date range parameters shared by sleep / steps / heart rate / weight tools. */
 const dateRangeParameters = {
@@ -634,6 +794,7 @@ const workoutStepParameters = {
 const flexibleOutput = {
   schema: {
     oneOf: [
+      { type: 'null' },
       {
         type: 'array',
         items: {
