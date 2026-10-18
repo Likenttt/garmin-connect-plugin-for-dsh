@@ -11,6 +11,12 @@
 
 English | **[简体中文](README.zh-CN.md)** | **[Test Report](TEST_REPORT.md)** | **[Changelog](CHANGELOG.md)**
 
+**Developed by Li Erniu (李二牛), connecting Garmin training to your AI assistant.**
+
+This open-source DeepSeek Harness plugin and MCP connector support Garmin China and International accounts. Explore full activities and splits, sleep, heart rate and HRV with AI, then create or delete workouts or cancel calendar entries after your confirmation.
+
+**You control your account. Your password is not shared with AI.** With the recommended Garmin browser sign-in, passwords and verification codes are entered only on Garmin’s official page, not given to AI or the developer. Session credentials are stored locally with restricted file permissions. Authorized fitness and health queries return data to your chosen AI client for analysis.
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/coding-agents-dark.png">
@@ -62,10 +68,10 @@ This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-
 
 ### Registered Tools
 
-Version 0.1.14 registers **23 tools**. Twenty-one provide queries or local advice without writing;
-`download_garmin_activity_fit` writes one local file on the MCP/dsh host, and
-`create_garmin_workout` changes the user's Garmin workout library.
-Version 0.1.14 adds the 13 recovery and training tools below and depends on
+Version 0.1.17 registers **26 tools**. Twenty-two provide queries or local advice without writing;
+`download_garmin_activity_fit` writes one local file on the MCP/dsh host. Creating or deleting
+a workout and cancelling a calendar entry change Garmin data after explicit confirmation.
+The 13 recovery and training tools introduced in 0.1.14 depend on
 the published maintained SDK through an exact npm alias; see
 [Maintained SDK dependency](#maintained-sdk-dependency).
 
@@ -123,9 +129,9 @@ Workout creation is a two-call flow. The preview response includes a one-time
 again with the same definition, `confirmed: true`, and that `confirmationId`.
 An ID expires after 10 minutes and cannot be reused.
 
-### Workout deletion and calendar cancellation (development)
+### Workout deletion and calendar cancellation (0.1.17)
 
-Development adds three tools to the 23 released tools, bringing the total to **26**:
+Version 0.1.17 adds three workout management tools, bringing the total to **26**:
 
 Both write operations passed a live Harness desktop check with the China account; see the [workout management verification record](docs/testing/workout-management-harness-2026-10-18.md) (Chinese).
 
@@ -141,8 +147,7 @@ tools first read the target and return a preview. After user approval, submit th
 same target, `confirmed: true` and its `confirmationId`. Confirmations bind the
 account, operation and target details, expire after ten minutes and work once;
 a changed target requires a new preview. Read back uncertain outcomes before
-another attempt; writes are not automatically replayed. These development tools
-have not been published to npm yet.
+another attempt; writes are not automatically replayed.
 
 ### Personalized running coaching
 
@@ -667,7 +672,7 @@ This plugin also ships as a standalone **MCP (Model Context Protocol) server**, 
 > **Current availability:** the standalone MCP entry point is included in npm
 > `0.1.5` and later. A local checkout remains useful for development.
 
-**New in development: agent workflow instructions on connection.** MCP initialization
+**New in 0.1.17: agent workflow instructions on connection.** MCP initialization
 sends `instructions` covering actual tool schemas, account verification before the
 first account-data query or after an account change, explicit dates, and separate
 handling of empty data, authentication failures and other request errors.
@@ -920,7 +925,7 @@ to `~/.workbuddy/skills/garmin-connect/`. If the skill is already installed,
 update that installed copy as well; upgrading the npm package alone does not
 update it. Reload WorkBuddy's skills and MCP service, then start a new session.
 
-The development skill includes
+The bundled skill includes
 [`references/recovery-analysis.md`](skills/garmin-connect/references/recovery-analysis.md)
 for HRV trends, readiness, stress, Body Battery, load, and performance queries.
 It selects tools from the connected session's actual schemas; updating the
@@ -1017,7 +1022,7 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-The development MCP server exposes the same **26 tools and date semantics** as
+The 0.1.17 MCP server exposes the same **26 tools and date semantics** as
 the dsh plugin: the original ten tools, three workout management tools, and the
 13 recovery and training tools listed above. Account selection differs: each standalone MCP process uses its
 configured account, while DSH accepts an explicit `account` selector.
@@ -1307,7 +1312,7 @@ src/
 │   ├── running-skills.ts  # 8 workout types + 4 compact training philosophies
 │   └── workout-schema.ts  # Workout definition → Garmin JSON builder
 ├── tools/
-│   └── index.ts      # Tool definitions & registration (26 tools in development)
+│   └── index.ts      # Tool definitions & registration (26 tools)
 └── utils/
     ├── errors.ts      # Safe public errors and upstream-log redaction
     ├── cache.ts       # In-memory TTL/LRU cache with single-flight refresh
@@ -1383,7 +1388,7 @@ Distribution notes:
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — the agentic coding runtime
 - [Cordis](https://github.com/cordiverse/cordis) — the plugin lifecycle framework
-- [Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect) — the maintained TypeScript SDK used by this development version, derived from [the upstream client](https://github.com/Pythe1337N/garmin-connect)
+- [Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect) — the maintained TypeScript SDK used by this plugin, derived from [the upstream client](https://github.com/Pythe1337N/garmin-connect)
 - Thanks to Zhitao and [DailySync](https://dailysync.cn) for the inspiration
 
 <sub>Product names and logos belong to their respective owners and are shown only to describe interoperability.</sub>

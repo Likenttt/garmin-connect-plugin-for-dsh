@@ -2,13 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.1.17] - 2026-10-19
 
 ### Added
 - Add workout management tools shared by MCP and DSH: list scheduled workouts, preview and confirm deletion of a workout-library template, and separately cancel one calendar entry while retaining its template. Use fresh target details and account-bound, expiring, one-use confirmations; writes are not automatically replayed.
-- Add a bilingual introduction preview crediting 李二牛 and explaining the recommended browser login, local session storage and data sent to the chosen AI client.
+- Add bilingual product introductions crediting 李二牛 and explaining the recommended Garmin browser login, local session storage and data sent to the chosen AI client.
 - Send concise MCP server instructions during connection initialization: discover actual tool schemas, verify the selected account for data queries, choose explicit dates and relevant tools, and verify capabilities again after an authorized update and reconnect. Initialization itself performs no Garmin requests or writes.
 - Keep unavailable tools, successful empty responses and authentication/HTTP failures distinct in the MCP execution guidance.
+
+### Verification
+- Host/client compilation, browser bundling and the maintained SDK gate passed. Release preparation verified 66 targeted tests: 57 new transport, service and MCP/DSH adapter cases, five existing tool-discovery and MCP-instruction cases, and four Harness compatibility cases. These focused results are separate from historical full-suite runs.
+- On 2026-10-18, the development candidate passed a real DeepSeek Harness `0.2.1-rc.2` check with the China main account. Cancelling the dedicated test calendar entry retained its template; deleting that template removed it from the library and returned HTTP 404 on detail readback. The original 42 workout IDs were unchanged and test data was cleaned up. This live check covers one China account, one template and one calendar entry; see the [verification record](docs/testing/workout-management-harness-2026-10-18.md).
 
 ## [0.1.16] - 2026-10-17
 

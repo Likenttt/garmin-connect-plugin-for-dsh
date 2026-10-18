@@ -11,6 +11,12 @@
 
 **[English](README.md)** | 中文 | **[测试报告](TEST_REPORT.zh-CN.md)** | **[更新日志](CHANGELOG.md)**
 
+**由李二牛开发，让 AI 更懂你的 Garmin 训练。**
+
+这是一款开源的 DeepSeek Harness 插件与 MCP 连接器，支持中国区和国际区账号。让 AI 查询完整活动与分段、睡眠、心率和 HRV 等数据，并在你确认后创建、删除训练课表或取消日历排期，更方便地分析训练、调整安排。
+
+**账号由你掌握，密码不交给 AI。** 使用推荐的 Garmin 官方网页登录流程，密码和验证码只在官方页面输入，不交给 AI 或开发者。登录会话凭据保存在本机，并通过私密文件权限保护；你授权查询的运动与健康数据，会返回给你选择的 AI 客户端用于分析。
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/coding-agents-dark.png">
@@ -66,10 +72,10 @@
 
 ### 注册的工具
 
-0.1.14 共注册 **23 个工具**，其中 21 个用于读取数据或本地知识查询；
-`download_garmin_activity_fit` 会在 MCP/dsh 所在主机写入一个本地文件，
-`create_garmin_workout` 会修改用户的 Garmin 训练库。
-0.1.14 新增下方 13 个恢复与训练工具，并通过精确 npm 别名依赖已发布的维护版
+0.1.17 共注册 **26 个工具**，其中 22 个用于读取数据或本地知识查询；
+`download_garmin_activity_fit` 会在 MCP/dsh 所在主机写入一个本地文件。
+创建课表、删除课表和取消日历排期会在用户显式确认后修改 Garmin 数据。
+0.1.14 引入的下方 13 个恢复与训练工具通过精确 npm 别名依赖已发布的维护版
 SDK，详见[自行维护的 SDK 依赖](#自行维护的-sdk-依赖)。
 
 | 工具名 | 用途 | 参数示例 |
@@ -121,9 +127,9 @@ Harness 配置多个账号时，访问账号数据的工具调用需添加 `acco
 `confirmationId`；用户确认未更改的预览后，再使用相同训练定义、
 `confirmed: true` 及该 `confirmationId` 调用。确认 ID 10 分钟后失效，且不可复用。
 
-### 课表删除与取消排期（开发版）
+### 课表删除与取消排期（0.1.17）
 
-开发版在已发布版本的 23 个工具上新增以下 3 个，合计 **26 个工具**：
+0.1.17 新增以下 3 个课表管理工具，合计 **26 个工具**：
 
 已通过大陆主账号的真实 Harness 桌面验收，详见[取消排期与删除课表实测记录](docs/testing/workout-management-harness-2026-10-18.md)。
 
@@ -137,7 +143,7 @@ Harness 配置多个账号时，访问账号数据的工具调用需添加 `acco
 数字形式必须在 JavaScript 安全整数范围内。两个删除工具先读取目标并返回预览，
 用户确认后才以同一目标、`confirmed: true` 和对应 `confirmationId` 执行。确认
 绑定账号、动作与目标详情，10 分钟内一次有效；目标变化时重新预览。删除超时或
-返回结果不明确时先只读核对，不自动重放。此开发能力尚未发布到 npm。
+返回结果不明确时先只读核对，不自动重放。
 
 ### 个性化跑步训练问询
 
@@ -577,7 +583,7 @@ username、region 和 `profileIdHash`；为兼容旧版本，无绑定的 `oauth
 
 > **当前可用性：** npm `0.1.5` 及之后版本已包含独立 MCP 入口；本地源码方式仍适合开发。
 
-**开发版新增：连接时的 Agent 执行说明。** MCP 初始化会下发 `instructions`，指导
+**0.1.17 新增：连接时的 Agent 执行说明。** MCP 初始化会下发 `instructions`，指导
 Agent 检查实际工具 schema、在首次读取账号数据或账号变化时确认资料、使用明确日期，
 并区分空数据、认证失败和其他请求错误。初始化仅发送说明，不会自动查询健康数据、
 升级软件或写入 Garmin。
@@ -796,7 +802,7 @@ session 文件；多个条目可共享同一个 FIT 父目录，“区域+邮箱
 也需要同步更新已安装副本；仅升级 npm 包不会自动更新技能。重新加载 WorkBuddy 的
 技能与 MCP 服务，再新开会话使用。
 
-开发版技能已加入
+随包技能已加入
 [`references/recovery-analysis.md`](skills/garmin-connect/references/recovery-analysis.md)，
 用于 HRV 趋势、训练准备度、压力、Body Battery、负荷与表现查询。按当前会话实际工具
 及 schema 选择调用；单独更新技能或 SDK 不会给旧插件增加工具。DSH/MCP 的训练建议
@@ -882,7 +888,7 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-当前开发版 MCP 服务器通过标准协议暴露与 dsh 插件**相同的 26 个工具及日期语义**：
+0.1.17 MCP 服务器通过标准协议暴露与 dsh 插件**相同的 26 个工具及日期语义**：
 原有 10 个工具、3 个课表管理工具，加上前述 13 个恢复与训练工具。独立 MCP 每个进程使用配置的账号，
 DSH 则支持工具级 `account` 选择。任何 AI 可调用工具都不接收密码/MFA，也不导出 Session Token；浏览器认证
 通过对话之外的本机 URL elicitation 完成，完成后由用户重试原工具。
@@ -1137,7 +1143,7 @@ src/
 │   ├── running-skills.ts  # 8 种课型 + 4 套精简训练理念
 │   └── workout-schema.ts  # 训练定义 → Garmin JSON 构建器
 ├── tools/
-│   └── index.ts      # 工具定义与注册（开发版 26 个工具）
+│   └── index.ts      # 工具定义与注册（26 个工具）
 └── utils/
     ├── errors.ts      # 安全错误输出与上游日志脱敏
     ├── cache.ts       # 内存 TTL/LRU 缓存与 single-flight 刷新
@@ -1213,7 +1219,7 @@ npx --legacy-peer-deps=false @deepseek-ai/dsh plugin --profile web add dsh-plugi
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — AI 代理编码运行时
 - [Cordis](https://github.com/cordiverse/cordis) — 插件生命周期框架
-- [Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect) — 当前开发版实际使用的自行维护 TypeScript SDK，基于[原上游客户端](https://github.com/Pythe1337N/garmin-connect)
+- [Likenttt/garmin-connect](https://github.com/Likenttt/garmin-connect) — 本插件使用的自行维护 TypeScript SDK，基于[原上游客户端](https://github.com/Pythe1337N/garmin-connect)
 - 感谢 Zhitao 的 [DailySync](https://dailysync.cn) 所带来的启发
 
 <sub>产品名称和图标归各自权利人所有，仅用于说明互操作兼容性。</sub>
