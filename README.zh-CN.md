@@ -27,6 +27,7 @@
 <p align="center">
   <strong>支持主流 Coding Agent 与 AI 工作台</strong><br>
   <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> ·
+  <a href="https://antigravity.google">Google Antigravity</a> ·
   <a href="https://www.codebuddy.cn/work/">WorkBuddy</a> ·
   <a href="https://qwenwork.cn/">千问办公</a> ·
   <a href="https://zcode.z.ai/">ZCode</a> ·
@@ -34,7 +35,7 @@
   <a href="https://openai.com/codex/">Codex</a> ·
   <a href="https://www.cursor.com/">Cursor</a> ·
   <a href="https://windsurf.com/">Windsurf</a><br>
-  <sub>根据客户端能力，通过 MCP 或 <code>SKILL.md</code> 工作流接入。</sub>
+  <sub>根据客户端能力，通过原生插件、MCP、Generative UI 或 <code>SKILL.md</code> 工作流接入。</sub>
 </p>
 
 > [!NOTE]

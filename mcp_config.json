@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "garmin-connect": {
+      "command": "node",
+      "args": [
+        "${pluginDir}/lib/mcp.js"
+      ],
+      "env": {
+        "GARMIN_REGION": "cn"
+      }
+    }
+  }
+}

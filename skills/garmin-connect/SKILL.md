@@ -31,8 +31,9 @@ VO₂ max 或比赛预测时，读取
 选择工具和所需日期，不按插件版本号猜测功能。
 
 - 如果工具不可用，读取
-  [references/workbuddy-setup.md](references/workbuddy-setup.md)。仅下载软件包
-  不会给正在运行的会话增加工具；必须在 WorkBuddy 中注册 stdio MCP 服务并
+  [references/workbuddy-setup.md](references/workbuddy-setup.md)（WorkBuddy 环境）或
+  [references/antigravity-setup.md](references/antigravity-setup.md)（Google Antigravity 环境）。仅下载软件包
+  不会给正在运行的会话增加工具；必须在客户端中注册 stdio MCP 服务并
   重新加载。
 - 如果 Garmin 工具提示凭据缺失、过期或需要浏览器认证，在展示或打开任何
   内容前，先阅读同一参考文档中的认证部分。
@@ -107,6 +108,15 @@ HRV 趋势优先使用摘要，再按需查询单日的基线和夜间读数；�
 提供个性化建议或计划时，使用 `mode="personalized"`，收集工具返回的全部缺失
 信息，并遵守其安全停止条件。Garmin 历史数据可以补充，但不能代替用户的目标、
 当前成绩、训练背景、可用时间、健康与恢复情况以及训练负荷偏好。
+
+## 可视化增强 (Antigravity Generative UI)
+
+在 Google Antigravity 环境中，或用户明确要求使用图表、曲线、卡片或仪表盘分析 Garmin 数据时：
+
+- 读取 [references/visualization-guide.md](references/visualization-guide.md) 获取设计规范与模板。
+- 遵循 Antigravity 主题变量（`--card`, `--foreground`, `--muted-foreground`, `--border` 等）与 Tailwind CDN 约束。
+- 优先将可视化仪表盘保存为独立 HTML Artifact（设置 `UserFacing: true`），或将紧凑型图表卡片内联嵌入对话。
+- 适合可视化的场景包括：跑步分段配速与心率区间、夜间睡眠阶段堆叠分布、7 天 HRV 基线趋势曲线、24 小时身体电量与压力双轴时序。
 
 ## 写操作
 
