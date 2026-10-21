@@ -6,6 +6,7 @@
         "${pluginDir}/lib/mcp.js"
       ],
       "env": {
+        "GARMIN_USERNAME": "liaoyunyu@gmail.com",
         "GARMIN_REGION": "cn"
       }
     }

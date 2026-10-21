@@ -51,6 +51,7 @@ Antigravity 能够自动发现插件目录中的 `plugin.json` 与 `mcp_config.j
         "garmin-connect-mcp"
       ],
       "env": {
+        "GARMIN_USERNAME": "user@example.com",
         "GARMIN_REGION": "cn"
       }
     }
