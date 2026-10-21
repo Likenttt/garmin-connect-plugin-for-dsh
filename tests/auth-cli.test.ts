@@ -758,6 +758,25 @@ describe('Garmin interactive auth CLI', () => {
     expect(authenticate).not.toHaveBeenCalled()
   })
 
+  it('accepts npm/pnpm double dash delimiter without failing', async () => {
+    const io: AuthCliIO = { prompt: jest.fn(), write: jest.fn() }
+    const authenticate = jest.fn().mockResolvedValue({
+      success: true,
+      region: 'cn',
+    })
+
+    await runAuthServe({
+      argv: ['serve', '--open', '--', '--account', 'default', '--region', 'cn'],
+      env: { GARMIN_USERNAME: 'runner@example.test' },
+      io,
+      dependencies: serveDependencies(authenticate),
+    })
+
+    expect(authenticate).toHaveBeenCalledWith(
+      expect.objectContaining({ region: 'cn', username: 'runner@example.test' }),
+    )
+  })
+
   it.each([
     ['--password', 'secret'],
     ['--mfa-code', '123456'],

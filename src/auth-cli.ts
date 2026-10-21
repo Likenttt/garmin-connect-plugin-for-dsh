@@ -566,6 +566,9 @@ function parseAuthenticationOptions(
   const options: ParsedArgs = {}
   while (args.length > 0) {
     const flag = args.shift()
+    if (flag === '--') {
+      continue
+    }
     if (flag === config.booleanFlag && !booleanEnabled) {
       booleanEnabled = true
       continue
@@ -591,6 +594,9 @@ function parseCanaryRegion(argv: string[]): GarminRegion {
   let region: string | undefined
   while (args.length > 0) {
     const flag = args.shift()
+    if (flag === '--') {
+      continue
+    }
     if (flag !== '--region' || region !== undefined) {
       throw new PublicToolError('Unknown canary option')
     }
