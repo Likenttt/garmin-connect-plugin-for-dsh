@@ -39,7 +39,7 @@ describe('Tools Utils', () => {
     })
   })
 
-  it('registers all twenty-six non-secret Garmin tools for the DSH adapter', () => {
+  it('registers all twenty-eight non-secret Garmin tools for the DSH adapter', () => {
     const definitions: Array<{ name: string; description?: string; parameters?: any }> = []
     const ctx = {
       tools: { register: (definition: { name: string }) => definitions.push(definition) },
@@ -68,6 +68,8 @@ describe('Tools Utils', () => {
     })
 
     expect(definitions.map(definition => definition.name)).toEqual([
+      'get_garmin_spo2',
+      'get_garmin_respiration',
       'get_garmin_hrv',
       'get_garmin_hrv_summaries',
       'get_garmin_stress',

@@ -64,13 +64,13 @@ if (require.main === module) {
     const manifest = require('../package.json')
     const sdkPackage = require('garmin-connect/package.json')
     const { GarminConnect } = require('garmin-connect')
-    const { HEALTH_TOOLS } = require('../lib/health-tools.js')
+    const { SDK_HEALTH_METHODS } = require('../lib/health-tools.js')
     const lockPath = path.join(__dirname, '../package-lock.json')
     const lockfile = fs.existsSync(lockPath)
       ? JSON.parse(fs.readFileSync(lockPath, 'utf8')) : undefined
     const result = validateSdkDependency({
       manifest, sdkPackage, GarminConnect, lockfile,
-      methods: HEALTH_TOOLS.map(definition => definition.method),
+      methods: SDK_HEALTH_METHODS,
     })
     process.stdout.write(`${JSON.stringify(result)}\n`)
     if (!result.ok) process.exitCode = 1

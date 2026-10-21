@@ -51,7 +51,7 @@
 
 | 图标 | 应用 | 一句话介绍 |
 |---|---|---|
-| [<img src="https://wristtale.com/static/favicons/apple-touch-icon.png" width="32" height="32" alt="WristTale" />](https://wristtale.com) | [WristTale](https://wristtale.com) | 在手表上阅读 TXT 和 Markdown 电子书 |
+| [<img src="https://wristtale.com/static/favicons/apple-touch-icon.png" width="32" height="32" alt="WristTale" />](https://wristtale.com) | [WristTale](https://wristtale.com) | 在 [Garmin](https://wristtale.com/zh/garmin-txt-reader)、[Apple](https://wristtale.com/zh/apple-watch-reader)、[Android](https://wristtale.com/zh/android-watch-reader) 手表上阅读 TXT 和 Markdown 电子书 |
 | [<img src="https://jiake.app/app-icon.png" width="32" height="32" alt="JiaKe.app" />](https://jiake.app) | [JiaKe.app](https://jiake.app) | 把 Garmin 截图做成精美宣传图 |
 | [<img src="https://gamerasnap.com/static/images/appicon.png" width="32" height="32" alt="GameraSnap" />](https://gamerasnap.com) | [GameraSnap](https://gamerasnap.com) | 用佳明手表远程控制手机拍照/录像 |
 | [<img src="https://wristalbum.wristtale.com/app-icon.svg" width="32" height="32" alt="WristAlbum" />](https://wristalbum.wristtale.com) | [WristAlbum](https://wristalbum.wristtale.com) | 在佳明手表上保存私人照片相册 |
@@ -72,7 +72,7 @@
 
 ### 注册的工具
 
-0.1.17 共注册 **26 个工具**，其中 22 个用于读取数据或本地知识查询；
+0.1.18 共注册 **28 个工具**，其中 24 个用于读取数据或本地知识查询；
 `download_garmin_activity_fit` 会在 MCP/dsh 所在主机写入一个本地文件。
 创建课表、删除课表和取消日历排期会在用户显式确认后修改 Garmin 数据。
 0.1.14 引入的下方 13 个恢复与训练工具通过精确 npm 别名依赖已发布的维护版
@@ -111,10 +111,30 @@ DSH 和 MCP 共用以下工具，直接对应自行维护的 SDK API：
 | `get_garmin_race_predictions` | `getRacePredictions` | 当前认证账号的最新比赛预测；`{}` |
 | `get_garmin_race_predictions_range` | `getRacePredictionsRange` | 比赛预测历史；`{"startDate":"2026-10-09","endDate":"2026-10-15","aggregation":"daily"}` |
 
+#### 血氧与呼吸读取（0.1.18 新增）
+
+DSH 和 MCP 共用以下只读工具，通过自行维护 SDK 的认证 HTTP 传输读取，
+保留服务端返回的完整响应，包括可用的摘要字段、描述符和时序数据：
+
+| 工具名 | 客户端方法 | 数据与参数示例 |
+|---|---|---|
+| `get_garmin_spo2` | `getSpO2Data` | 每日血氧（SpO₂）数据；`{"date":"2026-10-20"}` |
+| `get_garmin_respiration` | `getRespirationData` | 每日呼吸数据；`{"date":"2026-10-20"}` |
+
+例如可以问：“帮我看看 2026 年 10 月 20 日的血氧和呼吸记录。”两项工具均使用单日
+`date`，不接收日期范围。是否有记录取决于所选账号、日期和设备实际记录的数据；
+缺失字段、`null` 和空数组保留原状，不填成 0。使用前需升级插件/MCP 并重新连接，
+再检查当前会话实际提供的工具 schema。
+
+2026-10-21 已使用本机中国区、国际区 Session 验证共用 DSH/MCP 读取链路，并在真实
+Harness 桌面对话中完成本地候选版的 4 次新工具调用。国际账号返回血氧与呼吸记录；
+大陆账号在测试日期返回成功，但测量字段为空。详见
+[血氧与呼吸验收记录](docs/testing/spo2-respiration-session-2026-10-21.md)。
+
 每日工具使用 `date`，默认主机本地当天日期。范围工具使用包含首尾的 `startDate`、
 `endDate`；开始日期默认今天，结束日期默认等于开始日期。比赛预测历史的
 `aggregation` 支持 `daily`（默认）和 `monthly`，最大日历跨度 366 天。所有日期必须是
-真实的 `YYYY-MM-DD` 日历日期。输出保留 SDK 原始响应字段、设备映射、未知字段与完整
+真实的 `YYYY-MM-DD` 日历日期。输出保留服务端原始响应字段、设备映射、未知字段与完整
 时序；`null` 或空数组属于正常的无数据结果，不会被当作认证失败。
 
 Harness 配置多个账号时，访问账号数据的工具调用需添加 `account` 参数，值为设置页
@@ -129,7 +149,7 @@ Harness 配置多个账号时，访问账号数据的工具调用需添加 `acco
 
 ### 课表删除与取消排期（0.1.17）
 
-0.1.17 新增以下 3 个课表管理工具，合计 **26 个工具**：
+0.1.17 新增以下 3 个课表管理工具（该版本共 26 个工具）：
 
 已通过大陆主账号的真实 Harness 桌面验收，详见[取消排期与删除课表实测记录](docs/testing/workout-management-harness-2026-10-18.md)。
 
@@ -894,8 +914,9 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-0.1.17 MCP 服务器通过标准协议暴露与 dsh 插件**相同的 26 个工具及日期语义**：
-原有 10 个工具、3 个课表管理工具，加上前述 13 个恢复与训练工具。独立 MCP 每个进程使用配置的账号，
+MCP 服务器通过标准协议暴露与 dsh 插件**相同的 28 个工具及日期语义**：
+原有 10 个工具、3 个课表管理工具、前述 13 个恢复与训练工具，以及
+2 个血氧与呼吸单日读取工具。独立 MCP 每个进程使用配置的账号，
 DSH 则支持工具级 `account` 选择。任何 AI 可调用工具都不接收密码/MFA，也不导出 Session Token；浏览器认证
 通过对话之外的本机 URL elicitation 完成，完成后由用户重试原工具。
 
@@ -1075,7 +1096,7 @@ npm run check:sdk
 
 npm alias 候选已通过 host、client declarations、client bundle 构建与 `check:sdk`，
 以及插件 **42 套、992/992 全量测试**。随后新增 8 项 SDK 锁文件校验测试，相关专项
-**28/28 通过**。当前源码共 **1,000 个用例**；全量测试发生在这 8 项新增之前，因此
+**28/28 通过**。当时源码共 **1,000 个用例**；全量测试发生在这 8 项新增之前，因此
 没有把两次运行写成一次 1,000 项全量通过。维护 SDK 的 **59/59 测试**与严格对外
 类型声明检查也已通过。较早 Git 候选的干净安装与真实账号验证在报告中单独保留。
 
@@ -1116,8 +1137,8 @@ node scripts/check-health-release.cjs \
 ```
 
 五个参数均必填，路径须为绝对路径，报告目标文件须尚不存在。脚本通过编译后的插件
-使用真实 DI 认证和 Garmin 只读请求，执行 DSH 注册的工具；随后校验 MCP 共 26 个
-工具，通过内存 MCP 连接调用 13 个恢复与训练工具，检查结果一致性与缓存复用，并回归个人
+使用真实 DI 认证和 Garmin 只读请求，执行 DSH 注册的工具；随后校验 MCP 共 28 个
+工具，通过内存 MCP 连接调用 15 个健康与训练工具，检查结果一致性与缓存复用，并回归个人
 资料、运动记录和睡眠工具。原始响应仅留在内存，终端与报告只输出状态、结构/数量及
 请求元信息。该检查不覆盖 Harness 桌面 UI，也不会重新发起浏览器登录；任一检查
 失败时进程以非零状态退出。
@@ -1149,7 +1170,7 @@ src/
 │   ├── running-skills.ts  # 8 种课型 + 4 套精简训练理念
 │   └── workout-schema.ts  # 训练定义 → Garmin JSON 构建器
 ├── tools/
-│   └── index.ts      # 工具定义与注册（26 个工具）
+│   └── index.ts      # 工具定义与注册（28 个工具）
 └── utils/
     ├── errors.ts      # 安全错误输出与上游日志脱敏
     ├── cache.ts       # 内存 TTL/LRU 缓存与 single-flight 刷新

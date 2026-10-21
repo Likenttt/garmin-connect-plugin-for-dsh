@@ -5,6 +5,8 @@ import { createMcpServer, standaloneConfig } from '../src/mcp'
 import { GarminAuthenticationRequiredError, PublicToolError } from '../src/utils/errors'
 
 const healthRoutes = [
+  { name: 'get_garmin_spo2', method: 'getSpO2Data', args: { date: '2026-10-07' } },
+  { name: 'get_garmin_respiration', method: 'getRespirationData', args: { date: '2026-10-07' } },
   { name: 'get_garmin_hrv', method: 'getHrvData', args: { date: '2026-10-07' } },
   { name: 'get_garmin_hrv_summaries', method: 'getHrvSummaries', args: { startDate: '2026-10-01', endDate: '2026-10-07' } },
   { name: 'get_garmin_stress', method: 'getStressData', args: { date: '2026-10-07' } },
@@ -21,7 +23,7 @@ const healthRoutes = [
 ] as const
 
 describe('MCP adapter', () => {
-  it('exposes the same twenty-six non-secret Garmin tools as the plugin', async () => {
+  it('exposes the same twenty-eight non-secret Garmin tools as the plugin', async () => {
     const service = serviceStub()
     const server = createMcpServer(service as any)
     const client = new Client({ name: 'test-client', version: '1.0.0' })
@@ -38,6 +40,8 @@ describe('MCP adapter', () => {
       )
       const result = await client.listTools()
       expect(result.tools.map(tool => tool.name).sort()).toEqual([
+        'get_garmin_spo2',
+        'get_garmin_respiration',
         'get_garmin_activities',
         'get_garmin_sleep',
         'get_garmin_steps',
@@ -503,7 +507,7 @@ describe('MCP recovery and training tools', () => {
         expect(result.isError).not.toBe(true)
         expect(service.getHealthMetric).toHaveBeenLastCalledWith(route.method, {})
       }
-      expect(service.getHealthMetric).toHaveBeenCalledTimes(13)
+      expect(service.getHealthMetric).toHaveBeenCalledTimes(healthRoutes.length)
     })
   })
 

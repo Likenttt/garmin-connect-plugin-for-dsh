@@ -1,6 +1,6 @@
 ---
 name: garmin-connect
-description: 使用已连接的 Garmin DSH/MCP 工具分析活动、睡眠、心率、HRV、压力、Body Battery、训练准备度和训练趋势，也可在 WorkBuddy 配置插件、按用户要求创建训练或下载 FIT。适用于 Garmin 数据查询、恢复分析和跑步计划；不用于医疗诊断。
+description: 使用已连接的 Garmin DSH/MCP 工具分析活动、睡眠、心率、血氧、呼吸、HRV、压力、Body Battery、训练准备度和训练趋势，也可在 WorkBuddy 配置插件、按用户要求创建训练或下载 FIT。适用于 Garmin 数据查询、恢复分析和跑步计划；不用于医疗诊断。
 metadata:
   agent_created: "true"
 ---
@@ -25,7 +25,7 @@ MCP 服务可直接使用；WorkBuddy 的初次连接按下列参考文档配置
 工具已出现且只读查询成功，才报告对应能力可用。
 
 恢复与训练工具的可用性以当前会话为准。仅升级独立 SDK 不会给旧插件增加工具，
-更新 skill 也不会注册工具。查询 HRV、压力、Body Battery、训练准备度、负荷、
+更新 skill 也不会注册工具。查询血氧、呼吸、HRV、压力、Body Battery、训练准备度、负荷、
 VO₂ max 或比赛预测时，读取
 [references/recovery-analysis.md](references/recovery-analysis.md)，按用户的问题
 选择工具和所需日期，不按插件版本号猜测功能。
@@ -67,7 +67,8 @@ DSH 多账号调用使用设置页中的稳定账号 ID 作为 `account`；别�
 - `get_garmin_profile`
 - `get_running_skill_advice`
 
-可用时，恢复与训练数据还包括 `get_garmin_hrv`、`get_garmin_hrv_summaries`、
+可用时，健康与训练数据还包括 `get_garmin_spo2`、`get_garmin_respiration`、
+`get_garmin_hrv`、`get_garmin_hrv_summaries`、
 压力、Body Battery、训练准备度、训练状态、负荷平衡、Max Metrics 和比赛预测
 工具；精确名称和调用示例见
 [恢复分析参考](references/recovery-analysis.md)。

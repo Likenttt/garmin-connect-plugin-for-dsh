@@ -17,6 +17,8 @@ const date = '2026-10-07'
 const startDate = '2026-10-01'
 const endDate = '2026-10-07'
 const routes = [
+  { name: 'get_garmin_spo2', method: 'getSpO2Data', args: { date }, native: [date] },
+  { name: 'get_garmin_respiration', method: 'getRespirationData', args: { date }, native: [date] },
   { name: 'get_garmin_hrv', method: 'getHrvData', args: { date }, native: [date] },
   { name: 'get_garmin_hrv_summaries', method: 'getHrvSummaries', args: { startDate, endDate }, native: [startDate, endDate] },
   { name: 'get_garmin_stress', method: 'getStressData', args: { date }, native: [date] },
@@ -115,7 +117,7 @@ describe('DSH recovery and training tools', () => {
       .toEqual(['daily', 'monthly'])
   })
 
-  it('isolates all thirteen methods between two accounts in the same region', async () => {
+  it('isolates every health method between two accounts in the same region', async () => {
     const firstRaw = { accountMarker: 'first' }
     const secondRaw = { accountMarker: 'second' }
     const first = clientWith(firstRaw)
@@ -208,11 +210,15 @@ describe('DSH recovery and training tools', () => {
       const client = clientWith()
       const tools = registry([account('first', client)])
       await tools.get('get_garmin_hrv')!.execute()
+      await tools.get('get_garmin_spo2')!.execute()
+      await tools.get('get_garmin_respiration')!.execute()
       await tools.get('get_garmin_body_battery')!.execute({ startDate: date })
       await tools.get('get_garmin_stress_summaries')!.execute()
       await tools.get('get_garmin_race_predictions_range')!.execute({ startDate: date })
       await tools.get('get_garmin_race_predictions')!.execute()
       expect(client.getHrvData).toHaveBeenCalledWith('2026-10-16')
+      expect(client.getSpO2Data).toHaveBeenCalledWith('2026-10-16')
+      expect(client.getRespirationData).toHaveBeenCalledWith('2026-10-16')
       expect(client.getBodyBattery).toHaveBeenCalledWith(date, date)
       expect(client.getStressSummaries).toHaveBeenCalledWith('2026-10-16', '2026-10-16')
       expect(client.getRacePredictionsRange).toHaveBeenCalledWith(date, date, 'daily')
