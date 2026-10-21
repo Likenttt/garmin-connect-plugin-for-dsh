@@ -1,5 +1,7 @@
 /** Shared DSH/MCP contract for raw recovery and training metrics. */
 export const HEALTH_TOOLS = [
+  { name: 'get_garmin_spo2', method: 'getSpO2Data', kind: 'daily', description: 'Get daily Garmin blood oxygen (SpO2), preserving all available readings and returned fields. Data availability depends on the device and recorded measurements.' },
+  { name: 'get_garmin_respiration', method: 'getRespirationData', kind: 'daily', description: 'Get daily Garmin respiration, preserving all available breathing-rate readings and returned fields. Data availability depends on the device and recorded measurements.' },
   { name: 'get_garmin_hrv', method: 'getHrvData', kind: 'daily', description: 'Get daily Garmin HRV status, baseline and every overnight reading.' },
   { name: 'get_garmin_hrv_summaries', method: 'getHrvSummaries', kind: 'range', description: 'Get Garmin daily HRV summaries over an inclusive date range. These are summaries, not overnight readings.' },
   { name: 'get_garmin_stress', method: 'getStressData', kind: 'daily', description: 'Get daily Garmin stress with the complete stress and available Body Battery time series.' },
@@ -15,6 +17,11 @@ export const HEALTH_TOOLS = [
   { name: 'get_garmin_race_predictions_range', method: 'getRacePredictionsRange', kind: 'raceRange', description: 'Get Garmin race prediction history by day or month. Maximum calendar span is 366 days.' },
 ] as const
 
+/** SDK 1.7.0 supplies these 13 dedicated methods; the two wellness reads use its HTTP transport. */
+export const SDK_HEALTH_METHODS = HEALTH_TOOLS
+  .filter(definition => definition.method !== 'getSpO2Data' && definition.method !== 'getRespirationData')
+  .map(definition => definition.method)
+
 export type HealthMetricMethod = typeof HEALTH_TOOLS[number]['method']
 export interface HealthMetricArgs {
   date?: string
@@ -24,6 +31,8 @@ export interface HealthMetricArgs {
 }
 
 export interface GarminRecoveryDataClient {
+  getSpO2Data(date: string): Promise<unknown>
+  getRespirationData(date: string): Promise<unknown>
   getHrvData(date: string): Promise<unknown>
   getHrvSummaries(startDate: string, endDate: string): Promise<unknown>
   getStressData(date: string): Promise<unknown>

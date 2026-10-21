@@ -1,4 +1,4 @@
-export {}
+import { HEALTH_TOOLS, SDK_HEALTH_METHODS } from '../src/health-tools'
 
 const { validateSdkDependency } = require('../scripts/check-sdk-dependency.cjs') as {
   validateSdkDependency(input?: {
@@ -54,6 +54,18 @@ function npmLock(version = '1.7.0') {
 }
 
 describe('maintained SDK release dependency gate', () => {
+  it('supports the published SDK while daily wellness tools use its authenticated transport', () => {
+    expect(HEALTH_TOOLS).toHaveLength(15)
+    expect(HEALTH_TOOLS.map(definition => definition.method))
+      .toEqual(expect.arrayContaining(['getSpO2Data', 'getRespirationData']))
+    expect(SDK_HEALTH_METHODS).toEqual(methods)
+    const input = fixture('npm:@likenttt/garmin-connect@1.7.0')
+    expect(validateSdkDependency({ ...input, methods: SDK_HEALTH_METHODS }))
+      .toMatchObject({ ok: true, methodCount: 13, missingMethodCount: 0 })
+    expect(validateSdkDependency({ ...input, methods: HEALTH_TOOLS.map(definition => definition.method) }))
+      .toMatchObject({ ok: false, errors: ['HEALTH_METHOD_CATALOG_INVALID'] })
+  })
+
   it('accepts an immutable own-repository SHA and checks methods without invoking them', () => {
     const input = fixture()
     expect(validateSdkDependency(input)).toEqual({

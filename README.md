@@ -53,7 +53,7 @@ This open-source DeepSeek Harness plugin and MCP connector support Garmin China 
 
 | Icon | App | What it does |
 |---|---|---|
-| [<img src="https://wristtale.com/static/favicons/apple-touch-icon.png" width="32" height="32" alt="WristTale" />](https://wristtale.com) | [WristTale](https://wristtale.com) | Read TXT and Markdown on your Garmin watch |
+| [<img src="https://wristtale.com/static/favicons/apple-touch-icon.png" width="32" height="32" alt="WristTale" />](https://wristtale.com) | [WristTale](https://wristtale.com) | Read TXT and Markdown on your [Garmin](https://wristtale.com/en/garmin-txt-reader), [Apple](https://wristtale.com/en/apple-watch-reader), and [Android](https://wristtale.com/en/android-watch-reader) watch |
 | [<img src="https://jiake.app/app-icon.png" width="32" height="32" alt="JiaKe.app" />](https://jiake.app) | [JiaKe.app](https://jiake.app) | Turn Garmin screenshots into polished assets |
 | [<img src="https://gamerasnap.com/static/images/appicon.png" width="32" height="32" alt="GameraSnap" />](https://gamerasnap.com) | [GameraSnap](https://gamerasnap.com) | Control your phone camera from your Garmin watch |
 | [<img src="https://wristalbum.wristtale.com/app-icon.svg" width="32" height="32" alt="WristAlbum" />](https://wristalbum.wristtale.com) | [WristAlbum](https://wristalbum.wristtale.com) | Keep a private photo album on your Garmin |
@@ -68,7 +68,7 @@ This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-
 
 ### Registered Tools
 
-Version 0.1.17 registers **26 tools**. Twenty-two provide queries or local advice without writing;
+Version 0.1.18 registers **28 tools**. Twenty-four provide queries or local advice without writing;
 `download_garmin_activity_fit` writes one local file on the MCP/dsh host. Creating or deleting
 a workout and cancelling a calendar entry change Garmin data after explicit confirmation.
 The 13 recovery and training tools introduced in 0.1.14 depend on
@@ -108,11 +108,35 @@ These tools are shared by DSH and MCP and map directly to the maintained SDK:
 | `get_garmin_race_predictions` | `getRacePredictions` | Latest predictions for the authenticated account; `{}` |
 | `get_garmin_race_predictions_range` | `getRacePredictionsRange` | Prediction history; `{"startDate":"2026-10-09","endDate":"2026-10-15","aggregation":"daily"}` |
 
+#### Blood oxygen and respiration (introduced in 0.1.18)
+
+These read-only tools are shared by DSH and MCP and use the maintained SDK's authenticated
+HTTP transport. They preserve the complete service response, including available summary
+fields, descriptors and time series:
+
+| Tool | Client method | Data and example arguments |
+|---|---|---|
+| `get_garmin_spo2` | `getSpO2Data` | Daily blood oxygen (SpO₂) data; `{"date":"2026-10-20"}` |
+| `get_garmin_respiration` | `getRespirationData` | Daily respiration data; `{"date":"2026-10-20"}` |
+
+Ask, for example: “Show my blood oxygen and respiration records for October 20, 2026.”
+Both tools take a single `date`; no range parameter is accepted. Availability depends on the
+selected account, date and recorded device data. Missing fields, `null` and empty arrays stay
+missing; they are not converted to zero. Update the plugin/MCP server and reconnect before
+using these tools, then check the actual tool schemas.
+
+On 2026-10-21, existing China and International sessions passed the shared DSH/MCP
+read checks, and all four new-tool calls succeeded in a real Harness desktop
+conversation using the local release candidate. The International account returned
+blood oxygen and respiration records; the China account returned successful responses
+with no measurements on the tested dates. See the
+[verification record](docs/testing/spo2-respiration-session-2026-10-21.md).
+
 Daily tools use `date`, defaulting to the host's current local date. Range tools
 use inclusive `startDate` and `endDate`; the start defaults to today and the end
 defaults to the start. Race prediction history accepts `aggregation: "daily"`
 (default) or `"monthly"`, with a maximum calendar span of 366 days. Inputs must
-be real calendar dates in `YYYY-MM-DD` format. The SDK's response fields, device
+be real calendar dates in `YYYY-MM-DD` format. The service response fields, device
 maps, unknown fields and complete time series are retained. `null` and empty
 arrays are valid no-data results, not authentication failures.
 
@@ -131,7 +155,7 @@ An ID expires after 10 minutes and cannot be reused.
 
 ### Workout deletion and calendar cancellation (0.1.17)
 
-Version 0.1.17 adds three workout management tools, bringing the total to **26**:
+Version 0.1.17 introduced these three workout management tools (26 tools in that release):
 
 Both write operations passed a live Harness desktop check with the China account; see the [workout management verification record](docs/testing/workout-management-harness-2026-10-18.md) (Chinese).
 
@@ -1029,9 +1053,10 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-The 0.1.17 MCP server exposes the same **26 tools and date semantics** as
+The MCP server exposes the same **28 tools and date semantics** as
 the dsh plugin: the original ten tools, three workout management tools, and the
-13 recovery and training tools listed above. Account selection differs: each standalone MCP process uses its
+13 recovery and training tools plus two daily blood oxygen/respiration tools listed above.
+Account selection differs: each standalone MCP process uses its
 configured account, while DSH accepts an explicit `account` selector.
 No AI-callable tool accepts a password/MFA code or exports a session token.
 Browser authentication is an out-of-band local URL elicitation, and the user
@@ -1234,7 +1259,7 @@ check; `pack:smoke` runs them before inspecting the npm tarball.
 The registry-alias candidate passed the host, client declarations and client
 bundle builds, `check:sdk`, and **992/992 plugin tests in 42 suites**. Eight
 additional tests then strengthened the SDK lockfile checks; that targeted
-suite passed **28/28**. The source now contains **1,000 test cases**; the full
+suite passed **28/28**. That source revision contained **1,000 test cases**; the full
 suite was run before those eight additions, so these are not a single full
 1,000-test run. The maintained SDK passed **59/59 tests** and its strict
 public-type check. Earlier Git-based clean-install and live-account checks
@@ -1285,7 +1310,7 @@ node scripts/check-health-release.cjs \
 All five flags are required; path arguments must be absolute and the report
 destination must not already exist. The runner uses real DI authentication and
 read-only Garmin requests through the compiled plugin's DSH tool registry. It
-also checks all 26 MCP registrations, calls the 13 recovery and training tools through an
+also checks all 28 MCP registrations, calls the 15 health and training tools through an
 in-memory MCP connection, verifies response parity and cache reuse, and checks
 profile/activity/sleep regressions. Raw responses remain in memory; terminal
 and report output contain only status, response shape/count and request
@@ -1319,7 +1344,7 @@ src/
 │   ├── running-skills.ts  # 8 workout types + 4 compact training philosophies
 │   └── workout-schema.ts  # Workout definition → Garmin JSON builder
 ├── tools/
-│   └── index.ts      # Tool definitions & registration (26 tools)
+│   └── index.ts      # Tool definitions & registration (28 tools)
 └── utils/
     ├── errors.ts      # Safe public errors and upstream-log redaction
     ├── cache.ts       # In-memory TTL/LRU cache with single-flight refresh

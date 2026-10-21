@@ -4,33 +4,44 @@ import { GarminClient } from '../src/client'
 import type { Config } from '../src/config'
 import type { HealthMetricMethod } from '../src/health-tools'
 
-jest.mock('garmin-connect', () => ({
-  GarminConnect: jest.fn().mockImplementation(() => ({
-    client: {
-      client: {
-        defaults: {},
-        interceptors: {
-          request: { clear: jest.fn(), use: jest.fn() },
-          response: { clear: jest.fn(), use: jest.fn() },
+jest.mock('garmin-connect', () => {
+  const { HttpClient } = jest.requireActual('garmin-connect/dist/common/HttpClient')
+  return {
+    GarminConnect: jest.fn().mockImplementation(() => {
+      const http: Record<string, any> = {
+        client: {
+          defaults: {},
+          interceptors: {
+            request: { clear: jest.fn(), use: jest.fn() },
+            response: { clear: jest.fn(), use: jest.fn() },
+          },
+          request: jest.fn(),
+          get: jest.fn(),
         },
-        request: jest.fn(),
-      },
-    },
-    login: jest.fn().mockResolvedValue(undefined),
-    loadToken: jest.fn(),
-    exportToken: jest.fn(),
-    ...Object.fromEntries([
-      'getHrvData', 'getHrvSummaries', 'getStressData', 'getStressSummaries',
-      'getBodyBattery', 'getTrainingReadiness', 'getDailyTrainingStatus',
-      'getTrainingStatus', 'getTrainingLoadBalance', 'getMaxMetrics',
-      'getMaxMetricsRange', 'getRacePredictions', 'getRacePredictionsRange',
-    ].map(method => [method, jest.fn()])),
-  })),
-}))
+      }
+      // Keep the pinned SDK's payload-unwrapping behavior; mock only Axios.
+      http.get = jest.fn(HttpClient.prototype.get.bind(http))
+      return {
+        client: http,
+        login: jest.fn().mockResolvedValue(undefined),
+        loadToken: jest.fn(),
+        exportToken: jest.fn(),
+        ...Object.fromEntries([
+          'getHrvData', 'getHrvSummaries', 'getStressData', 'getStressSummaries',
+          'getBodyBattery', 'getTrainingReadiness', 'getDailyTrainingStatus',
+          'getTrainingStatus', 'getTrainingLoadBalance', 'getMaxMetrics',
+          'getMaxMetricsRange', 'getRacePredictions', 'getRacePredictionsRange',
+        ].map(method => [method, jest.fn()])),
+      }
+    }),
+  }
+})
 
-type MockSdk = Record<HealthMetricMethod, jest.Mock> & {
+type SdkHealthMethod = Exclude<HealthMetricMethod, 'getSpO2Data' | 'getRespirationData'>
+type MockSdk = Record<SdkHealthMethod, jest.Mock> & {
   login: jest.Mock
   loadToken: jest.Mock
+  client: { get: jest.Mock; client: { get: jest.Mock } }
 }
 
 const config: Config = {
@@ -57,7 +68,7 @@ function createClient(overrides: Partial<Config> = {}): { client: GarminClient; 
 const date = '2026-10-07'
 const start = '2026-10-01'
 const calls: Array<{
-  method: HealthMetricMethod
+  method: SdkHealthMethod
   invoke: (client: GarminClient) => Promise<unknown>
   sdkArgs: unknown[]
 }> = [
@@ -79,6 +90,11 @@ const calls: Array<{
     sdkArgs: [start, date, { aggregation: 'monthly' }],
   },
 ]
+
+const wellnessCalls = [
+  { method: 'getSpO2Data', path: 'spo2' },
+  { method: 'getRespirationData', path: 'respiration' },
+] as const
 
 describe('Garmin recovery client boundary', () => {
   beforeEach(() => jest.clearAllMocks())
@@ -107,15 +123,106 @@ describe('Garmin recovery client boundary', () => {
     expect(sdk.getTrainingReadiness).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    { region: 'cn' as const, domain: 'garmin.cn' },
+    { region: 'global' as const, domain: 'garmin.com' },
+  ])('uses the authenticated $region transport for blood oxygen and respiration', async ({ region, domain }) => {
+    const { client, sdk } = createClient({ region })
+    const raw = {
+      calendarDate: date,
+      readings: [[1, 97], [2, null], [3, 0]],
+      recordedDevices: [{ futureField: ['preserved'] }],
+    }
+    sdk.client.client.get.mockResolvedValue({ status: 200, data: raw })
+
+    for (const { method, path } of wellnessCalls) {
+      await expect(client[method](date)).resolves.toBe(raw)
+      await expect(client[method](date)).resolves.toBe(raw)
+      expect(sdk.client.client.get).toHaveBeenLastCalledWith(
+        `https://connectapi.${domain}/wellness-service/wellness/daily/${path}/${date}`,
+        undefined,
+      )
+    }
+    expect(sdk.client.client.get).toHaveBeenCalledTimes(2)
+    expect(sdk.login).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(wellnessCalls)('preserves empty $method data and isolates calendar days in its cache', async ({ method }) => {
+    const { client, sdk } = createClient()
+    sdk.client.client.get
+      .mockResolvedValueOnce({ status: 200, data: null })
+      .mockResolvedValueOnce({ status: 200, data: [] })
+
+    await expect(client[method](start)).resolves.toBeNull()
+    await expect(client[method](start)).resolves.toBeNull()
+    await expect(client[method](date)).resolves.toEqual([])
+    await expect(client[method](date)).resolves.toEqual([])
+    expect(sdk.client.client.get).toHaveBeenCalledTimes(2)
+  })
+
+  it('normalizes successful missing wellness payloads to cached null while preserving arrays and zero', async () => {
+    for (const { method } of wellnessCalls) {
+      for (const raw of [undefined, '', [], 0]) {
+        const { client, sdk } = createClient()
+        sdk.client.client.get.mockResolvedValue({ status: 200, data: raw })
+        const expected = raw === undefined || raw === '' ? null : raw
+
+        await expect(client[method](date)).resolves.toBe(expected)
+        await expect(client[method](date)).resolves.toBe(expected)
+        expect(sdk.client.client.get).toHaveBeenCalledTimes(1)
+      }
+    }
+  })
+
+  it.each(wellnessCalls)('propagates $method request errors without caching failure as empty data', async ({ method }) => {
+    const { client, sdk } = createClient()
+    const error = Object.assign(new Error('synthetic upstream failure'), { status: 500 })
+    sdk.client.client.get
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce({ status: 200, data: { recovered: true } })
+
+    await expect(client[method](date)).rejects.toBe(error)
+    await expect(client[method](date)).resolves.toEqual({ recovered: true })
+    expect(sdk.client.client.get).toHaveBeenCalledTimes(2)
+  })
+
+  it('single-flights wellness reads and keeps each selected account separate', async () => {
+    const first = createClient()
+    const second = createClient({ username: 'other@example.test', region: 'cn' })
+    first.sdk.client.client.get.mockResolvedValue({ status: 200, data: { account: 'first' } })
+    second.sdk.client.client.get.mockResolvedValue({ status: 200, data: { account: 'second' } })
+
+    await expect(Promise.all([
+      first.client.getSpO2Data(date), first.client.getSpO2Data(date), second.client.getSpO2Data(date),
+    ])).resolves.toEqual([{ account: 'first' }, { account: 'first' }, { account: 'second' }])
+    expect(first.sdk.client.client.get).toHaveBeenCalledTimes(1)
+    expect(second.sdk.client.client.get).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases a timed-out wellness read instead of pinning a pending cache entry', async () => {
+    const { client, sdk } = createClient({ requestTimeoutMs: 10 })
+    sdk.client.client.get
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValueOnce({ status: 200, data: { available: true } })
+
+    await expect(client.getRespirationData(date)).rejects.toThrow('timed out')
+    await expect(client.getRespirationData(date)).resolves.toEqual({ available: true })
+    expect(sdk.client.client.get).toHaveBeenCalledTimes(2)
+  })
+
   it.each(['2026-02-29', '1900-02-29', '2026-04-31', '0000-01-01', '2026-10-07T00:00:00Z', '', undefined, 123])(
     'rejects an invalid calendar input %j before attempting authentication',
     async (invalid) => {
       const { client, sdk } = createClient()
       await expect(client.getHrvData(invalid as string)).rejects.toThrow('valid calendar date')
       await expect(client.getTrainingStatus(invalid as string)).rejects.toThrow('valid calendar date')
+      for (const { method } of wellnessCalls) {
+        await expect(client[method](invalid as string)).rejects.toThrow('valid calendar date')
+      }
       expect(sdk.login).not.toHaveBeenCalled()
       expect(sdk.getHrvData).not.toHaveBeenCalled()
       expect(sdk.getTrainingStatus).not.toHaveBeenCalled()
+      expect(sdk.client.client.get).not.toHaveBeenCalled()
     },
   )
 

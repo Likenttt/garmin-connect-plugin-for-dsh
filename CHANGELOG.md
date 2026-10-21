@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.18] - 2026-10-22
+
+### Added
+- Add daily blood oxygen (`get_garmin_spo2`) and respiration (`get_garmin_respiration`) read-only tools to DSH and MCP through the maintained SDK's authenticated HTTP transport. Preserve complete responses, including available descriptors and time series; missing fields and empty responses are not converted to zero. The plugin now registers 28 tools, including 24 queries or local knowledge tools.
+- Extend the bundled Garmin skill with tool discovery, single-date examples and data-availability guidance for blood oxygen and respiration.
+
+### Changed
+- Expand the bilingual WristTale description to cover Garmin, Apple and Android watches, with each platform linking to its corresponding localized page on wristtale.com.
+
+### Verification
+- Host/client compilation, browser bundling, the maintained SDK dependency gate and 155 focused tests across six suites passed. The new tools use the authenticated transport already available in the published `@likenttt/garmin-connect@1.7.0`; no unpublished SDK methods are required.
+- On 2026-10-21, existing China and International sessions passed six DSH tool reads and six MCP parity checks. Both regional endpoints returned HTTP 200. The International account returned two blood oxygen hourly summaries, 676 respiration time-series entries and 24 respiration summaries for the tested date. The China account's measurement fields were `null`, so this check confirms access rather than regional measurement availability.
+- The local `0.1.18-dev.20261021.1` candidate was installed and tested in a real Harness desktop conversation: all four blood oxygen/respiration calls succeeded across the two accounts. These checks cover the candidate, not an installation of the final 0.1.18 package. See the [verification record](docs/testing/spo2-respiration-session-2026-10-21.md).
+
 ## [0.1.17] - 2026-10-19
 
 ### Added

@@ -78,7 +78,10 @@ type SessionFileSnapshot =
   | { error: unknown; fingerprint: string }
 
 /** The maintained SDK's recovery methods; keep this boundary narrower than its raw client. */
-interface GarminRecoverySdk extends Omit<GarminRecoveryDataClient, 'getRacePredictionsRange'> {
+interface GarminRecoverySdk extends Omit<
+  GarminRecoveryDataClient,
+  'getRacePredictionsRange' | 'getSpO2Data' | 'getRespirationData'
+> {
   getRacePredictionsRange(
     startDate: string,
     endDate: string,
@@ -851,6 +854,28 @@ export class GarminClient implements GarminRecoveryDataClient, GarminWorkoutMana
 
   private get recoverySdk(): GarminRecoverySdk {
     return this.gc as GarminConnect & GarminRecoverySdk
+  }
+
+  /** Use the maintained SDK's authenticated transport until its next health-method release. */
+  async getSpO2Data(date: string): Promise<unknown> {
+    validateRecoveryDate(date)
+    return this.getCachedForCurrentAuth(`spo2:${date}`, async () => {
+      const data = await this.gc.client.get(`${this.wellnessDailyUrl}/spo2/${date}`)
+      return data === undefined || data === '' ? null : data
+    })
+  }
+
+  async getRespirationData(date: string): Promise<unknown> {
+    validateRecoveryDate(date)
+    return this.getCachedForCurrentAuth(`respiration:${date}`, async () => {
+      const data = await this.gc.client.get(`${this.wellnessDailyUrl}/respiration/${date}`)
+      return data === undefined || data === '' ? null : data
+    })
+  }
+
+  private get wellnessDailyUrl(): string {
+    const domain = this.config.region === 'cn' ? 'garmin.cn' : 'garmin.com'
+    return `https://connectapi.${domain}/wellness-service/wellness/daily`
   }
 
   /** Preserve the full recovery response, including unknown fields and empty data. */
