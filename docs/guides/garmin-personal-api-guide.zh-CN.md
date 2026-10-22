@@ -2,7 +2,9 @@
 
 作者：李二牛 · 更新于 2026 年 10 月 22 日
 
-想让 AI 分析佳明的睡眠、HRV 和训练数据，现在可以使用佳明官方的 **Garmin Connect Personal API**。你在官网生成 API Key，再交给本机插件；插件用它换取访问令牌、读取数据，整个接入过程不需要把佳明密码交给 AI。
+本文使用的是李二牛开发的开源社区插件 **[dsh-plugin-garmin-connect](https://github.com/Likenttt/garmin-connect-plugin-for-dsh)**。它既是 DeepSeek Harness 插件，也能作为 MCP 服务连接其他 Agent；项目介绍见 [gc.li2niu.com](https://gc.li2niu.com/)。
+
+这次是在已有插件中新增 **Garmin 官方 Personal API 模式**：官网生成 Key，插件换取令牌、读取数据，佳明密码不用交给 AI。底层使用独立维护的 `connect-personal-api-ts`，用户安装插件即可，无需另装 SDK。
 
 **这次国际版已经实测跑通：令牌交换、8 项 SDK 读取、5 项真实 MCP 工具读取全部通过。** 下面以国际版为主，带你申请 Key，再连接 DeepSeek Harness 或其他 Agent。大陆入口与当前情况放在文末。[完整测试报告](../research/personal-api-endpoint-test-report-2026-10-22.md)
 
@@ -10,7 +12,14 @@
 
 Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET 数据接口，覆盖活动、步数、睡眠、心率、HRV、血氧、压力、身体电量等，也能下载原始活动文件。呼吸数据包含日汇总、睡眠等字段，不能等同于完整全天曲线。[官方 FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/) · [接口文档](https://developer.garmin.com/gc-developer-program/personal/swagger-docs/)
 
-创建、删除课表和调整日历排期，仍使用插件单独提供的 **Connect 网页会话（原有方式）**；这些写操作和 Webhook 当前不在 Personal API 的公开范围内。
+同一个 `dsh-plugin-garmin-connect` 插件有两种接入方式：
+
+| 接入方式 | 如何配置 | 主要用途 |
+|---|---|---|
+| 官方 Personal API（当前国际版只读） | 别名 + API Key | 活动、睡眠、HRV、血氧、呼吸摘要等读取 |
+| Connect 网页会话（原有方式） | 使用原有 Garmin 登录流程 | 数据读取，以及训练库／排期管理，依实际工具能力执行 |
+
+**插件的课表与日历管理能力继续由 Connect 网页会话提供**，写操作仍需预览和确认。Personal 模式当前只读，其公开范围也未包含 Webhook。
 
 ![Garmin 官方 Personal API 说明](../assets/personal-api-guide/01-official-instructions.png)
 
@@ -54,18 +63,22 @@ Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET �
 
 **以下设置属于本次源码开发版，npm 已发布的 0.1.18 尚不包含 Personal 接入。** 正式版发布后可按新版本安装；现在体验需要使用 [Personal 开发分支](https://github.com/Likenttt/garmin-connect-plugin-for-dsh/tree/codex/personal-api)构建的插件，不能直接安装旧版 `latest` 代替。
 
-已安装开发版后，按顺序操作：
+新用户先安装本次开发版；原用户更新后可以保留已有网页会话账号，再新增 Personal 账号。按顺序操作：
 
-1. 打开 Harness 的**插件**页面，进入 Garmin Connect 的**账号设置**。
+1. 打开 Harness 的**插件**页面，找到 **dsh-plugin-garmin-connect**，进入账号设置。
 2. 点击 **+ 添加账号**，接入方式选择 **官方 Personal API（国际版，只读）**。
 3. 填写**别名**，例如“我的佳明国际版”；再填写官网刚生成的 **API Key**。
 4. 点击**保存账号**，随后点击**验证连接**；验证成功后即可开始查询。
 
 **新建 Personal 账号只需要别名和 API Key 两项，默认连接国际版。** 不填邮箱、密码或地区，也不需要再次打开佳明登录页。Key 只在插件设置中输入，保存后不回填完整内容。
 
+建议用 **+ 添加账号**保留两种方式。若修改已有账号的接入方式，需要提供新方式的凭据：Personal 填 API Key，网页会话重新完成对应登录。
+
 ![开发版Personal账号表单组件预览](../assets/personal-api-guide/global-05-settings-component.png)
 
 *图 6：开发版账号表单组件预览：只填写别名和 API Key。使用演示配置渲染。*
+
+### 开发者：安装当前源码版
 
 源码体验者可先构建本地安装包：
 
@@ -87,7 +100,9 @@ npx @deepseek-ai/dsh plugin --profile web add /absolute/path/dsh-plugin-garmin-c
 
 ## 六、其他 Agent：用 MCP 接入
 
-Codex、Claude Code 等支持 stdio MCP 的客户端，可以使用同一份已构建源码。先创建一个仅自己可读的 UTF-8 纯文本文件，**内容只放 API Key，不加引号或 JSON 包装**。macOS／Linux 文件权限设为 `600`，父目录设为 `700`；Windows 使用仅当前用户可访问的权限。这属于文件权限保护，不等于加密。
+Codex、Claude Code 等支持 stdio MCP 的客户端，运行的是**同一插件包 `dsh-plugin-garmin-connect` 的 `lib/mcp.js`**。Harness 设置与独立 MCP 进程分别配置账号；在 DSH 保存的别名和 Key 不会自动同步到 MCP。
+
+先创建一个仅自己可读的 UTF-8 纯文本文件，**内容只放 API Key，不加引号或 JSON 包装**。macOS／Linux 文件权限设为 `600`，父目录设为 `700`；Windows 使用仅当前用户可访问的权限。这属于文件权限保护，不等于加密。
 
 在客户端的 MCP 配置中添加以下内容，并替换两个绝对路径：
 
@@ -127,6 +142,11 @@ Codex、Claude Code 等支持 stdio MCP 的客户端，可以使用同一份已�
 
 最后补充：访问令牌最长有效 24 小时，且不超过 Key 的到期时间；过期后用 Key 重新获取，没有 refresh token。[认证 FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/)
 
-插件及独立维护的 [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts) 由李二牛开发，TS SDK 参考 [Garmin 官方 Python 客户端](https://github.com/garmin/connect-personal-api-python)，专注 Personal Key、token 与数据读取。本轮是源码开发验证，尚未发布对应 npm 升级版。
+底层 [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts) 参考 [Garmin 官方 Python 客户端](https://github.com/garmin/connect-personal-api-python)，专注 Personal Key、token 与数据读取。本轮是源码开发验证，尚未发布对应 npm 升级版。
+
+## 八、连接后，用这个插件问两句
+
+1. “用 dsh-plugin-garmin-connect 读取我最近 7 天的 HRV 和睡眠，按日期整理，并标出缺失的数据。”
+2. “用这个插件对比最近两次跑步的配速和心率，再汇总昨天的血氧和呼吸摘要，只解释实际返回的数据。”
 
 **让 AI 分析数据，把密钥留在你控制的本机配置里。**
