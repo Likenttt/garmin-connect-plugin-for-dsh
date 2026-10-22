@@ -1,0 +1,11 @@
+{
+  "name": "garmin-connect",
+  "displayName": "Garmin Connect 佳明健康与训练",
+  "version": "0.1.17",
+  "description": "Garmin Connect 佳明数据查询、训练与恢复分析（HRV/压力/身体电量/睡眠）、科学课表管理与可视化图表插件。",
+  "suggestedPrompts": [
+    "帮我分析最近 7 天的睡眠质量与 HRV 恢复趋势",
+    "查看我最近的跑步记录，并生成配速与心率区间可视化图表",
+    "按照丹尼尔斯训练法，帮我规划本周的训练课表"
+  ]
+}

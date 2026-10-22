@@ -27,6 +27,7 @@ This open-source DeepSeek Harness plugin and MCP connector support Garmin China 
 <p align="center">
   <strong>Works with mainstream coding agents and AI workspaces</strong><br>
   <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> ·
+  <a href="https://antigravity.google">Google Antigravity</a> ·
   <a href="https://www.codebuddy.cn/work/">WorkBuddy</a> ·
   <a href="https://qwenwork.cn/">Qwen Work</a> ·
   <a href="https://zcode.z.ai/">ZCode</a> ·
@@ -34,7 +35,7 @@ This open-source DeepSeek Harness plugin and MCP connector support Garmin China 
   <a href="https://openai.com/codex/">Codex</a> ·
   <a href="https://www.cursor.com/">Cursor</a> ·
   <a href="https://windsurf.com/">Windsurf</a><br>
-  <sub>Connect through MCP or a <code>SKILL.md</code> workflow, depending on the client.</sub>
+  <sub>Connect through native plugin, MCP, Generative UI, or a <code>SKILL.md</code> workflow, depending on the client.</sub>
 </p>
 
 > [!NOTE]

@@ -40,6 +40,8 @@
     "TEST_REPORT.md",
     "TEST_REPORT.zh-CN.md",
     "cordis.patch.yml",
+    "plugin.json",
+    "mcp_config.json",
     "skills/garmin-connect"
   ],
   "repository": {
@@ -84,6 +86,10 @@
     "plugin",
     "dsh-plugin",
     "mcp",
+    "antigravity",
+    "google-antigravity",
+    "generative-ui",
+    "visualization",
     "running",
     "workout"
   ],
