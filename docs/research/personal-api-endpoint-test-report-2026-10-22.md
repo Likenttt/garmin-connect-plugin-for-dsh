@@ -105,7 +105,23 @@
 
 复测大陆端点时须继续使用大陆 Key 和 `.cn` 主机，先检查 token 交换，再验证实际数据读取；取得成功响应前，不将“域名已支持”或“Key 已创建”写成“大陆数据已接通”。
 
-## 7. 官方参考
+## 7. 后续迭代：别名与 API Key 两项设置
+
+同日 12:19:24（Asia/Shanghai）对本次 `codex/personal-api` 工作分支构建补充验证，继续只使用国际账号 Key 和 `.com` 端点：
+
+| 验证层级 | 本次结果 |
+| --- | --- |
+| 真实 stdio MCP 进程 | 15 项工具；profile、HRV 读取通过；返回的本地别名、稳定 ID、provider、region 均匹配配置 |
+| DSH 工具适配器 | 从 ID 绑定的私密账号槽取 Key，提供 15 项工具；profile、HRV 实际读取通过；无需邮箱，profile 未包含 Key |
+| 设置页组件预览 | Personal 表单只有必填别名与 API Key 两个输入；保存后密钥框清空，修改别名保留 Key；新建账号默认国际端点 |
+| 旧大陆账号组件预览 | 保存别名仍保留 `cn`；不改发国际端点，显示大陆端点暂不可访问提示 |
+| 桌面／手机布局 | 两输入桌面顶部对齐；390px 手机视口无横向溢出 |
+
+设置页检查使用实际 React 组件和隔离演示配置，DSH 后端检查使用实际工具适配器及真实 Garmin 请求；本轮未将新 UI 安装到完整 Harness 外壳中验证。相关设置、配置、MCP 和工具逻辑共 108 项单元测试通过，完整构建与打包通过。
+
+Personal 账号在 DSH 设置页填写必填别名与 API Key；MCP 使用 `GARMIN_ALIAS` 及私密 Key 文件或秘密环境变量。`GARMIN_ACCOUNT` 继续作为稳定机器 ID，修改别名不改变账号路由与凭据归属。脱敏结果保存在本机 `live-provider-result.json`。
+
+## 8. 官方参考
 
 - [Garmin Personal API 说明](https://developer.garmin.com/gc-developer-program/personal/personal-api/)
 - [Garmin Personal API FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/)

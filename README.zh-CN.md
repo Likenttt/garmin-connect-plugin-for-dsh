@@ -259,9 +259,13 @@ Python 客户端开发、独立维护的
 所需 SDK 随插件提供，使用者无需额外安装。
 SDK 负责 Personal API Key 换取令牌及其支持的数据读取。
 
-在包含此功能的 Harness 开发版插件设置中，点击 **+**，选择**官方 Personal API Key（只读）**
+在包含此功能的 Harness 开发版插件设置中，点击 **+**，选择**官方 Personal API（国际版，只读）**
 接入方式，填写别名和 API Key，保存后点击**验证连接**。不要求邮箱或 Garmin 密码；
+**新建 Personal 账号只需别名和 API Key 两项，默认连接国际版 `.com`**，不要求填写
+邮箱、密码或地区。已有大陆 Personal 账号保留 `cn` 配置，并显示当前不可访问提示。
 保存后的 Key 不会回填到设置表单，也不返回给 AI 工具。
+指南中的[账号表单组件预览](docs/assets/personal-api-guide/global-05-settings-component.png)使用
+隔离的演示配置渲染；真实 API／MCP 的验证结果见下方说明。
 
 独立 MCP 可使用构建后的开发版服务：
 
@@ -274,6 +278,7 @@ SDK 负责 Personal API Key 换取令牌及其支持的数据读取。
       "env": {
         "GARMIN_PROVIDER": "personal",
         "GARMIN_ACCOUNT": "my-garmin",
+        "GARMIN_ALIAS": "我的佳明国际版",
         "GARMIN_REGION": "global",
         "GARMIN_PERSONAL_API_KEY_FILE": "/absolute/private/path/garmin-personal.key"
       }
@@ -284,7 +289,9 @@ SDK 负责 Personal API Key 换取令牌及其支持的数据读取。
 
 密钥文件只包含 Key，使用仅所有者可访问的权限。也支持由私密环境注入
 `GARMIN_PERSONAL_API_KEY`；真实 Key 不写入可分享的 JSON、源码、截图或 AI 对话。
-这种方式不需要 `GARMIN_USERNAME` 或浏览器 session。`GARMIN_REGION=global` 使用
+这种方式不需要 `GARMIN_USERNAME` 或浏览器 session。`GARMIN_ALIAS` 是显示别名，
+`GARMIN_ACCOUNT` 是稳定的机器 ID，两者均不是邮箱。独立 MCP 保留显式地区配置：
+`GARMIN_REGION=global` 使用
 `personal.connectapi.garmin.com`，`GARMIN_REGION=cn` 使用
 `personal.connectapi.garmin.cn`；应与创建 Key 的区域对应。Personal 认证失败不会
 静默切换浏览器会话，也不会把 Key 发送到另一区域。

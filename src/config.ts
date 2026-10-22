@@ -36,6 +36,8 @@ export interface AccountMetadata {
 export interface Config {
   /** Browser Connect sessions or the official read-only Personal API. */
   provider?: GarminProvider
+  /** User-facing label; independent of the stable account ID. Env: GARMIN_ALIAS. */
+  accountAlias?: string
   personalApiKey?: string
   personalApiKeyFile?: string
   /** Garmin account email address */
@@ -99,7 +101,7 @@ interface ConfigReference<T> {
 }
 
 export type PluginConfig = Omit<Config,
-  'username' | 'region' | 'provider' | 'personalApiKey' | 'personalApiKeyFile' | 'cnUsername' | 'cnAlias' | 'cnConfigured'
+  'username' | 'region' | 'provider' | 'accountAlias' | 'personalApiKey' | 'personalApiKeyFile' | 'cnUsername' | 'cnAlias' | 'cnConfigured'
   | 'globalUsername' | 'globalAlias' | 'globalConfigured'
   | 'accounts' | 'accountsConfigured'
   | 'account1Username' | 'account2Username' | 'account3Username'
@@ -113,6 +115,7 @@ export type PluginConfig = Omit<Config,
   | 'account5PersonalApiKey' | 'account5PersonalApiKeyId'
 > & {
   provider?: GarminProvider | ConfigReference<GarminProvider>
+  accountAlias?: string | ConfigReference<string>
   personalApiKey?: string | ConfigReference<string>
   personalApiKeyFile?: string | ConfigReference<string>
   username: ConfigReference<string>
@@ -171,6 +174,8 @@ export interface ResolvedAccountConfig {
 export const Config = z.object({
   provider: z.union(['connect-web', 'personal'] as const)
     .default(envChoice(process.env.GARMIN_PROVIDER, ['connect-web', 'personal'] as const, 'connect-web')).description('Connection provider. Env: GARMIN_PROVIDER').volatile(),
+  accountAlias: z.string().default('')
+    .description('Display alias for the Garmin account. Env: GARMIN_ALIAS').volatile(),
   personalApiKey: z.string().role('secret').default('')
     .description('Official Garmin Personal API key. Env: GARMIN_PERSONAL_API_KEY').volatile(),
   personalApiKeyFile: z.string().role('secret').default('')
@@ -310,6 +315,7 @@ export function resolveConfig(input: Config | PluginConfig): Config {
     ...input,
     provider: readVolatile(input.provider)
       ?? envChoice(process.env.GARMIN_PROVIDER, ['connect-web', 'personal'] as const, 'connect-web'),
+    accountAlias: preferNonEmpty(readVolatile(input.accountAlias), process.env.GARMIN_ALIAS).trim(),
     personalApiKey: preferNonEmpty(readVolatile(input.personalApiKey), process.env.GARMIN_PERSONAL_API_KEY),
     personalApiKeyFile: preferNonEmpty(readVolatile(input.personalApiKeyFile), process.env.GARMIN_PERSONAL_API_KEY_FILE),
     username: preferNonEmpty(readVolatile(input.username), process.env.GARMIN_USERNAME),
@@ -364,10 +370,11 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
 
   // A global Personal configuration needs no email and never inherits web credentials.
   if (!base.accountsConfigured && (base.accounts?.length ?? 0) === 0 && base.provider === 'personal') {
+    const alias = base.accountAlias || 'Personal API'
     return [{
-      accountId: 'personal-default', slot: 1, region: base.region, alias: '',
+      accountId: 'personal-default', slot: 1, region: base.region, alias,
       configured: Boolean(base.personalApiKey?.trim() || base.personalApiKeyFile?.trim()),
-      config: { ...base, username: '', password: '', sessionToken: '', sessionTokenFile: '' },
+      config: { ...base, accountAlias: alias, username: '', password: '', sessionToken: '', sessionTokenFile: '' },
     }]
   }
 
@@ -444,6 +451,7 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
         ...(entry.revision === undefined ? {} : { revision: entry.revision }),
         config: {
           ...base, provider: 'personal', personalApiKey: key, personalApiKeyFile: '',
+          accountAlias: entry.alias.trim().slice(0, 64),
           username: '', region: entry.region, password: '', sessionToken: '', sessionTokenFile: '',
         },
       }

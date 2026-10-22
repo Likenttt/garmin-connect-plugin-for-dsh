@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import type { CSSProperties, FormEvent, ReactElement } from 'react'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import {
+  accountRegionForProvider,
   removeAccountMutations,
   saveAccountMutations,
   type ConfigForm,
@@ -266,7 +267,7 @@ export function GarminSettingsForm({
     <section aria-label="Garmin 账号配置" style={panelStyle}>
       <h2 style={{ fontSize: 18, margin: '0 0 8px' }}>Garmin 账号</h2>
       <p style={{ color: 'var(--dsw-alias-label-secondary, #475569)', margin: '0 0 18px' }}>
-        可添加最多 5 个账号，支持多个中国区或国际区账号。每个账号可选择官方 Personal API Key 读取数据，或使用原有 Connect 网页会话。
+        可添加最多 5 个账号。官方 Personal API 账号只需别名和 API Key，使用国际版只读接口；也可选择原有 Connect 网页会话。
       </p>
       {snapshot.status === 'loading' && <p>正在读取配置…</p>}
       {snapshot.status === 'unavailable' && (
@@ -363,8 +364,9 @@ function AccountCard({
   }, [entry.region, entry.alias, entry.provider])
 
   const personal = provider === 'personal'
+  const accountRegion = accountRegionForProvider(entry, provider, region)
   const providerChanged = provider !== (entry.provider ?? 'connect-web')
-  const changed = isDraft || providerChanged || region !== entry.region || alias.trim() !== entry.alias
+  const changed = isDraft || providerChanged || accountRegion !== entry.region || alias.trim() !== entry.alias
     || email.trim() !== '' || personalApiKey.trim() !== ''
   const shouldLoginAfterSave = !personal && (isDraft || providerChanged || region !== entry.region || email.trim() !== '')
   const displayedEmail = isDraft || editingEmail
@@ -376,13 +378,18 @@ function AccountCard({
   const verifyReady = !isDraft && !changed && personal && !loginPending && isLoopback && !busy
     && summary?.configured === true && summary.provider === 'personal'
   const canEdit = writable && !busy && !loginPending
-  const canSave = canEdit && changed
+  const canSave = canEdit && changed && (!personal || alias.trim() !== '')
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!canSave) return
     const normalizedEmail = email.trim()
     const normalizedAlias = alias.trim()
+    if (personal && !normalizedAlias) {
+      setError('请为此 Personal API 账号填写别名。')
+      setMessage('')
+      return
+    }
     if (!personal && (((isDraft || providerChanged) && !normalizedEmail) || (normalizedEmail && !isEmail(normalizedEmail)))) {
       setError('新账号需要有效的 Garmin 邮箱；已有账号留空邮箱可保留原值。')
       setMessage('')
@@ -402,7 +409,7 @@ function AccountCard({
     setError('')
     setMessage('')
     try {
-      const savedAccount = { ...entry, region, alias: normalizedAlias,
+      const savedAccount = { ...entry, region: accountRegion, alias: normalizedAlias,
         ...(personal ? { provider: 'personal' as const } : {}) }
       if (!personal) delete savedAccount.provider
       const savedRevision = await onSave(savedAccount, personal ? '' : normalizedEmail, personalApiKey)
@@ -481,34 +488,42 @@ function AccountCard({
   return (
     <section aria-label={`Garmin 账号 ${entry.id}`} style={cardStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <strong>{alias.trim() || (region === 'cn' ? '中国区账号' : '国际区账号')}</strong>
+        <strong>{alias.trim() || (personal ? 'Personal API 账号' : accountRegion === 'cn' ? '中国区账号' : '国际区账号')}</strong>
         <span style={{ color: 'var(--dsw-alias-label-secondary, #475569)' }}>{status}</span>
       </div>
       <p style={{ color: 'var(--dsw-alias-label-secondary, #475569)', fontSize: 12, margin: '8px 0 16px' }}>
         账号 ID：<code style={{ userSelect: 'text' }}>{entry.id}</code>
       </p>
+      <label style={{ display: 'block', fontWeight: 600, marginBottom: 18 }}>
+        <span>接入方式</span>
+        <select disabled={!canEdit} onChange={event => {
+          setProvider(event.target.value as 'connect-web' | 'personal')
+          setEmail(''); setPersonalApiKey(''); setError(''); setMessage('')
+        }} style={fieldStyle} value={provider}>
+          <option value="connect-web">Connect 网页会话（原有方式）</option>
+          <option value="personal">{entry.provider === 'personal' && entry.region === 'cn'
+            ? '官方 Personal API（大陆端点，只读）'
+            : '官方 Personal API（国际版，只读）'}</option>
+        </select>
+      </label>
+      {personal && <p role={accountRegion === 'cn' ? 'status' : undefined} style={{ color: accountRegion === 'cn' ? '#9a6700' : 'var(--dsw-alias-label-secondary, #475569)', fontSize: 13, margin: '0 0 16px' }}>
+        {accountRegion === 'cn'
+          ? '大陆端点 personal.connectapi.garmin.cn 暂时无法访问（实测 HTTP 526）。此账号仍保留大陆端点，请使用大陆 API Key；不会切换到国际端点。'
+          : '国际端点 personal.connectapi.garmin.com · 只读。请填写国际版 Garmin Connect 生成的 API Key。'}
+      </p>}
       <form onSubmit={event => void save(event)}>
-        <div style={{ display: 'grid', columnGap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))' }}>
-          <label style={fieldGroupStyle}>
-            <span>接入方式</span>
-            <select disabled={!canEdit} onChange={event => {
-              setProvider(event.target.value as 'connect-web' | 'personal')
-              setEmail(''); setPersonalApiKey(''); setError(''); setMessage('')
-            }} style={fieldStyle} value={provider}>
-              <option value="connect-web">Connect 网页会话（原有方式）</option>
-              <option value="personal">官方 Personal API Key（只读）</option>
-            </select>
-          </label>
-          <label style={fieldGroupStyle}>
+        <div style={{ display: 'grid', columnGap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))' }}>
+          {!personal && <label style={fieldGroupStyle}>
             <span>地区</span>
             <select disabled={!canEdit} onChange={event => setRegion(event.target.value as GarminAuthRegion)} style={fieldStyle} value={region}>
               <option value="cn">中国区（garmin.cn）</option>
               <option value="global">国际区（garmin.com）</option>
             </select>
-          </label>
+          </label>}
           <label style={fieldGroupStyle}>
-            <span>别名（可选）</span>
-            <input disabled={!canEdit} maxLength={64} onChange={event => setAlias(event.target.value)} style={fieldStyle} type="text" value={alias} />
+            <span>{personal ? '账号别名（必填）' : '别名（可选）'}</span>
+            <input disabled={!canEdit} maxLength={64} onChange={event => setAlias(event.target.value)} placeholder={personal ? '例如：我的佳明国际账号' : undefined} required={personal} style={fieldStyle} type="text" value={alias} />
+            {personal && !alias.trim() && <span style={{ color: 'var(--dsw-alias-label-secondary, #475569)', fontSize: 12, fontWeight: 400, marginTop: 6 }}>请填写别名，便于 AI 选择正确账号。</span>}
           </label>
           {personal ? (
             <label style={fieldGroupStyle}>
@@ -517,7 +532,7 @@ function AccountCard({
                 autoCapitalize="off" autoComplete="new-password" disabled={!canEdit}
                 onChange={event => setPersonalApiKey(event.target.value)}
                 placeholder={!isDraft && !providerChanged && summary?.provider === 'personal' && summary.configured ? '已设置（留空保留）' : '粘贴官方生成的 API Key'}
-                spellCheck={false} style={fieldStyle} type="password" value={personalApiKey}
+                required={isDraft || providerChanged} spellCheck={false} style={fieldStyle} type="password" value={personalApiKey}
               />
               <span style={{ color: 'var(--dsw-alias-label-secondary, #475569)', fontSize: 12, fontWeight: 400, marginTop: 6 }}>
                 不需要邮箱或密码；密钥保存后不会回填。此方式仅提供官方已开放的读取功能。
@@ -555,7 +570,6 @@ function AccountCard({
             )}
           </label>}
         </div>
-        {personal && region === 'cn' && <p style={{ color: '#9a6700', fontSize: 13 }}>官方接口在此账号尚未验证，请以连接验证结果为准。</p>}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
           <button disabled={!canSave} style={{ ...buttonStyle, background: canSave ? '#111827' : '#e2e8f0', color: canSave ? '#fff' : '#64748b', cursor: canSave ? 'pointer' : 'not-allowed' }} type="submit">
             {busy ? '处理中…' : personal ? '保存账号' : isDraft ? '保存并登录' : shouldLoginAfterSave ? '保存并重新登录' : '保存账号'}

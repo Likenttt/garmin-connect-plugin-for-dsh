@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Integrate a pinned, attributed source snapshot of [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts). Route `global` and `cn` credentials to their configured regional endpoints without cross-region fallback.
 - Advertise 15 supported tools for Personal-only connections. Preserve original read responses, label respiration and stress summaries, and keep unsupported training writes unavailable.
 - Add the illustrated Chinese Personal API guide and a standalone responsive HTML preview.
+- Simplify Personal account settings to a required alias and API Key, with international defaults and preserved regional binding for existing mainland credentials. Add `GARMIN_ALIAS` and safe connection metadata for MCP/DSH account identification.
 
 ### Verification
 - The independent SDK passes 24 offline tests, including credential-rotation races. Plugin configuration, account isolation, RPC validation, provider routing and tool filtering have focused regression coverage.

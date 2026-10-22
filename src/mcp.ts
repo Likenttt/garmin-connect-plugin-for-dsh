@@ -503,6 +503,11 @@ export function standaloneConfig(): Config {
   if (provider !== 'personal' && provider !== 'connect-web') {
     throw new PublicToolError('GARMIN_PROVIDER must be exactly connect-web or personal')
   }
+  const accountAlias = process.env.GARMIN_ALIAS?.trim() || ''
+  if (provider === 'personal' && (!accountAlias || [...accountAlias].length > 64
+    || /[\u0000-\u001f\u007f-\u009f]/.test(process.env.GARMIN_ALIAS ?? ''))) {
+    throw new PublicToolError('GARMIN_ALIAS is required for Personal API: use 1–64 characters without control characters')
+  }
   const personalApiKey = process.env.GARMIN_PERSONAL_API_KEY?.trim() || ''
   const personalApiKeyFile = process.env.GARMIN_PERSONAL_API_KEY_FILE?.trim() || ''
   if (provider === 'connect-web' && !username) throw new PublicToolError('GARMIN_USERNAME is required')
@@ -522,11 +527,11 @@ export function standaloneConfig(): Config {
   const activityDetail = process.env.GARMIN_ACTIVITY_DETAIL === 'compact' ? 'compact' : 'full'
   return {
     provider,
-    ...(provider === 'personal' ? { personalApiKey, personalApiKeyFile } : {}),
-    username,
-    password,
-    sessionToken,
-    sessionTokenFile,
+    ...(provider === 'personal' ? { personalApiKey, personalApiKeyFile, accountAlias } : {}),
+    username: provider === 'personal' ? '' : username,
+    password: provider === 'personal' ? '' : password,
+    sessionToken: provider === 'personal' ? '' : sessionToken,
+    sessionTokenFile: provider === 'personal' ? '' : sessionTokenFile,
     region,
     activityDetail,
     fitDownloadDir: resolveFitDownloadDir(process.env.GARMIN_FIT_DOWNLOAD_DIR),
@@ -617,6 +622,7 @@ async function main(): Promise<void> {
   const service = new GarminToolService(client, {
     provider: config.provider,
     accountId: account,
+    accountAlias: config.accountAlias,
     activityDetail: config.activityDetail,
     fitDownloadDir: config.fitDownloadDir,
     accountUsername: config.provider === 'personal' ? `personal:${account}` : config.username,

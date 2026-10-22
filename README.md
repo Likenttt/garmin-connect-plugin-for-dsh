@@ -275,10 +275,15 @@ SDK, so plugin users do not need to install another package.
 The SDK exchanges a Personal API key for a token and reads supported resources.
 
 In a development build of Harness, add an account with **+**, choose **Official
-Personal API Key (read-only)** (`官方 Personal API Key（只读）`), enter its alias and
+Personal API (International, read-only)** (`官方 Personal API（国际版，只读）`), enter its alias and
 API key, save, then select **Verify connection** (`验证连接`). No email or Garmin
-password is required. Saved keys are
-not returned to the settings form or AI tools.
+password is required. A new Personal account has only two required inputs:
+**display alias and API key**. It defaults to the international `.com` endpoint;
+the form does not ask for an email, password or region. Existing mainland Personal
+accounts retain their `cn` configuration and show the current availability note.
+Saved keys are not returned to the settings form or AI tools.
+The guide's [account form component preview](docs/assets/personal-api-guide/global-05-settings-component.png)
+uses isolated demo configuration; the API/MCP validation results are documented separately below.
 
 For standalone MCP, use the built development server with:
 
@@ -291,6 +296,7 @@ For standalone MCP, use the built development server with:
       "env": {
         "GARMIN_PROVIDER": "personal",
         "GARMIN_ACCOUNT": "my-garmin",
+        "GARMIN_ALIAS": "My Garmin International",
         "GARMIN_REGION": "global",
         "GARMIN_PERSONAL_API_KEY_FILE": "/absolute/private/path/garmin-personal.key"
       }
@@ -303,6 +309,8 @@ The key file contains only the key and must be private to its owner. An explicit
 `GARMIN_PERSONAL_API_KEY` environment variable is also supported; keep real keys
 out of shared JSON, source control, screenshots, and AI conversations.
 `GARMIN_USERNAME` and browser session variables are unnecessary for this provider.
+`GARMIN_ALIAS` is the display name; `GARMIN_ACCOUNT` is the stable machine ID.
+Neither is an email address. Standalone MCP keeps an explicit region setting:
 `GARMIN_REGION=global` selects `personal.connectapi.garmin.com`;
 `GARMIN_REGION=cn` selects `personal.connectapi.garmin.cn`. Match the region to
 where the key was created. Personal authentication errors never silently select

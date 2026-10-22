@@ -2,67 +2,94 @@
 
 作者：李二牛 · 更新于 2026 年 10 月 22 日
 
-佳明提供了 **Garmin Connect Personal API**：自己生成一把 API Key，交给本机程序，就能读取官方开放的个人数据。接入程序不需要拿到你的佳明密码。[官方说明](https://developer.garmin.com/gc-developer-program/personal/personal-api/)
+想让 AI 分析佳明的睡眠、HRV 和训练数据，现在可以使用佳明官方的 **Garmin Connect Personal API**。你在官网生成 API Key，再交给本机插件；插件用它换取访问令牌、读取数据，整个接入过程不需要把佳明密码交给 AI。
 
-这篇文章带你从申请入口走到连接验证，也把大陆账号本次遇到的问题说清楚。**生成成功和读取成功，是两个需要分别检查的步骤。** 下方六张图均来自本次大陆账号操作，敏感内容已移除。
+**这次国际版已经实测跑通：令牌交换、8 项 SDK 读取、5 项真实 MCP 工具读取全部通过。** 下面以国际版为主，带你申请 Key，再连接 DeepSeek Harness 或其他 Agent。大陆入口与当前情况放在文末。[完整测试报告](../research/personal-api-endpoint-test-report-2026-10-22.md)
 
-## 第一步：先看它适不适合你
+## 一、先弄清它能做什么
 
-Personal API 面向个人读取自己的数据，不是面向多用户商业服务的统一授权方案。当前官方文档列出 26 个 GET 数据接口，可以获取活动、睡眠、步数、心率、HRV、血氧、压力、身体电量等，也支持下载原始活动文件。呼吸方面有日汇总、睡眠等字段，不能直接等同于完整全天曲线。[官方 FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/) · [接口文档](https://developer.garmin.com/gc-developer-program/personal/swagger-docs/)
+Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET 数据接口，覆盖活动、步数、睡眠、心率、HRV、血氧、压力、身体电量等，也能下载原始活动文件。呼吸数据包含日汇总、睡眠等字段，不能等同于完整全天曲线。[官方 FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/) · [接口文档](https://developer.garmin.com/gc-developer-program/personal/swagger-docs/)
 
-**创建或删除训练课表、调整日历排期、Webhook 推送，当前均未列入这套公开接口。** 插件另有 **Connect 网页会话（原有方式）**，继续用于训练管理。它虽然在 Garmin 官方页面登录，其网页会话调用并不等于 Personal API 官方授权，两种接入方式按账号独立配置。
+创建、删除课表和调整日历排期，仍使用插件单独提供的 **Connect 网页会话（原有方式）**；这些写操作和 Webhook 当前不在 Personal API 的公开范围内。
 
-![Garmin 官方 Personal API 申请说明](../assets/personal-api-guide/01-official-instructions.png)
+![Garmin 官方 Personal API 说明](../assets/personal-api-guide/01-official-instructions.png)
 
-*图 1：先从 Garmin 官方说明进入，认准 developer.garmin.com。*
+*图 1：官方说明列出了申请步骤，以及 API Key 换取令牌的方法。*
 
-## 第二步：登录对应地区，找到密钥页面
+## 二、打开国际版密钥页面
 
-国际账号可以从官方说明中的链接进入 [Personal API Key 页面](https://connect.garmin.com/app/settings/personalApiToken)，在 Garmin 官方网页完成登录。
+在浏览器打开 [国际版 Personal API Key 页面](https://connect.garmin.com/app/settings/personalApiToken)，使用你的**国际版 Garmin 账号**完成登录。也可以从 [Garmin 官方说明](https://developer.garmin.com/gc-developer-program/personal/personal-api/)中的链接进入。
 
-大陆账号需要单独检查。本次实测，普通设置导航没有出现新入口，但登录大陆站后，直达 [大陆 Personal API 页面](https://connect.garmin.cn/app/settings/personalApiToken) 可以看到创建按钮。**能看到页面，只能确认入口可访问。**
+进入后，设置列表中会出现 **Personal API Key**，右侧点击 **Create Key**。
 
-![大陆站直达 Personal API 页面](../assets/personal-api-guide/02-cn-key-page.png)
+![国际版 Personal API Key 页面](../assets/personal-api-guide/global-01-key-page.png)
 
-*图 2：大陆页面显示 `create_key`，部分文案尚未翻译。*
+*图 2：国际版设置页有正式入口，点击 Create Key 开始申请。*
 
-## 第三步：阅读条款，选择有效期
+## 三、阅读条款，先选 30 天
 
-点击 **Create Key／创建密钥**，阅读并接受页面条款，再选择有效期。官方提供 30 天、90 天、180 天和一年；首次试用可以先选 30 天。
+阅读 **Garmin Connect Personal API Supplemental Terms**，确认后点击 **Accept**。这把 Key 用来访问你自己的数据，请为个人使用的程序配置，不要分享给其他人。
 
-本次大陆页面的条款只显示 `personal_api_*` 占位符。下图记录这个异常，不代表条款已经正常展示；遇到相同情况，应先确认可读条款或等待页面修复。本次是在账号所有者明确授权后继续测试的。
+![国际版申请条款](../assets/personal-api-guide/global-02-terms.png)
 
-![大陆站条款文案异常](../assets/personal-api-guide/03-cn-terms.png)
+*图 3：国际版条款可以正常显示，阅读后自行决定是否接受。*
 
-*图 3：占位符不是完整条款，不能据此判断具体授权内容。*
+下一步选择有效期。官方提供 30 天、90 天、180 天和一年；首次体验建议选 **30 days**，再点击 **Create**。本次国际 Key 的有效期为 2026 年 10 月 22 日至 11 月 21 日。
 
-![选择30天有效期](../assets/personal-api-guide/04-choose-30-days.png)
+![国际版选择30天有效期](../assets/personal-api-guide/global-03-validity.png)
 
-*图 4：本次选择最短的 30 天有效期，再点击新建。*
+*图 4：这里选择 30 days，然后点击 Create。*
 
-## 第四步：复制一次，保存在本机
+## 四、保存 Key，再检查 Active 状态
 
-创建后，**完整 API Key 只显示一次**。先保存，再点完成；丢失后需要删除旧 Key、重新生成。API Key 与访问令牌都属于敏感凭据，不要发到 AI 聊天、评论区或教程截图中。
+**完整 API Key 只显示一次。** 创建后先复制并妥善保存，再点击完成；如果丢失，需要删除旧 Key、重新生成。不要把 Key 发给 AI、粘贴到评论区或留在截图里。本文不展示一次性密钥画面。
 
-可以使用密码管理器，或存入仅自己可读的本机文件。macOS／Linux 可将密钥文件权限设为 `600`，父目录设为 `700`；Windows 使用仅当前用户可访问的权限。**文件权限保护不等于加密。**
+保存后刷新页面，检查状态是否为 **Active**，以及到期日是否正确。下图是真实刷新后的管理页面，**它显示密钥记录，不显示完整 Key**。
 
-![密钥创建成功，完整密钥已移除](../assets/personal-api-guide/05-created-redacted.png)
+![国际密钥刷新后显示Active](../assets/personal-api-guide/global-04-active-key.png)
 
-*图 5：这里只展示创建结果；真实密钥已从截图中移除。*
+*图 5：状态为 Active，到期日为 2026 年 11 月 21 日；需要停止授权时可在这里 Delete。*
 
-完成后重新加载页面，检查是否仍有密钥记录。需要停止授权时，在这里删除 Key；官方说明，关联访问令牌也会随之失效。
+## 五、在 DeepSeek Harness 里接入
 
-![刷新后仍显示密钥记录](../assets/personal-api-guide/06-key-list.png)
+**以下设置属于本次源码开发版，npm 已发布的 0.1.18 尚不包含 Personal 接入。** 正式版发布后可按新版本安装；现在体验需要使用 [Personal 开发分支](https://github.com/Likenttt/garmin-connect-plugin-for-dsh/tree/codex/personal-api)构建的插件，不能直接安装旧版 `latest` 代替。
 
-*图 6：本次大陆账号刷新后仍保留记录，但还要继续验证 API 请求。*
+已安装开发版后，按顺序操作：
 
-## 第五步：接入 DeepSeek Harness 或其他 Agent
+1. 打开 Harness 的**插件**页面，进入 Garmin Connect 的**账号设置**。
+2. 点击 **+ 添加账号**，接入方式选择 **官方 Personal API（国际版，只读）**。
+3. 填写**别名**，例如“我的佳明国际版”；再填写官网刚生成的 **API Key**。
+4. 点击**保存账号**，随后点击**验证连接**；验证成功后即可开始查询。
 
-**以下是本次开发版的接入方法；npm 已发布的 0.1.18 尚不包含 Personal API 功能。** 新功能正式发布后，再按对应版本安装，不要以为安装当前 `latest` 就已经具备它。
+**新建 Personal 账号只需要别名和 API Key 两项，默认连接国际版。** 不填邮箱、密码或地区，也不需要再次打开佳明登录页。Key 只在插件设置中输入，保存后不回填完整内容。
 
-在包含此功能的 Harness 插件设置中：点击 **+** 添加账号，选择 **官方 Personal API Key（只读）**，填写账号别名和 API Key，再保存并点击 **验证连接**。这种方式不要求邮箱，也不需要在插件中输入佳明密码。**地区必须与创建 Key 的区域对应：国际区用 `.com`，大陆区用 `.cn`，不混用。**
+![开发版Personal账号表单组件预览](../assets/personal-api-guide/global-05-settings-component.png)
 
-其他 coding agent 可通过 MCP 使用。将本次开发版构建好，把下面两个绝对路径换成自己的路径，重新加载 MCP：
+*图 6：开发版账号表单组件预览：只填写别名和 API Key。使用演示配置渲染。*
+
+源码体验者可先构建本地安装包：
+
+```bash
+git clone --branch codex/personal-api --single-branch https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
+cd garmin-connect-plugin-for-dsh
+npm ci
+npm run build
+npm pack --ignore-scripts
+```
+
+把生成的安装包路径换成你自己的绝对路径，安装到实际使用的 Harness profile：
+
+```bash
+npx @deepseek-ai/dsh plugin --profile web add /absolute/path/dsh-plugin-garmin-connect-0.1.19-dev.0.tgz
+```
+
+重新加载插件或重启对应 Harness profile，再打开账号设置。已使用其他 profile 的用户，把示例中的 `web` 换成自己的 profile 名。
+
+## 六、其他 Agent：用 MCP 接入
+
+Codex、Claude Code 等支持 stdio MCP 的客户端，可以使用同一份已构建源码。先创建一个仅自己可读的 UTF-8 纯文本文件，**内容只放 API Key，不加引号或 JSON 包装**。macOS／Linux 文件权限设为 `600`，父目录设为 `700`；Windows 使用仅当前用户可访问的权限。这属于文件权限保护，不等于加密。
+
+在客户端的 MCP 配置中添加以下内容，并替换两个绝对路径：
 
 ```json
 {
@@ -73,6 +100,7 @@ Personal API 面向个人读取自己的数据，不是面向多用户商业服�
       "env": {
         "GARMIN_PROVIDER": "personal",
         "GARMIN_ACCOUNT": "my-garmin",
+        "GARMIN_ALIAS": "我的佳明国际版",
         "GARMIN_REGION": "global",
         "GARMIN_PERSONAL_API_KEY_FILE": "/absolute/private/path/garmin-personal.key"
       }
@@ -81,28 +109,24 @@ Personal API 面向个人读取自己的数据，不是面向多用户商业服�
 }
 ```
 
-文件只存密钥本身，不加 JSON 包装。大陆账号将 `GARMIN_REGION` 改为 `cn`，服务会使用 `personal.connectapi.garmin.cn`；国际账号的 `global` 对应 `personal.connectapi.garmin.com`。配置中填写文件路径即可，不把真实 Key 放进可分享的配置。插件包含所需 SDK，无需额外安装 TypeScript 库。
+`GARMIN_ALIAS` 是便于辨认的别名，`GARMIN_ACCOUNT` 是稳定的机器 ID；不要把两者当作邮箱。国际 Key 使用 `global`，请求 `personal.connectapi.garmin.com`。也可以通过客户端私密环境注入 `GARMIN_PERSONAL_API_KEY`，但不要把真实 Key 写进可分享的 JSON。此模式无需 `GARMIN_USERNAME`，也无需另外安装 SDK。
 
-## 第六步：先做小查询，再分析趋势
+保存配置后，重新加载 MCP，确认 Garmin 工具出现，再让 Agent 执行：
 
-先让 Agent **读取当前账号资料，确认连接和目标账号**；成功后再查最近一天的步数、睡眠，最后查询一段时间的 HRV 或活动。只有返回真实数据，才算完整走通。
+**“先读取我的 Garmin 账号资料确认连接，再查看昨天的 HRV、血氧和呼吸摘要；暂时不用制定计划。”**
 
-API Key 会先换成访问令牌，再调用数据接口。令牌最长有效 24 小时，且不超过 Key 本身有效期；官方不提供 refresh token，过期后要用 Key 重新获取。界面里的“验证连接”不是再次登录佳明。[认证 FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/)
+本次已验证 MCP 的 profile、活动、HRV、血氧、呼吸 5 项读取。呼吸返回的是每日摘要。先用小查询确认账号与日期，再逐步分析趋势；工具存在和读取成功要分别确认。
 
-## 大陆账号本次到底成功了吗？
+## 七、大陆账号：有入口，本次暂不可访问
 
-**同日补测：国际账号新建独立 Key 请求 `.com`，令牌交换、8 项 SDK 读取及 5 项真实 MCP 工具读取均通过；大陆 Key 请求 `.cn` 仍返回 526，暂时无法访问。** 两区 Key 分开保存与使用，没有混用或跨区回退。[完整测试报告](../research/personal-api-endpoint-test-report-2026-10-22.md)
+大陆账号可在登录后直达 [大陆 Personal API Key 页面](https://connect.garmin.cn/app/settings/personalApiToken)。本次可以创建 30 天 Key，刷新后记录保留，但部分文案及条款显示为占位符。
 
-截至本文日期，**大陆账号已创建 Key；本轮用新 TS SDK 请求对应 `.cn` 端点，仍未跑通读取链路**：
+使用**大陆 Key 请求对应 `personal.connectapi.garmin.cn`**，本轮换取令牌返回 **HTTP 526／`TOKEN_EXCHANGE_FAILED`**，没有取得 token，也没有继续读取健康数据。当前只能说**大陆端点本次暂时无法访问**，不能据此断言永久不支持。
 
-| 检查项 | 本次结果 |
-|---|---|
-| 创建 30 天 Key、刷新后保留记录 | 成功 |
-| 用新 TS SDK 将大陆 Key 发往对应 `.cn` 端点 | 换取令牌返回 HTTP 526／`TOKEN_EXCHANGE_FAILED` |
-| 取得令牌、读取账户设置或健康数据 | 未完成；未取得令牌，也未执行后续读取 |
+国际用国际 Key，大陆用大陆 Key，分开保存、不跨区回退。MCP 保留 `GARMIN_REGION=cn` 配置；已经保存的大陆 Personal 账号会保留区域并显示暂不可访问提示。新建 Harness Personal 账号默认国际版，不能把大陆 Key 当国际 Key 填入。
 
-国际 Key 使用 `.com`，大陆 Key 使用 `.cn`。SDK 支持地区配置，不等于端点本次可用。**大陆端点本次暂时无法访问，尚未验证大陆读取成功；这不等于大陆账号永久不受支持。**
+最后补充：访问令牌最长有效 24 小时，且不超过 Key 的到期时间；过期后用 Key 重新获取，没有 refresh token。[认证 FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/)
 
-我们参考 [Garmin 官方 Python 客户端](https://github.com/garmin/connect-personal-api-python)，已建立独立仓库 [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts)，维护 TypeScript 实现。**新 SDK 专注 Personal API Key 换取令牌和读取数据**。仓库代码已建立，本轮尚未发布 npm，使用时以包含此功能的实际版本为准。
+插件及独立维护的 [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts) 由李二牛开发，TS SDK 参考 [Garmin 官方 Python 客户端](https://github.com/garmin/connect-personal-api-python)，专注 Personal Key、token 与数据读取。本轮是源码开发验证，尚未发布对应 npm 升级版。
 
-**让 AI 分析数据，凭据留在本机。先验证一个账号、一项读取，再逐步扩大使用范围。**
+**让 AI 分析数据，把密钥留在你控制的本机配置里。**

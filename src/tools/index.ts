@@ -71,10 +71,11 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
     }
   } }
   const configuredAccounts = accounts.filter(account => account.configured)
-  const services = new Map(accounts.map(({ accountId, region, client, config }) => [
+  const services = new Map(accounts.map(({ accountId, alias, region, client, config }) => [
     accountId,
     new GarminToolService(client, {
       accountId,
+      accountAlias: alias,
       provider: config.provider,
       activityDetail: config.activityDetail,
       fitDownloadDir: config.fitDownloadDir,
@@ -109,7 +110,9 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
     if (configuredAccounts.length === 0) {
       throw new PublicToolError('No Garmin account is configured. Add an account in the plugin settings.')
     }
-    const ids = configuredAccounts.map(account => account.accountId).join(', ')
+    const ids = configuredAccounts.map(account => account.alias
+      ? `${account.accountId} (${JSON.stringify(account.alias)})`
+      : account.accountId).join(', ')
     throw new PublicToolError(`Multiple Garmin accounts are configured. Set account to an account ID: ${ids}.`)
   }
   // Running concepts and intake are local knowledge. Keep them usable before

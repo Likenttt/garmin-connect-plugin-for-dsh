@@ -66,6 +66,7 @@ export interface GarminToolServiceOptions {
   accountUsername: string
   accountRegion: GarminRegion
   accountId?: string
+  accountAlias?: string
 }
 
 export interface DateRangeArgs {
@@ -642,7 +643,17 @@ export class GarminToolService {
 
   async getProfile(): Promise<unknown> {
     const profile = await this.client.getUserProfile()
-    return formatProfile(profile as Record<string, unknown>)
+    const formatted = formatProfile(profile as Record<string, unknown>)
+    if (this.options.provider !== 'personal') return formatted
+    return {
+      ...formatted,
+      connection: {
+        accountId: this.options.accountId ?? 'default',
+        alias: this.options.accountAlias ?? '',
+        provider: 'personal',
+        region: this.options.accountRegion,
+      },
+    }
   }
 
   async createWorkout(args: CreateWorkoutArgs): Promise<Record<string, unknown>> {

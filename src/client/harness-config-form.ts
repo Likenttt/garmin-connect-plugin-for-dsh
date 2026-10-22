@@ -43,6 +43,17 @@ export interface GarminStoredAccount {
   revision?: string
 }
 
+/** Personal keys stay on their saved endpoint; new Personal accounts use global. */
+export function accountRegionForProvider(
+  savedAccount: GarminStoredAccount,
+  provider: 'connect-web' | 'personal',
+  webRegion: GarminStoredAccount['region'],
+): GarminStoredAccount['region'] {
+  return provider === 'personal'
+    ? savedAccount.provider === 'personal' ? savedAccount.region : 'global'
+    : webRegion
+}
+
 /** Update public metadata atomically with an optional new secret email or API key. */
 export function saveAccountMutations(
   current: readonly GarminStoredAccount[],
@@ -52,7 +63,7 @@ export function saveAccountMutations(
   personalApiKey = '',
 ): ConfigMutation[] | undefined {
   const previous = current.find(value => value.id === account.id)
-  const saved = { ...account, revision }
+  const saved = { ...account, alias: account.alias.trim(), revision }
   const next = previous
     ? current.map(value => value.id === account.id ? saved : value)
     : [...current, saved]
@@ -61,7 +72,9 @@ export function saveAccountMutations(
     || revision === previous?.revision
     || !validAccounts(next)
     || (account.provider === 'personal'
-      ? ((!previous || previous.provider !== 'personal') && !personalApiKey.trim())
+      ? (!saved.alias
+        || account.region !== (previous?.provider === 'personal' ? previous.region : 'global')
+        || ((!previous || previous.provider !== 'personal') && !personalApiKey.trim()))
       : ((!previous || previous.provider === 'personal') && !email))
     || email.includes('****@')) return undefined
   return [

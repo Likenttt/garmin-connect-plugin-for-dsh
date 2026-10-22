@@ -35,7 +35,7 @@ export function apply(ctx: Context, config: Config | PluginConfig) {
         'account4Username', 'account5Username',
         'account1UsernameId', 'account2UsernameId', 'account3UsernameId',
         'account4UsernameId', 'account5UsernameId',
-        'provider', 'personalApiKey', 'personalApiKeyFile',
+        'provider', 'accountAlias', 'personalApiKey', 'personalApiKeyFile',
         'account1PersonalApiKey', 'account2PersonalApiKey', 'account3PersonalApiKey',
         'account4PersonalApiKey', 'account5PersonalApiKey',
         'account1PersonalApiKeyId', 'account2PersonalApiKeyId', 'account3PersonalApiKeyId',

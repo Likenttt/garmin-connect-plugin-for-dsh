@@ -1,4 +1,5 @@
 import {
+  accountRegionForProvider,
   removeAccountMutations,
   saveAccountMutations,
   type GarminStoredAccount,
@@ -65,7 +66,7 @@ describe('Garmin settings account writes', () => {
   })
 
   it('saves a Personal API account with an ID-bound private key and no email', () => {
-    const personal = { ...second, provider: 'personal' as const }
+    const personal = { ...second, region: 'global' as const, provider: 'personal' as const }
     const mutations = saveAccountMutations([legacy], personal, '', revision, 'test-private-key')!
     expect(mutations).toContainEqual({ op: 'set', path: ['account3PersonalApiKey'], value: 'test-private-key' })
     expect(mutations).toContainEqual({ op: 'set', path: ['account3PersonalApiKeyId'], value: personal.id })
@@ -84,6 +85,62 @@ describe('Garmin settings account writes', () => {
     expect(saveAccountMutations([personal], second, 'web@example.test', revision)).toContainEqual({
       op: 'set', path: ['account3PersonalApiKey'], value: '',
     })
+  })
+
+  it('requires a nonempty alias on Personal account creation and edits', () => {
+    const personal = { ...second, region: 'global' as const, provider: 'personal' as const }
+    expect(saveAccountMutations([legacy], { ...personal, alias: '  ' }, '', revision, 'new-key'))
+      .toBeUndefined()
+    expect(saveAccountMutations([personal], { ...personal, alias: '' }, '', revision))
+      .toBeUndefined()
+    const normalized = saveAccountMutations([personal], { ...personal, alias: '  Main watch  ' }, '', revision)!
+    expect(normalized).toContainEqual({
+      op: 'set', path: ['accounts'], value: [{ ...personal, alias: 'Main watch', revision }],
+    })
+  })
+
+  it('lets a legacy Personal account with no alias be repaired or removed', () => {
+    const oldPersonal = { ...second, alias: '', provider: 'personal' as const }
+    expect(saveAccountMutations([oldPersonal], oldPersonal, '', revision, 'replacement-key'))
+      .toBeUndefined()
+    expect(saveAccountMutations([oldPersonal], { ...oldPersonal, alias: '大陆测试' }, '', revision))
+      .toBeDefined()
+    expect(removeAccountMutations([oldPersonal], oldPersonal.id)).toBeDefined()
+    expect(saveAccountMutations([oldPersonal], { ...second, id: 'a-new', slot: 4 }, 'web@example.test', revision))
+      .toBeDefined()
+  })
+
+  it('locks saved Personal keys to their original endpoint even when a new key is supplied', () => {
+    for (const region of ['cn', 'global'] as const) {
+      const personal = { ...second, region, provider: 'personal' as const }
+      const wrongRegion = region === 'cn' ? 'global' : 'cn'
+      expect(saveAccountMutations([personal], { ...personal, region: wrongRegion }, '', revision))
+        .toBeUndefined()
+      expect(saveAccountMutations([personal], { ...personal, region: wrongRegion }, '', revision, 'replacement-key'))
+        .toBeUndefined()
+      expect(saveAccountMutations([personal], { ...personal, alias: 'Renamed' }, '', revision, 'replacement-key'))
+        .toContainEqual({ op: 'set', path: ['accounts'], value: [{ ...personal, alias: 'Renamed', revision }] })
+    }
+  })
+
+  it('creates new Personal accounts only on global with a new key', () => {
+    const personal = { ...second, provider: 'personal' as const }
+    expect(saveAccountMutations([], personal, '', revision, 'cn-key')).toBeUndefined()
+    expect(saveAccountMutations([second], personal, '', revision, 'cn-key')).toBeUndefined()
+    const globalPersonal = { ...personal, region: 'global' as const }
+    expect(saveAccountMutations([second], globalPersonal, '', revision)).toBeUndefined()
+    expect(saveAccountMutations([second], globalPersonal, '', revision, 'global-key'))
+      .toContainEqual({ op: 'set', path: ['accounts'], value: [{ ...globalPersonal, revision }] })
+  })
+
+  it('derives Personal endpoint from saved metadata rather than draft web region', () => {
+    const savedCnPersonal = { ...second, provider: 'personal' as const }
+    expect(accountRegionForProvider(savedCnPersonal, 'personal', 'global')).toBe('cn')
+    expect(accountRegionForProvider(savedCnPersonal, 'connect-web', 'global')).toBe('global')
+    expect(accountRegionForProvider(savedCnPersonal, 'personal', 'global')).toBe('cn')
+    expect(accountRegionForProvider(second, 'personal', 'cn')).toBe('global')
+    expect(accountRegionForProvider({ ...second, region: 'global', provider: 'personal' }, 'personal', 'cn'))
+      .toBe('global')
   })
 
 })
