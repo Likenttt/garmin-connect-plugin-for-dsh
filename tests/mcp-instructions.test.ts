@@ -15,6 +15,19 @@ describe('MCP connection instructions', () => {
     })
   })
 
+  it('guides confirmed scheduling and recovery without repeating creation', async () => {
+    await withClient(async client => {
+      const instructions = client.getInstructions() ?? ''
+      expect(instructions).toContain('scheduleDate')
+      expect(instructions).toContain('schedule_garmin_workout with workoutId and date')
+      expect(instructions).toContain('Changed accounts, workouts or dates require a fresh preview and approval')
+      expect(instructions).toContain('waiting for Garmin Connect sync')
+      expect(instructions).toContain('Never repeat create_garmin_workout to recover a failed schedule')
+      expect(instructions).toContain('read get_garmin_scheduled_workouts for the target date')
+      expect(instructions).toContain('Personal API accounts support reads only')
+    })
+  })
+
   it('keeps initialization and tool discovery passive', async () => {
     await withClient(async (client, service) => {
       const { tools } = await client.listTools()
@@ -29,7 +42,7 @@ describe('MCP connection instructions', () => {
     await withClient(async client => {
       const instructions = client.getInstructions() ?? ''
       const referencedTools = [...new Set(
-        instructions.match(/\b(?:get|create|download)_[a-z0-9_]+\b/g) ?? [],
+        instructions.match(/\b(?:get|create|download|schedule|delete|unschedule)_[a-z0-9_]+\b/g) ?? [],
       )]
       const { tools } = await client.listTools()
       const toolNames = tools.map(tool => tool.name)
@@ -60,6 +73,7 @@ function serviceStub() {
     getScheduledWorkouts: jest.fn(),
     deleteWorkout: jest.fn(),
     unscheduleWorkout: jest.fn(),
+    scheduleWorkout: jest.fn(),
   }
 }
 

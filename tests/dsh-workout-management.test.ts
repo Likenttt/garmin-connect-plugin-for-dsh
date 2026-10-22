@@ -1,11 +1,13 @@
 import type { Config } from '../src/config'
 import { registerTools } from '../src/tools'
+import { GarminToolService } from '../src/tool-service'
 
 function backend() {
   return {
     getScheduledWorkouts: jest.fn().mockResolvedValue([]),
     getWorkoutDetail: jest.fn().mockResolvedValue({ workoutId: '42', workoutName: 'Easy' }),
     getScheduledWorkout: jest.fn().mockResolvedValue({ scheduleId: '51', workoutId: '42', workoutName: 'Easy', date: '2026-10-18' }),
+    scheduleWorkout: jest.fn().mockResolvedValue({ scheduleId: '61', workoutId: '42', date: '2026-10-23' }),
     deleteWorkout: jest.fn().mockResolvedValue(undefined),
     unscheduleWorkout: jest.fn().mockResolvedValue(undefined),
   }
@@ -29,6 +31,65 @@ function fixture() {
 }
 
 describe('DSH workout management', () => {
+  it('schedules only the confirmed account and date and does not replay a calendar write', async () => {
+    const { a, b, tool } = fixture()
+    const schedule = tool('schedule_garmin_workout')
+    expect(schedule.parameters).toMatchObject({ required: ['workoutId', 'date'], additionalProperties: false })
+    expect(schedule.parameters.properties.date).toMatchObject({ type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' })
+    expect(schedule.description).toContain('waiting for Garmin Connect sync')
+    expect(schedule.description).toContain('explicit approval')
+    const args = { workoutId: '42', date: '2026-10-23' }
+    const preview = await schedule.execute({ account: 'athlete-a', ...args })
+    expect(preview.requiresConfirmation).toBe(true)
+    expect(preview.preview).toMatchObject({ accountId: 'athlete-a', workoutId: '42', date: args.date })
+    expect(a.scheduleWorkout).not.toHaveBeenCalled()
+    expect(b.scheduleWorkout).not.toHaveBeenCalled()
+    const confirmed = { ...args, confirmed: true, confirmationId: preview.confirmationId }
+    expect(await schedule.execute({ account: 'athlete-b', ...confirmed })).toMatchObject({ error: true })
+    expect(await schedule.execute({ account: 'athlete-a', ...confirmed, date: '2026-10-24' }))
+      .toMatchObject({ error: true })
+    expect(a.scheduleWorkout).not.toHaveBeenCalled()
+    expect(b.scheduleWorkout).not.toHaveBeenCalled()
+    const fresh = await schedule.execute({ account: 'athlete-a', ...args })
+    const approvedArgs = { ...confirmed, confirmationId: fresh.confirmationId }
+    expect(await schedule.execute({ account: 'athlete-a', ...approvedArgs })).toMatchObject({ success: true })
+    expect(a.scheduleWorkout).toHaveBeenCalledWith('42', args.date)
+    expect(await schedule.execute({ account: 'athlete-a', ...approvedArgs })).toMatchObject({ error: true })
+    expect(a.scheduleWorkout).toHaveBeenCalledTimes(1)
+    expect(b.scheduleWorkout).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid scheduling arguments before reading or writing Garmin', async () => {
+    const { a, tool } = fixture()
+    for (const invalid of [
+      {}, { workoutId: '42' }, { workoutId: '42', date: '2026-02-30' },
+      { workoutId: '42', date: '2026-10-23\n' }, { workoutId: '42', date: '2026-1-23' },
+      { workoutId: '42', date: '2026-10-23', unexpected: true },
+      { workoutId: '01', date: '2026-10-23' },
+      { workoutId: Number.MAX_SAFE_INTEGER + 1, date: '2026-10-23' },
+    ]) {
+      expect(await tool('schedule_garmin_workout').execute({ account: 'athlete-a', ...invalid }))
+        .toMatchObject({ error: true })
+    }
+    expect(a.getWorkoutDetail).not.toHaveBeenCalled()
+    expect(a.scheduleWorkout).not.toHaveBeenCalled()
+  })
+
+  it('passes optional creation scheduling and confirmation through the selected service', async () => {
+    const create = jest.spyOn(GarminToolService.prototype, 'createWorkout').mockResolvedValue({ requiresConfirmation: true })
+    try {
+      const { tool } = fixture()
+      const args = {
+        name: 'Easy', steps: [{ type: 'warmup', endCondition: 'time', endValue: 600 }],
+        scheduleDate: '2026-10-23', confirmed: true,
+        confirmationId: '90c4d0ef-f0a3-4ea0-b189-60fe9b29b312',
+      }
+      await tool('create_garmin_workout').execute({ account: 'athlete-b', ...args })
+      expect(create).toHaveBeenCalledWith(args)
+      expect(create).toHaveBeenCalledTimes(1)
+    } finally { create.mockRestore() }
+  })
+
   it('selects the explicit account for schedule reads and preserves full response data', async () => {
     const { a, b, tool } = fixture()
     const scheduled = tool('get_garmin_scheduled_workouts')

@@ -156,6 +156,7 @@ export class GarminPersonalClient implements GarminClientLike {
   async getWorkoutDetail(): Promise<never> { return this.unsupported() }
   async getScheduledWorkouts(): Promise<never> { return this.unsupported() }
   async getScheduledWorkout(): Promise<never> { return this.unsupported() }
+  async scheduleWorkout(): Promise<never> { return this.unsupported() }
   async deleteWorkout(): Promise<never> { return this.unsupported() }
   async unscheduleWorkout(): Promise<never> { return this.unsupported() }
   async addWorkout(): Promise<never> { return this.unsupported() }

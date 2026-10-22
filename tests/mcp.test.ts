@@ -23,7 +23,7 @@ const healthRoutes = [
 ] as const
 
 describe('MCP adapter', () => {
-  it('exposes the same twenty-eight non-secret Garmin tools as the plugin', async () => {
+  it('exposes the same twenty-nine non-secret Garmin tools as the plugin', async () => {
     const service = serviceStub()
     const server = createMcpServer(service as any)
     const client = new Client({ name: 'test-client', version: '1.0.0' })
@@ -49,6 +49,7 @@ describe('MCP adapter', () => {
         'get_garmin_weight',
         'get_garmin_workouts',
         'get_garmin_scheduled_workouts',
+        'schedule_garmin_workout',
         'delete_garmin_workout',
         'unschedule_garmin_workout',
         'get_garmin_profile',
@@ -77,6 +78,7 @@ describe('MCP adapter', () => {
         properties: expect.objectContaining({
           name: expect.any(Object),
           steps: expect.any(Object),
+          scheduleDate: expect.objectContaining({ type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
           confirmed: expect.any(Object),
           confirmationId: expect.any(Object),
         }),
@@ -164,6 +166,7 @@ describe('MCP adapter', () => {
       expect(result.tools
         .filter(tool => ![
           'create_garmin_workout',
+          'schedule_garmin_workout',
           'download_garmin_activity_fit',
           'delete_garmin_workout',
           'unschedule_garmin_workout',
@@ -694,6 +697,7 @@ function serviceStub() {
     getWeight: jest.fn().mockResolvedValue({}),
     getWorkouts: jest.fn().mockResolvedValue([]),
     getScheduledWorkouts: jest.fn().mockResolvedValue([]),
+    scheduleWorkout: jest.fn().mockResolvedValue({}),
     deleteWorkout: jest.fn().mockResolvedValue({}),
     unscheduleWorkout: jest.fn().mockResolvedValue({}),
     getProfile: jest.fn().mockResolvedValue({}),

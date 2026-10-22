@@ -262,7 +262,7 @@ async function main() {
     return result
   }
   assert(HEALTH_TOOLS.length === 15 && SDK_HEALTH_METHODS.length === 13)
-  const expectedToolCount = 13 + HEALTH_TOOLS.length
+  const expectedToolCount = 14 + HEALTH_TOOLS.length
   for (const definition of HEALTH_TOOLS) {
     // SDK 1.7.0 exposes the original 13 methods. The two daily wellness
     // methods use its authenticated HTTP transport through GarminClient.
@@ -294,7 +294,7 @@ async function main() {
     const byName = new Map(definitions.map(definition => [definition.name, definition]))
     const registrationValid = definitions.length === expectedToolCount && byName.size === expectedToolCount
       && HEALTH_TOOLS.every(definition => byName.has(definition.name))
-      && ['get_garmin_scheduled_workouts', 'delete_garmin_workout', 'unschedule_garmin_workout']
+      && ['get_garmin_scheduled_workouts', 'schedule_garmin_workout', 'delete_garmin_workout', 'unschedule_garmin_workout']
         .every(name => byName.has(name))
     record(report.registration, 'dsh-tools', registrationValid
       ? { status: 'passed', count: definitions.length } : fail('dsh-registration'))
@@ -336,7 +336,9 @@ async function main() {
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
         await Promise.all([mcpServer.connect(serverTransport), mcpClient.connect(clientTransport)])
         const listed = await mcpClient.listTools()
-        assert(listed.tools.length === expectedToolCount && HEALTH_TOOLS.every(definition => listed.tools.some(tool => tool.name === definition.name)))
+        assert(listed.tools.length === expectedToolCount
+          && HEALTH_TOOLS.every(definition => listed.tools.some(tool => tool.name === definition.name))
+          && listed.tools.some(tool => tool.name === 'schedule_garmin_workout'))
         record(result.mcp, 'tool-registration', { status: 'passed', count: listed.tools.length })
         for (const definition of HEALTH_TOOLS) {
           try {

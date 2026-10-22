@@ -26,6 +26,7 @@ import type {
 import { GARMIN_RESOURCE_ID_PATTERN } from '../workout-management'
 import type {
   DeleteWorkoutArgs,
+  ScheduleWorkoutArgs,
   ScheduledWorkoutsArgs,
   UnscheduleWorkoutArgs,
 } from '../workout-management'
@@ -356,6 +357,46 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
   })
 
   tools.register({
+    name: 'schedule_garmin_workout',
+    description:
+      'Schedule one existing workout library template on a specified Garmin calendar date. ' +
+      'First call without confirmed=true for a preview. Show the selected account, workout, and date ' +
+      'to the user; only after explicit approval call again with the same account, workoutId, date, ' +
+      'confirmed=true, and confirmationId. Never batch-schedule or automatically retry a write. ' +
+      'If the outcome is unknown, read the calendar before further action. A successful result means ' +
+      'the workout is scheduled and waiting for Garmin Connect sync; it does not confirm delivery to the watch.',
+    parameters: {
+      type: 'object',
+      required: ['workoutId', 'date'],
+      additionalProperties: false,
+      properties: {
+        account: accountParameter,
+        workoutId: {
+          ...garminResourceIdParameter,
+          description: 'Workout library ID from get_garmin_workouts. Use a decimal string for IDs larger than a safe integer.',
+        },
+        date: {
+          type: 'string',
+          minLength: 10,
+          maxLength: 10,
+          pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+          description: 'Calendar date to schedule the workout, in YYYY-MM-DD format.',
+        },
+        ...destructiveConfirmationParameters,
+      },
+    },
+    output: flexibleOutput,
+    execute: async (args: ScheduleWorkoutArgs & AccountArgs) => {
+      try {
+        const { account, ...request } = args
+        return await selectService(account).scheduleWorkout(request)
+      } catch (error) {
+        return toolError(error, 'Failed to schedule workout')
+      }
+    },
+  })
+
+  tools.register({
     name: 'delete_garmin_workout',
     description:
       'Delete one workout template from the selected Garmin account library; this does not cancel ' +
@@ -572,7 +613,9 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
       'Supports warmup, interval, recovery, cooldown, rest steps with pace/HR targets, and repeat groups. ' +
       'The first call returns a preview and confirmationId without writing. Only call again with ' +
       'confirmed=true and that confirmationId after the user explicitly approves the preview. ' +
-      'Device sync behavior depends on Garmin Connect settings. ' +
+      'Optionally set scheduleDate to create the workout and schedule it on that date in the same ' +
+      'preview and approval. Omit it to save only to the workout library. A scheduled workout waits ' +
+      'for Garmin Connect sync; never claim it has arrived on the watch. Do not automatically retry writes. ' +
       'This execution tool does not generate a training plan: it may encode a workout the user ' +
       'already specified, or one derived after completed coaching intake. ' +
       'IMPORTANT: for a personalized workout, first complete the mandatory intake through ' +
@@ -604,6 +647,13 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
           type: 'string',
           enum: ['running', 'cycling', 'swimming', 'strength'],
           description: 'Sport type (default: running)',
+        },
+        scheduleDate: {
+          type: 'string',
+          minLength: 10,
+          maxLength: 10,
+          pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+          description: 'Optional calendar date in YYYY-MM-DD format. Included in the same preview and confirmation; omit to save only to the workout library.',
         },
         confirmed: {
           type: 'boolean',

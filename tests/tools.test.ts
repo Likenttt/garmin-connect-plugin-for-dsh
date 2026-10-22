@@ -39,7 +39,7 @@ describe('Tools Utils', () => {
     })
   })
 
-  it('registers all twenty-eight non-secret Garmin tools for the DSH adapter', () => {
+  it('registers all twenty-nine non-secret Garmin tools for the DSH adapter', () => {
     const definitions: Array<{ name: string; description?: string; parameters?: any }> = []
     const ctx = {
       tools: { register: (definition: { name: string }) => definitions.push(definition) },
@@ -90,6 +90,7 @@ describe('Tools Utils', () => {
       'get_garmin_weight',
       'get_garmin_workouts',
       'get_garmin_scheduled_workouts',
+      'schedule_garmin_workout',
       'delete_garmin_workout',
       'unschedule_garmin_workout',
       'get_garmin_profile',
@@ -163,6 +164,11 @@ describe('Tools Utils', () => {
     )!
     expect(createWorkout.description).toContain('does not generate a training plan')
     expect(createWorkout.description).toContain('mode="personalized"')
+    expect(createWorkout.parameters.properties.scheduleDate).toMatchObject({
+      type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+    })
+    expect(createWorkout.description).toContain('same preview and approval')
+    expect(createWorkout.description).toContain('never claim it has arrived on the watch')
     const stepVariants = createWorkout.parameters.properties.steps.items.oneOf
     expect(stepVariants).toHaveLength(2)
     expect(stepVariants[0]).toMatchObject({

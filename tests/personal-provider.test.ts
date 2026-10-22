@@ -97,6 +97,12 @@ describe('Personal API provider integration', () => {
     try {
       const result = await peer.listTools()
       expect(result.tools.map(tool => tool.name).sort()).toEqual([...PERSONAL_TOOL_NAMES].sort())
+      expect(result.tools.map(tool => tool.name)).not.toContain('create_garmin_workout')
+      expect(result.tools.map(tool => tool.name)).not.toContain('schedule_garmin_workout')
+      const schedule = await peer.callTool({
+        name: 'schedule_garmin_workout', arguments: { workoutId: '42', date: '2026-10-23' },
+      })
+      expect(schedule.isError).toBe(true)
       expect(createAuthentication).not.toHaveBeenCalled()
     } finally { await peer.close(); await server.close() }
   })
@@ -107,6 +113,8 @@ describe('Personal API provider integration', () => {
       accountId: 'personal-test', slot: 1, region: 'cn', configured: true, config, client: fixture().client,
     }])
     expect(definitions.sort()).toEqual([...PERSONAL_TOOL_NAMES].sort())
+    expect(definitions).not.toContain('create_garmin_workout')
+    expect(definitions).not.toContain('schedule_garmin_workout')
   })
 
   it('uses the DSH account alias with its stable ID in Personal profile output', async () => {

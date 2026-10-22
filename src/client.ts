@@ -26,6 +26,7 @@ import { parseLocalDate } from './utils/date'
 import {
   canonicalGarminResourceId,
   resolveScheduledWorkoutRange,
+  validateWorkoutScheduleDate,
   type GarminResourceId,
   type GarminWorkoutManagementClient,
 } from './workout-management'
@@ -1005,6 +1006,17 @@ export class GarminClient implements GarminRecoveryDataClient, GarminWorkoutMana
     ))
   }
 
+  /** Add one calendar entry using a workout template ID and a date-only value. */
+  async scheduleWorkout(workoutId: GarminResourceId, date: string): Promise<unknown> {
+    const id = canonicalGarminResourceId(workoutId, 'workoutId')
+    validateWorkoutScheduleDate(date)
+    return this.mutateWorkoutResource(
+      'workout scheduling',
+      () => this.gc.client.post(`${this.workoutScheduleUrl}/${id}`, { date }),
+      'the Garmin workout calendar',
+    )
+  }
+
   async deleteWorkout(workoutId: GarminResourceId): Promise<void> {
     const id = canonicalGarminResourceId(workoutId, 'workoutId')
     await this.mutateWorkoutResource(
@@ -1035,12 +1047,12 @@ export class GarminClient implements GarminRecoveryDataClient, GarminWorkoutMana
     this.cache.invalidatePrefix('scheduled-workouts:')
   }
 
-  /** Never replay a destructive request after authentication, rate-limit or timeout errors. */
-  private async mutateWorkoutResource(
+  /** Never replay a write after authentication, rate-limit or timeout errors. */
+  private async mutateWorkoutResource<T>(
     operation: string,
-    factory: () => Promise<unknown>,
+    factory: () => Promise<T>,
     verificationTarget: string,
-  ): Promise<void> {
+  ): Promise<T> {
     await this.ensureConnected()
     const attemptEpoch = this.authEpoch
     const unknownOutcome = `outcome is unknown; check ${verificationTarget} with a read-only query before retrying`
@@ -1048,7 +1060,7 @@ export class GarminClient implements GarminRecoveryDataClient, GarminWorkoutMana
     const timeoutMessage = `Garmin ${operation} timed out after ${this.requestTimeoutMs}ms; ${unknownOutcome}`
     this.invalidateWorkoutLists()
     try {
-      await this.withRequestTimeout(async () => {
+      const result = await this.withRequestTimeout(async () => {
         try {
           return await factory()
         } finally {
@@ -1060,6 +1072,7 @@ export class GarminClient implements GarminRecoveryDataClient, GarminWorkoutMana
       if (attemptEpoch !== this.authEpoch) {
         throw new PublicToolError(authChangedMessage)
       }
+      return result
     } catch (error) {
       if (attemptEpoch !== this.authEpoch) {
         throw new PublicToolError(authChangedMessage)

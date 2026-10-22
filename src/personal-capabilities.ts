@@ -10,7 +10,8 @@ export const PERSONAL_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 export const PERSONAL_PROVIDER_INSTRUCTIONS =
   '\nThis connection uses the official Garmin Personal API with a user-configured API Key. ' +
-  'It provides supported read operations only. Respiration and daily stress may contain summaries, ' +
+  'It provides supported read operations only; workout creation and calendar scheduling are unavailable. ' +
+  'Respiration and daily stress may contain summaries, ' +
   'not full-day time series. Preserve that distinction. get_garmin_profile includes local connection metadata ' +
   'with the account alias, stable ID, provider and region. The alias is a display label. API Key or access errors require checking ' +
   'the key in local settings; do not start browser SSO or switch to another account/provider. ' +
