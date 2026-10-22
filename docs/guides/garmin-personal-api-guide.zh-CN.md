@@ -2,9 +2,9 @@
 
 作者：李二牛 · 更新于 2026 年 10 月 22 日
 
-本文使用的是李二牛开发的开源社区插件 **[dsh-plugin-garmin-connect](https://github.com/Likenttt/garmin-connect-plugin-for-dsh)**。它既是 DeepSeek Harness 插件，也能作为 MCP 服务连接其他 Agent；项目介绍见 [gc.li2niu.com](https://gc.li2niu.com/)。
+佳明终于推出了官方 **Personal API 模式**，还提供了 [Python 版 SDK](https://github.com/garmin/connect-personal-api-python)。我很快参考官方实现移植了 [TypeScript 版本](https://github.com/Likenttt/connect-personal-api-ts)，并接入 [dsh-plugin-garmin-connect](https://github.com/Likenttt/garmin-connect-plugin-for-dsh)，让 DeepSeek Harness 和 MCP 都能使用。**TS 版代码已经开源，欢迎点个 Star。**
 
-这次是在已有插件中新增 **Garmin 官方 Personal API 模式**：官网生成 Key，插件换取令牌、读取数据，佳明密码不用交给 AI。底层使用独立维护的 `connect-personal-api-ts`，用户安装插件即可，无需另装 SDK。
+我是李二牛，TypeScript SDK 和插件由我在社区维护，**TS 版并非 Garmin 官方 SDK**。这次是在已有插件中增加官方 Personal API 接入：官网生成 Key，插件换取令牌、读取数据，佳明密码不用交给 AI。插件同时提供 DSH 和 MCP 形态，用户无需另装底层 SDK；项目介绍见 [gc.li2niu.com](https://gc.li2niu.com/)。
 
 **这次国际版已经实测跑通：令牌交换、8 项 SDK 读取、5 项真实 MCP 工具读取全部通过。** 下面以国际版为主，带你申请 Key，再连接 DeepSeek Harness 或其他 Agent。大陆入口与当前情况放在文末。[完整测试报告](../research/personal-api-endpoint-test-report-2026-10-22.md)
 
@@ -14,10 +14,17 @@ Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET �
 
 同一个 `dsh-plugin-garmin-connect` 插件有两种接入方式：
 
-| 接入方式 | 如何配置 | 主要用途 |
+| 比较维度 | 账号密码／Connect 网页会话 | Personal API Key |
 |---|---|---|
-| 官方 Personal API（当前国际版只读） | 别名 + API Key | 活动、睡眠、HRV、血氧、呼吸摘要等读取 |
-| Connect 网页会话（原有方式） | 使用原有 Garmin 登录流程 | 数据读取，以及训练库／排期管理，依实际工具能力执行 |
+| 登录输入 | 在 Garmin 官方表单输入账号、密码，按需完成验证码 | 在 Garmin 官网申领 Key，后续由 Key 换取 token |
+| 插件配置 | 邮箱、区域、可选别名，再完成网页登录 | 仅别名 + Key，新建账号默认国际版 |
+| 密码处理 | 密码只填 Garmin 官方表单；当前插件设置保存邮箱和会话，不保存密码 | 插件不需要密码；Key 是敏感凭据，保存在本机 |
+| 读取范围 | 活动、健康与训练相关数据，以工具和设备实际记录为准 | 官方开放的读取，包括 HRV、血氧、呼吸摘要等 |
+| 训练库／日历写操作 | 按已提供工具创建、删除课表或取消排期，需预览确认 | 当前不提供 |
+| 有效期与撤销 | 会话有效期和刷新由 Garmin 控制；可停用本机账号并清理会话，远端撤销规则以 Garmin 为准 | Key 可选 30／90／180 天或一年；token 最长 24 小时；官网 Delete 撤销 Key 和关联 token |
+| MFA | 登录时在 Garmin 官方页完成 | 申领 Key 时按账号要求验证，后续用 Key 获取 token |
+| 账号地区 | 原有方式支持中国区和国际区 | 国际实测通过；大陆对应端点本次 526，暂不可访问 |
+| 适用场景 | 已有账号继续使用，需要训练库和排期管理 | 希望通过官方个人 API 做数据读取与分析 |
 
 **插件的课表与日历管理能力继续由 Connect 网页会话提供**，写操作仍需预览和确认。Personal 模式当前只读，其公开范围也未包含 Webhook。
 
@@ -78,6 +85,18 @@ Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET �
 
 *图 6：开发版账号表单组件预览：只填写别名和 API Key。使用演示配置渲染。*
 
+### 本机 DSH 怎么验收？
+
+安装并重新加载开发版后，依次检查：
+
+1. Personal 账号点击**验证连接**成功，目标别名正确。
+2. 在对话中指定该别名，先查询 profile，再读取有记录日期的单日 HRV；多账号时由 Agent 映射到设置页显示的稳定账号 ID。
+3. 返回设置页，确认 Key 显示“已设置”，完整密钥没有回填。
+4. 再明确选择原有网页会话账号查询 profile，核对账号隔离，避免混用数据。
+
+这是一份本机验收清单。上图为组件演示配置预览；已完成的真实 MCP 验证见测试报告。
+具体操作见[本机 DSH／MCP 验证指南](personal-api-local-validation.zh-CN.md)。
+
 ### 开发者：安装当前源码版
 
 源码体验者可先构建本地安装包：
@@ -90,13 +109,18 @@ npm run build
 npm pack --ignore-scripts
 ```
 
-把生成的安装包路径换成你自己的绝对路径，安装到实际使用的 Harness profile：
+macOS 桌面版先**退出 DeepSeek Harness**，再使用应用内置 CLI 安装到 `desktop` profile。
+本机核实的内置 CLI 版本为 **0.2.1-rc.2**；桌面当前安装的插件为 **0.1.18**。
+将下方安装包路径换成生成文件的绝对路径：
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web add /absolute/path/dsh-plugin-garmin-connect-0.1.19-dev.0.tgz
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+  plugin --profile desktop add /absolute/path/dsh-plugin-garmin-connect-0.1.19-dev.0.tgz \
+  --ignore-scripts --registry=https://registry.npmjs.org/
 ```
 
-重新加载插件或重启对应 Harness profile，再打开账号设置。已使用其他 profile 的用户，把示例中的 `web` 换成自己的 profile 名。
+安装后重新打开桌面版，再进入插件账号设置。`web` 是另一份 profile，不会自动更新桌面
+`desktop` 的插件；桌面版体验使用上述内置 CLI。
 
 ## 六、其他 Agent：用 MCP 接入
 
@@ -142,7 +166,7 @@ Codex、Claude Code 等支持 stdio MCP 的客户端，运行的是**同一插�
 
 最后补充：访问令牌最长有效 24 小时，且不超过 Key 的到期时间；过期后用 Key 重新获取，没有 refresh token。[认证 FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/)
 
-底层 [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts) 参考 [Garmin 官方 Python 客户端](https://github.com/garmin/connect-personal-api-python)，专注 Personal Key、token 与数据读取。本轮是源码开发验证，尚未发布对应 npm 升级版。
+底层 [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts) 专注 Personal Key、token 与数据读取。本文插件的 Personal 功能仍按源码开发版说明，npm 正式插件 0.1.18 尚不包含新模式。
 
 ## 八、连接后，用这个插件问两句
 
