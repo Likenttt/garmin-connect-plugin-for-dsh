@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/Likenttt/connect-personal-api-ts",
+  "commit": "0692c714c59bc05929ff5420238beb7c527287de",
+  "package": "@likenttt/connect-personal-api-ts",
+  "version": "0.1.0",
+  "files": {
+    "client.ts": "5863054278f8dc41b77b80a532c7503186d6f4f19bb01d39ffe64db0a3aa5857",
+    "errors.ts": "12ecd444cb2addef40dda10b9a0936b315b37d4f28787ef44b607817c6a6cfa1",
+    "validation.ts": "c6e605aae6539be52586bb1ce1d1604d8545fd21c1f7552dee5adf39f09eeba2",
+    "generated.ts": "c5d9f143fe26657295b858641af578f0c6faa9a108d083b4ad70ebe73301f5dd",
+    "index.ts": "d9ae4ba01258ce54654980bdfb392f59b112fa1a5d0171ecf3da387f989886b4"
+  }
+}

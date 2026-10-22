@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-garmin-connect",
-  "version": "0.1.18",
-  "description": "A TypeScript-based Garmin Connect plugin and MCP server with secure browser-based MFA for DeepSeek Harness and other AI agents",
+  "version": "0.1.19",
+  "description": "A Garmin Connect plugin and MCP server with official Personal API and secure browser-based MFA for DeepSeek Harness and other AI agents",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -53,7 +53,7 @@
   },
   "scripts": {
     "build": "npm run build:host && npm run build:client:types && npm run build:client",
-    "build:host": "tsc",
+    "build:host": "tsc && node scripts/copy-personal-sdk-attribution.cjs",
     "build:client:types": "tsc -p tsconfig.client.json",
     "build:client": "node scripts/build-client.mjs",
     "dev": "tsc --watch",
@@ -69,7 +69,8 @@
     "pack:smoke": "npm run build && npm run check:sdk && npm pack --dry-run --ignore-scripts",
     "prepublishOnly": "npm run build && npm run check:sdk",
     "prepare": "npm run build",
-    "check:sdk": "node scripts/check-sdk-dependency.cjs"
+    "check:sdk": "node scripts/check-sdk-dependency.cjs",
+    "sync:personal-sdk": "node scripts/sync-personal-sdk.cjs"
   },
   "keywords": [
     "deepseek",

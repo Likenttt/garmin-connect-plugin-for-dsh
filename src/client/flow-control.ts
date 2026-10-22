@@ -2,6 +2,8 @@ import {
   parseGarminAuthBeginRpcResult,
   parseGarminAuthCancelRpcResult,
   parseGarminAuthStatusRpcResult,
+  parseGarminAuthVerifyRpcResult,
+  type GarminAuthVerifyResult,
   type GarminAuthBeginResult,
   type GarminAuthRegion,
 } from './protocol'
@@ -11,7 +13,7 @@ const LEGACY_CHANNEL = '/garmin-auth'
 const CONFIG_RETRY_MS = 500
 const CONFIG_WAIT_MS = 10_000
 
-type GarminAuthEndpoint = 'account' | 'begin' | 'status' | 'cancel'
+type GarminAuthEndpoint = 'account' | 'begin' | 'status' | 'cancel' | 'verify'
 type GarminAuthChannel = typeof API_CHANNEL | typeof LEGACY_CHANNEL
 
 interface RpcCaller {
@@ -96,6 +98,30 @@ export async function beginGarminAuthAfterConfigSave(
     if (result.success || result.code !== 'stale_config' || Date.now() >= deadline) {
       return result
     }
+    if (!await waitForConfigRetry(signal)) return result
+  }
+}
+
+/** Wait for the exact saved Personal configuration before verifying its credential. */
+export async function verifyGarminPersonalConnection(
+  rpc: RpcCaller,
+  payload: { accountId: string; expectedRegion: GarminAuthRegion; expectedRevision: string },
+  signal: AbortSignal,
+): Promise<GarminAuthVerifyResult> {
+  const deadline = Date.now() + CONFIG_WAIT_MS
+  for (;;) {
+    let result: GarminAuthVerifyResult
+    try {
+      result = parseGarminAuthVerifyRpcResult(await callGarminAuthRpc(rpc, 'verify', payload, signal))
+    } catch (error) {
+      if (signal.aborted || (!isMissingRoute(error, API_CHANNEL, 'verify')
+        && !isMissingRoute(error, LEGACY_CHANNEL, 'verify'))) throw error
+      if (Date.now() >= deadline || !await waitForConfigRetry(signal)) {
+        return { success: false, code: 'stale_config' }
+      }
+      continue
+    }
+    if (result.success || result.code !== 'stale_config' || Date.now() >= deadline) return result
     if (!await waitForConfigRetry(signal)) return result
   }
 }

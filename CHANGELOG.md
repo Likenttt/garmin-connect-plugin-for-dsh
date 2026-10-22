@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.19] - 2026-10-22
+
+### Added
+- Add an official Personal API Key provider to DSH account settings and standalone MCP, without requiring an email. Keep up to five independently named accounts, private credential slots, and an explicit connection check.
+- Integrate a pinned, attributed source snapshot of [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts). Route `global` and `cn` credentials to their configured regional endpoints without cross-region fallback.
+- Advertise 15 supported tools for Personal-only connections. Preserve original read responses, label respiration and stress summaries, and keep unsupported training writes unavailable.
+- Add the illustrated Chinese Personal API guide and a standalone responsive HTML preview.
+- Simplify Personal account settings to a required alias and API Key, with international defaults and preserved regional binding for existing mainland credentials. Add `GARMIN_ALIAS` and safe connection metadata for MCP/DSH account identification.
+
+### Verification
+- Release host/client builds, the maintained-SDK dependency gate and 146 focused tests across seven suites passed, covering Personal routing, account configuration, settings RPC/UI, health tools and Harness compatibility.
+- The independent SDK passes 24 offline tests, including credential-rotation races. Plugin configuration, account isolation, RPC validation, provider routing and tool filtering have focused regression coverage.
+- A real mainland Key with `region: cn` reached the `.cn` token exchange but returned HTTP 526. The real MCP process exposed the 15 expected tools and relayed the failure without attempting another authentication provider. Successful authenticated mainland data access remains unverified.
+- A separate international Key with `region: global` passed token exchange and eight SDK reads, plus five real MCP tool reads. A concurrent mainland-Key check still returned HTTP 526. See the regional endpoint test report.
+- The independent SDK [`@likenttt/connect-personal-api-ts@0.1.0`](https://www.npmjs.com/package/@likenttt/connect-personal-api-ts) was published to the official npm registry on 2026-10-22.
+- The published SDK integrity matches the reviewed tarball. A clean install from the official registry passes ESM and CommonJS import checks without contacting Garmin.
+- The `0.1.19-dev.0` candidate passed a real macOS Harness `0.2.1-rc.2` desktop check: account settings and connection verification, five international Personal tool reads, and one original mainland web-session profile read all succeeded. Restarting Harness preserved the alias, account ID and Key, and connection verification passed again. HRV detail and blood oxygen measurement fields included empty values; respiration returned a daily summary. See the [desktop verification record](docs/testing/personal-api-harness-desktop-2026-10-22.md).
+
 ## [0.1.18] - 2026-10-22
 
 ### Added

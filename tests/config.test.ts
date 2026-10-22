@@ -14,6 +14,10 @@ describe('Config environment defaults', () => {
   const originalActivityDetail = process.env.GARMIN_ACTIVITY_DETAIL
   const originalFitDownloadDir = process.env.GARMIN_FIT_DOWNLOAD_DIR
   const originalAccount = process.env.GARMIN_ACCOUNT
+  const originalProvider = process.env.GARMIN_PROVIDER
+  const originalDisplayAlias = process.env.GARMIN_ALIAS
+  const originalPersonalKey = process.env.GARMIN_PERSONAL_API_KEY
+  const originalPersonalKeyFile = process.env.GARMIN_PERSONAL_API_KEY_FILE
 
   beforeEach(() => {
     jest.resetModules()
@@ -88,6 +92,10 @@ describe('Config environment defaults', () => {
     delete process.env.GARMIN_ACTIVITY_DETAIL
     delete process.env.GARMIN_FIT_DOWNLOAD_DIR
     delete process.env.GARMIN_ACCOUNT
+    delete process.env.GARMIN_PROVIDER
+    delete process.env.GARMIN_ALIAS
+    delete process.env.GARMIN_PERSONAL_API_KEY
+    delete process.env.GARMIN_PERSONAL_API_KEY_FILE
   })
 
   afterAll(() => {
@@ -113,6 +121,14 @@ describe('Config environment defaults', () => {
     else process.env.GARMIN_FIT_DOWNLOAD_DIR = originalFitDownloadDir
     if (originalAccount === undefined) delete process.env.GARMIN_ACCOUNT
     else process.env.GARMIN_ACCOUNT = originalAccount
+    if (originalProvider === undefined) delete process.env.GARMIN_PROVIDER
+    else process.env.GARMIN_PROVIDER = originalProvider
+    if (originalDisplayAlias === undefined) delete process.env.GARMIN_ALIAS
+    else process.env.GARMIN_ALIAS = originalDisplayAlias
+    if (originalPersonalKey === undefined) delete process.env.GARMIN_PERSONAL_API_KEY
+    else process.env.GARMIN_PERSONAL_API_KEY = originalPersonalKey
+    if (originalPersonalKeyFile === undefined) delete process.env.GARMIN_PERSONAL_API_KEY_FILE
+    else process.env.GARMIN_PERSONAL_API_KEY_FILE = originalPersonalKeyFile
     jest.dontMock('dotenv')
     jest.dontMock('@deepseek-ai/schemastery')
   })
@@ -424,4 +440,47 @@ describe('Config environment defaults', () => {
     expect(() => Config({ cacheTtl: -1 })).toThrow()
     expect(() => Config({ requestTimeoutMs: 0 })).toThrow()
   })
+
+  it('resolves official API credentials without an email and keeps secrets out of schema defaults', () => {
+    process.env.GARMIN_PROVIDER = 'personal'
+    process.env.GARMIN_PERSONAL_API_KEY = 'test-only-private-key'
+    process.env.GARMIN_PERSONAL_API_KEY_FILE = '/private/key.json'
+    process.env.GARMIN_ALIAS = ' 我的个人账号 '
+    const { Config, resolveConfig, resolveAccountConfigs } = require('../src/config') as typeof import('../src/config')
+    const raw = Config({})
+    expect(raw.personalApiKey?.get()).toBe('')
+    expect(raw.personalApiKeyFile?.get()).toBe('')
+    expect(resolveConfig(raw)).toMatchObject({ provider: 'personal', personalApiKey: 'test-only-private-key' })
+    const [account] = resolveAccountConfigs(raw)
+    expect(account).toMatchObject({ accountId: 'personal-default', alias: '我的个人账号', configured: true,
+      config: { provider: 'personal', accountAlias: '我的个人账号', username: '', password: '', sessionToken: '', sessionTokenFile: '' } })
+    expect(resolveConfig(Config({ accountAlias: '设置页账号' })).accountAlias).toBe('设置页账号')
+    expect(resolveConfig(Config({ provider: 'connect-web' })).provider).toBe('connect-web')
+  })
+
+  it('binds Personal API slot keys to account IDs and never inherits global or other slot credentials', () => {
+    const { Config, resolveAccountConfigs } = require('../src/config') as typeof import('../src/config')
+    const accounts = resolveAccountConfigs(Config({
+      provider: 'personal', personalApiKey: 'global-key', personalApiKeyFile: '/private/global.key',
+      username: 'web@example.test', password: 'web-password', sessionToken: 'web-session',
+      accountsConfigured: true,
+      accounts: [
+        { id: 'personal-a', slot: 1, region: 'cn', alias: '大陆个人账号', provider: 'personal' },
+        { id: 'personal-b', slot: 2, region: 'global', alias: '', provider: 'personal' },
+        { id: 'web-a', slot: 3, region: 'global', alias: '' },
+      ],
+      account1PersonalApiKey: 'personal-key-a', account1PersonalApiKeyId: 'personal-a',
+      account2PersonalApiKey: 'stale-key', account2PersonalApiKeyId: 'removed-account',
+      account3Username: 'different@example.test', account3UsernameId: 'web-a',
+    }))
+    expect(accounts[0]).toMatchObject({ configured: true, config: {
+      provider: 'personal', accountAlias: '大陆个人账号', personalApiKey: 'personal-key-a', personalApiKeyFile: '',
+      username: '', password: '', sessionToken: '', sessionTokenFile: '',
+    } })
+    expect(accounts[1]).toMatchObject({ configured: false, config: { personalApiKey: '', personalApiKeyFile: '' } })
+    expect(accounts[2]).toMatchObject({ configured: true, config: {
+      provider: 'connect-web', personalApiKey: '', personalApiKeyFile: '', username: 'different@example.test',
+    } })
+  })
+
 })

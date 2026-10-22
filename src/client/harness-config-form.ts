@@ -36,21 +36,34 @@ export interface ConfigForms {
 export interface GarminStoredAccount {
   id: string
   region: 'cn' | 'global'
+  provider?: 'connect-web' | 'personal'
   alias: string
   slot: number
   /** Public nonce identifying this saved account configuration. */
   revision?: string
 }
 
-/** Update public metadata atomically with an optional new secret email. */
+/** Personal keys stay on their saved endpoint; new Personal accounts use global. */
+export function accountRegionForProvider(
+  savedAccount: GarminStoredAccount,
+  provider: 'connect-web' | 'personal',
+  webRegion: GarminStoredAccount['region'],
+): GarminStoredAccount['region'] {
+  return provider === 'personal'
+    ? savedAccount.provider === 'personal' ? savedAccount.region : 'global'
+    : webRegion
+}
+
+/** Update public metadata atomically with an optional new secret email or API key. */
 export function saveAccountMutations(
   current: readonly GarminStoredAccount[],
   account: GarminStoredAccount,
   email: string,
   revision: string,
+  personalApiKey = '',
 ): ConfigMutation[] | undefined {
   const previous = current.find(value => value.id === account.id)
-  const saved = { ...account, revision }
+  const saved = { ...account, alias: account.alias.trim(), revision }
   const next = previous
     ? current.map(value => value.id === account.id ? saved : value)
     : [...current, saved]
@@ -58,12 +71,28 @@ export function saveAccountMutations(
   if (!/^[0-9a-f]{32}$/.test(revision)
     || revision === previous?.revision
     || !validAccounts(next)
-    || (!previous && !email)
+    || (account.provider === 'personal'
+      ? (!saved.alias
+        || account.region !== (previous?.provider === 'personal' ? previous.region : 'global')
+        || ((!previous || previous.provider !== 'personal') && !personalApiKey.trim()))
+      : ((!previous || previous.provider === 'personal') && !email))
     || email.includes('****@')) return undefined
   return [
     { op: 'set', path: ['accounts'], value: next },
     { op: 'set', path: ['accountsConfigured'], value: true },
-    ...(email ? [
+    ...(account.provider === 'personal' && personalApiKey.trim() ? [
+      { op: 'set' as const, path: [`account${account.slot}PersonalApiKey`], value: personalApiKey.trim() },
+      { op: 'set' as const, path: [`account${account.slot}PersonalApiKeyId`], value: account.id },
+    ] : []),
+    ...(account.provider === 'personal' ? [
+      { op: 'set' as const, path: [`account${account.slot}Username`], value: '' },
+      { op: 'set' as const, path: [`account${account.slot}UsernameId`], value: '' },
+    ] : []),
+    ...(account.provider !== 'personal' && previous?.provider === 'personal' ? [
+      { op: 'set' as const, path: [`account${account.slot}PersonalApiKey`], value: '' },
+      { op: 'set' as const, path: [`account${account.slot}PersonalApiKeyId`], value: '' },
+    ] : []),
+    ...(account.provider !== 'personal' && email ? [
       { op: 'set' as const, path: [`account${account.slot}Username`], value: email },
       { op: 'set' as const, path: [`account${account.slot}UsernameId`], value: account.id },
     ] : []),
@@ -82,6 +111,8 @@ export function removeAccountMutations(
     { op: 'set', path: ['accountsConfigured'], value: true },
     { op: 'set', path: [`account${removed.slot}Username`], value: '' },
     { op: 'set', path: [`account${removed.slot}UsernameId`], value: '' },
+    { op: 'set', path: [`account${removed.slot}PersonalApiKey`], value: '' },
+    { op: 'set', path: [`account${removed.slot}PersonalApiKeyId`], value: '' },
   ]
 }
 
@@ -92,6 +123,7 @@ function validAccounts(accounts: readonly GarminStoredAccount[]): boolean {
   for (const account of accounts) {
     if (!/^[a-z][a-z0-9_-]{0,31}$/.test(account.id)
       || (account.region !== 'cn' && account.region !== 'global')
+      || (account.provider !== undefined && account.provider !== 'connect-web' && account.provider !== 'personal')
       || typeof account.alias !== 'string'
       || account.alias.length > 64
       || /[\u0000-\u001f\u007f-\u009f]/.test(account.alias)

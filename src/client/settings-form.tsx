@@ -2,17 +2,20 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import type { CSSProperties, FormEvent, ReactElement } from 'react'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import {
+  accountRegionForProvider,
   removeAccountMutations,
   saveAccountMutations,
   type ConfigForm,
   type ConfigFormSnapshot,
   type GarminStoredAccount,
 } from './harness-config-form'
-import { callGarminAuthRpc } from './flow-control'
+import { callGarminAuthRpc, verifyGarminPersonalConnection } from './flow-control'
 import {
   parseGarminAuthAccountsRpcResult,
+  parseGarminAuthVerifyRpcResult,
   type GarminAuthAccountSummary,
   type GarminAuthRegion,
+  type GarminAuthVerifyResult,
 } from './protocol'
 
 type GarminSettingsValue = Record<string, unknown>
@@ -60,7 +63,7 @@ const buttonStyle: CSSProperties = {
   padding: '10px 16px',
 }
 
-/** Secret email values are never read from the configuration snapshot. */
+/** Secret email and API key values are never read from the configuration snapshot. */
 export function GarminSettingsForm({
   form,
   refresh,
@@ -120,6 +123,7 @@ export function GarminSettingsForm({
         region: summary.region,
         alias: summary.alias ?? '',
         slot: summary.slot,
+        ...(summary.provider === 'personal' ? { provider: 'personal' as const } : {}),
       }))
   const awaitingSignIn = summaries?.some(account => !account.authenticated) ?? false
 
@@ -170,8 +174,12 @@ export function GarminSettingsForm({
     setDraft({ id, slot, region: 'global', alias: '' })
   }
 
-  const save = async (entry: GarminStoredAccount, email: string): Promise<string | undefined> => {
+  const save = async (entry: GarminStoredAccount, email: string, personalApiKey = ''): Promise<string | undefined> => {
     if (!rows || snapshot.status !== 'ready' || !snapshot.writable || pendingLoginRef.current) return undefined
+    if (entry.provider === 'personal' && snapshot.value?.accountsConfigured !== true && !personalApiKey.trim()) {
+      setListError('首次在设置页保存 Personal 账号时，请重新输入 API Key；全局密钥不会继承到账号槽。')
+      return undefined
+    }
     let revision: string
     try {
       do { revision = createAccountRevision() } while (revision === entry.revision)
@@ -179,7 +187,7 @@ export function GarminSettingsForm({
       setListError('无法生成账号修订标识，请重试。')
       return undefined
     }
-    const mutations = saveAccountMutations(rows, entry, email, revision)
+    const mutations = saveAccountMutations(rows, entry, email, revision, personalApiKey)
     if (!mutations) return undefined
     const accepted = await form.mutate(mutations, snapshot.revision)
     if (accepted) {
@@ -187,6 +195,18 @@ export function GarminSettingsForm({
       refreshAfterChange()
     }
     return accepted ? revision : undefined
+  }
+
+  const verify = async (entry: GarminStoredAccount, signal: AbortSignal): Promise<GarminAuthVerifyResult> => {
+    if (!connection.isLoopback) return { success: false, code: 'configuration' }
+    const result = entry.revision
+      ? await verifyGarminPersonalConnection(connection.rpc, {
+        accountId: entry.id, expectedRegion: entry.region, expectedRevision: entry.revision,
+      }, signal)
+      : parseGarminAuthVerifyRpcResult(await callGarminAuthRpc(connection.rpc, 'verify', { accountId: entry.id }, signal))
+    if (result.success && result.accountId !== entry.id) return { success: false, code: 'unavailable' }
+    await refreshAccounts()
+    return result
   }
 
   const remove = async (accountId: string): Promise<boolean> => {
@@ -247,7 +267,7 @@ export function GarminSettingsForm({
     <section aria-label="Garmin 账号配置" style={panelStyle}>
       <h2 style={{ fontSize: 18, margin: '0 0 8px' }}>Garmin 账号</h2>
       <p style={{ color: 'var(--dsw-alias-label-secondary, #475569)', margin: '0 0 18px' }}>
-        可添加最多 5 个账号，支持多个中国区或国际区账号。每个账号的登录都在 Harness 内的 Garmin 官方页面完成。
+        可添加最多 5 个账号。官方 Personal API 账号只需别名和 API Key，使用国际版只读接口；也可选择原有 Connect 网页会话。
       </p>
       {snapshot.status === 'loading' && <p>正在读取配置…</p>}
       {snapshot.status === 'unavailable' && (
@@ -273,6 +293,7 @@ export function GarminSettingsForm({
             onDelete={remove}
             onLogin={requestLogin}
             onSave={save}
+            onVerify={verify}
             pendingLogin={pendingLogin?.accountId === entry.id ? pendingLogin : undefined}
             summary={summaries?.find(value => value.accountId === entry.id)}
             writable={snapshot.status === 'ready' && snapshot.writable}
@@ -288,6 +309,7 @@ export function GarminSettingsForm({
             onCancelDraft={() => setDraft(undefined)}
             onLogin={requestLogin}
             onSave={save}
+            onVerify={verify}
             writable={snapshot.status === 'ready' && snapshot.writable}
           />
         )}
@@ -301,14 +323,14 @@ export function GarminSettingsForm({
         ＋ 添加账号
       </button>
       <p style={{ color: 'var(--dsw-alias-label-secondary, #475569)', fontSize: 13, marginTop: 16 }}>
-        已保存的邮箱会显示脱敏形式；点击邮箱可更换，留空保存只修改别名或地区。切换地区后需重新登录。账号 ID 可用于指定工具操作的目标账号。
+        已保存的邮箱会显示脱敏形式；Personal API Key 不会回填，留空保存可保留原密钥。浏览器账号切换地区后需重新登录。账号 ID 可用于指定工具操作的目标账号。
       </p>
     </section>
   )
 }
 
 function AccountCard({
-  entry, isDraft, isLoopback, loginPending, onCancelDraft, onDelete, onLogin, onSave, pendingLogin, summary, writable,
+  entry, isDraft, isLoopback, loginPending, onCancelDraft, onDelete, onLogin, onSave, onVerify, pendingLogin, summary, writable,
 }: {
   entry: GarminStoredAccount
   isDraft: boolean
@@ -317,11 +339,16 @@ function AccountCard({
   onCancelDraft?(): void
   onDelete?(accountId: string): Promise<boolean>
   onLogin(request: GarminLoginRequest): boolean
-  onSave(entry: GarminStoredAccount, email: string): Promise<string | undefined>
+  onSave(entry: GarminStoredAccount, email: string, personalApiKey?: string): Promise<string | undefined>
+  onVerify(entry: GarminStoredAccount, signal: AbortSignal): Promise<GarminAuthVerifyResult>
   pendingLogin?: { accountId: string; maskedEmail?: string }
   summary?: GarminAuthAccountSummary
   writable: boolean
 }): ReactElement {
+  const [provider, setProvider] = useState<'connect-web' | 'personal'>(entry.provider ?? 'connect-web')
+  const [personalApiKey, setPersonalApiKey] = useState('')
+  const verification = useRef<AbortController>()
+  useEffect(() => () => verification.current?.abort(), [])
   const [region, setRegion] = useState<GarminAuthRegion>(entry.region)
   const [alias, setAlias] = useState(entry.alias)
   const [email, setEmail] = useState('')
@@ -333,26 +360,43 @@ function AccountCard({
   useEffect(() => {
     setRegion(entry.region)
     setAlias(entry.alias)
-  }, [entry.region, entry.alias])
+    setProvider(entry.provider ?? 'connect-web')
+  }, [entry.region, entry.alias, entry.provider])
 
-  const changed = isDraft || region !== entry.region || alias.trim() !== entry.alias || email.trim() !== ''
-  const shouldLoginAfterSave = isDraft || region !== entry.region || email.trim() !== ''
+  const personal = provider === 'personal'
+  const accountRegion = accountRegionForProvider(entry, provider, region)
+  const providerChanged = provider !== (entry.provider ?? 'connect-web')
+  const changed = isDraft || providerChanged || accountRegion !== entry.region || alias.trim() !== entry.alias
+    || email.trim() !== '' || personalApiKey.trim() !== ''
+  const shouldLoginAfterSave = !personal && (isDraft || providerChanged || region !== entry.region || email.trim() !== '')
   const displayedEmail = isDraft || editingEmail
     ? email
     : (pendingLogin?.maskedEmail ?? summary?.maskedEmail
       ?? (summary?.configured ? '邮箱已配置（地址已隐藏）' : ''))
-  const loginReady = !isDraft && !changed && !loginPending && isLoopback && !busy
+  const loginReady = !isDraft && !changed && !personal && !loginPending && isLoopback && !busy
     && summary?.configured === true && summary.region === entry.region
+  const verifyReady = !isDraft && !changed && personal && !loginPending && isLoopback && !busy
+    && summary?.configured === true && summary.provider === 'personal'
   const canEdit = writable && !busy && !loginPending
-  const canSave = canEdit && changed
+  const canSave = canEdit && changed && (!personal || alias.trim() !== '')
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!canSave) return
     const normalizedEmail = email.trim()
     const normalizedAlias = alias.trim()
-    if ((isDraft && !normalizedEmail) || (normalizedEmail && !isEmail(normalizedEmail))) {
+    if (personal && !normalizedAlias) {
+      setError('请为此 Personal API 账号填写别名。')
+      setMessage('')
+      return
+    }
+    if (!personal && (((isDraft || providerChanged) && !normalizedEmail) || (normalizedEmail && !isEmail(normalizedEmail)))) {
       setError('新账号需要有效的 Garmin 邮箱；已有账号留空邮箱可保留原值。')
+      setMessage('')
+      return
+    }
+    if (personal && (isDraft || providerChanged) && !personalApiKey.trim()) {
+      setError('请输入官方 Personal API Key。此接入方式不需要邮箱或密码。')
       setMessage('')
       return
     }
@@ -365,12 +409,16 @@ function AccountCard({
     setError('')
     setMessage('')
     try {
-      const savedRevision = await onSave({ ...entry, region, alias: normalizedAlias }, normalizedEmail)
+      const savedAccount = { ...entry, region: accountRegion, alias: normalizedAlias,
+        ...(personal ? { provider: 'personal' as const } : {}) }
+      if (!personal) delete savedAccount.provider
+      const savedRevision = await onSave(savedAccount, personal ? '' : normalizedEmail, personalApiKey)
       if (!savedRevision) {
         setError('配置未保存，请刷新页面后重试。')
         return
       }
       setEmail('')
+      setPersonalApiKey('')
       setEditingEmail(false)
       if (shouldLoginAfterSave) {
         const loginStarted = onLogin({
@@ -382,7 +430,7 @@ function AccountCard({
         })
         if (!loginStarted) setError('账号已保存，但登录入口暂不可用。请重新打开设置页后重试。')
       } else {
-        setMessage('账号已保存，原邮箱保持不变。')
+        setMessage(personal ? '账号已保存。请点击“验证连接”检查官方 API 是否可用。' : '账号已保存，原邮箱保持不变。')
       }
     } catch {
       setError('配置暂时无法保存，请重试。')
@@ -391,10 +439,36 @@ function AccountCard({
     }
   }
 
+  const verify = async () => {
+    if (!verifyReady) return
+    const controller = new AbortController()
+    verification.current = controller
+    setBusy(true)
+    setError('')
+    setMessage('正在验证官方 Personal API…')
+    try {
+      const result = await onVerify(entry, controller.signal)
+      if (controller.signal.aborted) return
+      if (result.success) setMessage('官方 Personal API 连接验证成功。')
+      else {
+        setMessage('')
+        setError(result.message ?? (result.code === 'stale_config'
+          ? '配置仍在应用，请稍后再次验证。'
+          : '连接验证失败，请检查密钥、有效期和账号可用性。'))
+      }
+    } catch {
+      if (!controller.signal.aborted) { setMessage(''); setError('连接验证暂时无法完成，请重试。') }
+    } finally {
+      if (!controller.signal.aborted) setBusy(false)
+      if (verification.current === controller) verification.current = undefined
+    }
+  }
+
   const remove = async () => {
     if (isDraft) { onCancelDraft?.(); return }
     if (!onDelete || !window.confirm(
-      '停用此账号？插件配置会移除该账号，本机已保存的会话文件仍保留。',
+      personal ? '停用此账号？插件配置会移除该账号及已保存的 API Key。'
+        : '停用此账号？插件配置会移除该账号，本机已保存的会话文件仍保留。',
     )) return
     setBusy(true)
     try {
@@ -409,31 +483,62 @@ function AccountCard({
 
   const status = pendingLogin ? '正在应用配置…'
     : isDraft ? '未保存'
-    : summary?.authenticated ? '已登录'
-      : summary ? '待登录' : '正在应用配置…'
+    : summary?.authenticated ? personal ? '已连接' : '已登录'
+      : summary ? personal ? '待验证' : '待登录' : '正在应用配置…'
   return (
     <section aria-label={`Garmin 账号 ${entry.id}`} style={cardStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <strong>{alias.trim() || (region === 'cn' ? '中国区账号' : '国际区账号')}</strong>
+        <strong>{alias.trim() || (personal ? 'Personal API 账号' : accountRegion === 'cn' ? '中国区账号' : '国际区账号')}</strong>
         <span style={{ color: 'var(--dsw-alias-label-secondary, #475569)' }}>{status}</span>
       </div>
       <p style={{ color: 'var(--dsw-alias-label-secondary, #475569)', fontSize: 12, margin: '8px 0 16px' }}>
         账号 ID：<code style={{ userSelect: 'text' }}>{entry.id}</code>
       </p>
+      <label style={{ display: 'block', fontWeight: 600, marginBottom: 18 }}>
+        <span>接入方式</span>
+        <select disabled={!canEdit} onChange={event => {
+          setProvider(event.target.value as 'connect-web' | 'personal')
+          setEmail(''); setPersonalApiKey(''); setError(''); setMessage('')
+        }} style={fieldStyle} value={provider}>
+          <option value="connect-web">Connect 网页会话（原有方式）</option>
+          <option value="personal">{entry.provider === 'personal' && entry.region === 'cn'
+            ? '官方 Personal API（大陆端点，只读）'
+            : '官方 Personal API（国际版，只读）'}</option>
+        </select>
+      </label>
+      {personal && <p role={accountRegion === 'cn' ? 'status' : undefined} style={{ color: accountRegion === 'cn' ? '#9a6700' : 'var(--dsw-alias-label-secondary, #475569)', fontSize: 13, margin: '0 0 16px' }}>
+        {accountRegion === 'cn'
+          ? '大陆端点 personal.connectapi.garmin.cn 暂时无法访问（实测 HTTP 526）。此账号仍保留大陆端点，请使用大陆 API Key；不会切换到国际端点。'
+          : '国际端点 personal.connectapi.garmin.com · 只读。请填写国际版 Garmin Connect 生成的 API Key。'}
+      </p>}
       <form onSubmit={event => void save(event)}>
-        <div style={{ display: 'grid', columnGap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 250px), 1fr))' }}>
-          <label style={fieldGroupStyle}>
+        <div style={{ display: 'grid', columnGap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))' }}>
+          {!personal && <label style={fieldGroupStyle}>
             <span>地区</span>
             <select disabled={!canEdit} onChange={event => setRegion(event.target.value as GarminAuthRegion)} style={fieldStyle} value={region}>
               <option value="cn">中国区（garmin.cn）</option>
               <option value="global">国际区（garmin.com）</option>
             </select>
-          </label>
+          </label>}
           <label style={fieldGroupStyle}>
-            <span>别名（可选）</span>
-            <input disabled={!canEdit} maxLength={64} onChange={event => setAlias(event.target.value)} style={fieldStyle} type="text" value={alias} />
+            <span>{personal ? '账号别名（必填）' : '别名（可选）'}</span>
+            <input disabled={!canEdit} maxLength={64} onChange={event => setAlias(event.target.value)} placeholder={personal ? '例如：我的佳明国际账号' : undefined} required={personal} style={fieldStyle} type="text" value={alias} />
+            {personal && !alias.trim() && <span style={{ color: 'var(--dsw-alias-label-secondary, #475569)', fontSize: 12, fontWeight: 400, marginTop: 6 }}>请填写别名，便于 AI 选择正确账号。</span>}
           </label>
-          <label style={fieldGroupStyle}>
+          {personal ? (
+            <label style={fieldGroupStyle}>
+              <span>Personal API Key</span>
+              <input
+                autoCapitalize="off" autoComplete="new-password" disabled={!canEdit}
+                onChange={event => setPersonalApiKey(event.target.value)}
+                placeholder={!isDraft && !providerChanged && summary?.provider === 'personal' && summary.configured ? '已设置（留空保留）' : '粘贴官方生成的 API Key'}
+                required={isDraft || providerChanged} spellCheck={false} style={fieldStyle} type="password" value={personalApiKey}
+              />
+              <span style={{ color: 'var(--dsw-alias-label-secondary, #475569)', fontSize: 12, fontWeight: 400, marginTop: 6 }}>
+                不需要邮箱或密码；密钥保存后不会回填。此方式仅提供官方已开放的读取功能。
+              </span>
+            </label>
+          ) : <label style={fieldGroupStyle}>
             <span>Garmin 账号邮箱</span>
             <input
               autoCapitalize="off"
@@ -463,21 +568,23 @@ function AccountCard({
                     : '正在确认邮箱配置。'}
               </span>
             )}
-          </label>
+          </label>}
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
           <button disabled={!canSave} style={{ ...buttonStyle, background: canSave ? '#111827' : '#e2e8f0', color: canSave ? '#fff' : '#64748b', cursor: canSave ? 'pointer' : 'not-allowed' }} type="submit">
-            {busy ? '正在保存…' : isDraft ? '保存并登录' : shouldLoginAfterSave ? '保存并重新登录' : '保存账号'}
+            {busy ? '处理中…' : personal ? '保存账号' : isDraft ? '保存并登录' : shouldLoginAfterSave ? '保存并重新登录' : '保存账号'}
           </button>
-          <button disabled={!loginReady} onClick={() => { void onLogin({ accountId: entry.id, region: entry.region }) }} style={{ ...buttonStyle, background: loginReady ? '#087cc1' : '#e2e8f0', color: loginReady ? '#fff' : '#64748b', cursor: loginReady ? 'pointer' : 'not-allowed' }} type="button">
+          {personal ? <button disabled={!verifyReady} onClick={() => void verify()} style={{ ...buttonStyle, background: verifyReady ? '#087cc1' : '#e2e8f0', color: verifyReady ? '#fff' : '#64748b', cursor: verifyReady ? 'pointer' : 'not-allowed' }} type="button">
+            验证连接
+          </button> : <button disabled={!loginReady} onClick={() => { void onLogin({ accountId: entry.id, region: entry.region }) }} style={{ ...buttonStyle, background: loginReady ? '#087cc1' : '#e2e8f0', color: loginReady ? '#fff' : '#64748b', cursor: loginReady ? 'pointer' : 'not-allowed' }} type="button">
             在 Harness 内登录
-          </button>
+          </button>}
           <button disabled={!canEdit} onClick={() => void remove()} style={{ ...buttonStyle, background: '#fff', color: '#b42318', border: '1px solid #efc4c0' }} type="button">
             {isDraft ? '取消添加' : '停用账号'}
           </button>
         </div>
-        {changed && !isDraft && <p style={{ color: '#9a6700', fontSize: 13 }}>存在未保存修改，登录已暂停。请先保存或恢复原值。</p>}
-        {!isDraft && region !== entry.region && <p style={{ color: '#9a6700', fontSize: 13 }}>切换地区后，原地区的登录会话不会沿用。</p>}
+        {changed && !isDraft && <p style={{ color: '#9a6700', fontSize: 13 }}>存在未保存修改，请先保存或恢复原值。</p>}
+        {!personal && !isDraft && region !== entry.region && <p style={{ color: '#9a6700', fontSize: 13 }}>切换地区后，原地区的登录会话不会沿用。</p>}
         {error && <p role="alert" style={{ color: '#b42318' }}>{error}</p>}
         {message && <p role="status" style={{ color: '#087443' }}>{message}</p>}
       </form>
@@ -494,14 +601,16 @@ function parseStoredAccounts(value: unknown): GarminStoredAccount[] | undefined 
     if (typeof item !== 'object' || item === null || Array.isArray(item)) return undefined
     const candidate = item as Record<string, unknown>
     const keys = Object.keys(candidate).sort()
-    const expectedKeys = candidate.revision === undefined
-      ? ['alias', 'id', 'region', 'slot']
-      : ['alias', 'id', 'region', 'revision', 'slot']
+    const expectedKeys = ['alias', 'id', 'region', 'slot',
+      ...(candidate.revision === undefined ? [] : ['revision']),
+      ...(candidate.provider === undefined ? [] : ['provider']),
+    ].sort()
     if (keys.length !== expectedKeys.length
       || keys.some((key, index) => key !== expectedKeys[index])
       || typeof candidate.id !== 'string'
       || !/^[a-z][a-z0-9_-]{0,31}$/.test(candidate.id)
       || (candidate.region !== 'cn' && candidate.region !== 'global')
+      || (candidate.provider !== undefined && candidate.provider !== 'connect-web' && candidate.provider !== 'personal')
       || typeof candidate.alias !== 'string'
       || !isAlias(candidate.alias)
       || !Number.isSafeInteger(candidate.slot)
@@ -519,6 +628,7 @@ function parseStoredAccounts(value: unknown): GarminStoredAccount[] | undefined 
       region: candidate.region,
       alias: candidate.alias,
       slot: candidate.slot as number,
+      ...(candidate.provider === 'personal' ? { provider: 'personal' as const } : {}),
       ...(typeof candidate.revision === 'string' ? { revision: candidate.revision } : {}),
     })
   }

@@ -1,6 +1,6 @@
 # dsh-plugin-garmin-connect
 
-> 一个基于 TypeScript、包含**安全浏览器 MFA 认证**的 Garmin Connect 插件与 MCP 服务器：为 DeepSeek Harness 打造，也适用于更多 AI Agent。
+> 一个基于 TypeScript、支持**官方 Personal API 与安全浏览器 MFA 认证**的 Garmin Connect 插件与 MCP 服务器：为 DeepSeek Harness 打造，也适用于更多 AI Agent。
 
 [![npm version](https://img.shields.io/npm/v/dsh-plugin-garmin-connect.svg?logo=npm)](https://www.npmjs.com/package/dsh-plugin-garmin-connect)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-plugin-garmin-connect.svg?logo=npm)](https://www.npmjs.com/package/dsh-plugin-garmin-connect)
@@ -72,9 +72,12 @@
 
 ### 注册的工具
 
-0.1.18 共注册 **28 个工具**，其中 24 个用于读取数据或本地知识查询；
+0.1.19 为 Connect 网页会话账号提供 **28 个工具**，其中 24 个用于读取数据或本地知识查询；
 `download_garmin_activity_fit` 会在 MCP/dsh 所在主机写入一个本地文件。
 创建课表、删除课表和取消日历排期会在用户显式确认后修改 Garmin 数据。
+仅配置 Personal 的 DSH 连接和 Personal MCP 服务提供 **15 个兼容工具**，覆盖
+Garmin 数据读取、FIT 本地下载和本地训练知识查询。DSH 混合配置两种账号时保留
+工具合集，并按所选账号的能力执行调用。
 0.1.14 引入的下方 13 个恢复与训练工具通过精确 npm 别名依赖已发布的维护版
 SDK，详见[自行维护的 SDK 依赖](#自行维护的-sdk-依赖)。
 
@@ -249,6 +252,72 @@ npx @deepseek-ai/dsh web
 
 ### 3. 准备登录时再配置 Garmin 账号
 
+每个账号分别选择接入方式。原有浏览器流程继续可用；新的 Personal API 方式见下方说明。
+
+#### 官方 Personal API（0.1.19 新增）
+
+**0.1.19 已提供。** 插件使用参考佳明官方 Python 客户端开发、独立维护的
+[connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts)，
+SDK 已以 [@likenttt/connect-personal-api-ts@0.1.0](https://www.npmjs.com/package/@likenttt/connect-personal-api-ts/v/0.1.0)
+发布到官方 npm。所需 SDK 随插件提供，使用者无需额外安装。
+SDK 负责 Personal API Key 换取令牌及其支持的数据读取。
+
+在 Harness 插件设置中，点击 **+**，选择**官方 Personal API（国际版，只读）**
+接入方式，填写别名和 API Key，保存后点击**验证连接**。不要求邮箱或 Garmin 密码；
+**新建 Personal 账号只需别名和 API Key 两项，默认连接国际版 `.com`**，不要求填写
+邮箱、密码或地区。已有大陆 Personal 账号保留 `cn` 配置，并显示当前不可访问提示。
+保存后的 Key 不会回填到设置表单，也不返回给 AI 工具。
+[真实 Harness 桌面截图](docs/assets/personal-api-guide/global-06-harness-connected.png)和
+[桌面验收报告](docs/testing/personal-api-harness-desktop-2026-10-22.md)记录了候选版的
+6 次真实读取：5 次 Personal API、1 次原大陆网页会话，全部通过。重启后设置保留，再次验证连接成功。
+
+独立 MCP 可直接使用正式 npm 包：
+
+```json
+{
+  "mcpServers": {
+    "garmin-personal": {
+      "command": "npx",
+      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.19", "garmin-connect-mcp"],
+      "env": {
+        "GARMIN_PROVIDER": "personal",
+        "GARMIN_ACCOUNT": "my-garmin",
+        "GARMIN_ALIAS": "我的佳明国际版",
+        "GARMIN_REGION": "global",
+        "GARMIN_PERSONAL_API_KEY_FILE": "/absolute/private/path/garmin-personal.key"
+      }
+    }
+  }
+}
+```
+
+密钥文件只包含 Key，使用仅所有者可访问的权限。也支持由私密环境注入
+`GARMIN_PERSONAL_API_KEY`；真实 Key 不写入可分享的 JSON、源码、截图或 AI 对话。
+这种方式不需要 `GARMIN_USERNAME` 或浏览器 session。`GARMIN_ALIAS` 是显示别名，
+`GARMIN_ACCOUNT` 是稳定的机器 ID，两者均不是邮箱。独立 MCP 保留显式地区配置：
+`GARMIN_REGION=global` 使用
+`personal.connectapi.garmin.com`，`GARMIN_REGION=cn` 使用
+`personal.connectapi.garmin.cn`；应与创建 Key 的区域对应。Personal 认证失败不会
+静默切换浏览器会话，也不会把 Key 发送到另一区域。
+
+Personal 支持其公开范围内的**读取**，包括 HRV、血氧；呼吸读取为可用的日／睡眠汇总。
+创建、删除课表和日历操作仍需单独配置**Connect 网页会话（原有方式）**账号，Personal
+当前不提供这些操作或 Webhook。原有方式虽然在 Garmin 官方页面登录，其网页会话
+数据调用并不等于 Personal API 官方授权。详见
+[图文申请指南与实测结果](docs/guides/garmin-personal-api-guide.zh-CN.md)及
+[官方申请说明](https://developer.garmin.com/gc-developer-program/personal/personal-api/)。
+
+**2026-10-22 区域验证：**国际账号新建的独立 Key 请求 `.com`，令牌交换、8 项 SDK
+读取和 5 项真实 MCP 工具读取通过；大陆 Key 请求 `.cn` 返回 HTTP 526，
+**大陆 Personal 端点当前不可用**。两区凭据分开保存与使用，没有跨区回退。详见
+[端点测试报告](docs/research/personal-api-endpoint-test-report-2026-10-22.md)。
+
+维护 SDK 时，先提交独立仓库，再运行
+`npm run sync:personal-sdk -- /absolute/path/to/connect-personal-api-ts`。
+插件内的源码快照会记录来源提交、文件哈希与版权声明。
+
+#### 浏览器 Connect 配置
+
 Harness 插件安装和启动时可以不填 Garmin 邮箱。在本机 Harness 的**插件**页面打开
 **dsh-plugin-garmin-connect**，找到**Garmin 账号配置**，点击 **+** 逐个添加账号，
 最多五个。每个账号分别选择中国区（cn）或国际区（global），同一区域可添加多个账号，
@@ -277,7 +346,7 @@ cp .env.example .env
 
 | 环境变量 | 必填 | 说明 |
 |---|---|---|
-| `GARMIN_USERNAME` | CLI/MCP | Garmin 账号邮箱；Harness 用户可在安装后通过插件设置填写 |
+| `GARMIN_USERNAME` | 浏览器 CLI/MCP | Garmin 账号邮箱；Harness 用户可在安装后通过插件设置填写。Personal API 不需要 |
 | `GARMIN_ACCOUNT` | ❌ | Web/CLI/MCP 隐式 session 路径使用的小写本地别名（未设置时为 `default`） |
 | `GARMIN_PASSWORD` | ✅* | 旧版直接登录密码；不要用于下方的 MFA 交互式初始化 |
 | `GARMIN_SESSION_TOKEN` | ✅* | 内联预认证令牌（仍支持，但 session 文件更安全） |
@@ -289,7 +358,7 @@ cp .env.example .env
 | `GARMIN_LOG_LEVEL` | ❌ | 日志级别：`debug` \| `info` \| `warn` \| `error` |
 | `GARMIN_ACTIVITY_DETAIL` | ❌ | `full`（默认，保留活动列表中可用的扩展字段；仅当 Garmin 提供时才包含圈数和分段摘要，且可能包含精确路线/位置）或 `compact`（精简输出）。凭据及无关账号/社交标识会被过滤。 |
 
-> \* 正常读取数据时，`GARMIN_PASSWORD`、`GARMIN_SESSION_TOKEN`、
+> \* 浏览器 Connect 读取数据时，`GARMIN_PASSWORD`、`GARMIN_SESSION_TOKEN`、
 > `GARMIN_SESSION_TOKEN_FILE` 三选一即可；本机 Web、`auth:serve` 和独立 MCP
 > 可以在三者都没有时启动，并创建隐式账号 session 文件。开始登录前仍需配置账号邮箱；
 > Harness 用户可以安装后在插件设置中填写。受保护的 session 文件比内联
@@ -914,9 +983,11 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-MCP 服务器通过标准协议暴露与 dsh 插件**相同的 28 个工具及日期语义**：
+使用 Connect 网页会话账号时，MCP 服务器通过标准协议暴露与 dsh 插件
+**相同的 28 个工具及日期语义**：
 原有 10 个工具、3 个课表管理工具、前述 13 个恢复与训练工具，以及
-2 个血氧与呼吸单日读取工具。独立 MCP 每个进程使用配置的账号，
+2 个血氧与呼吸单日读取工具。Personal MCP 提供前述 **15 个兼容工具**，配置方式见
+[官方 Personal API](#官方-personal-api0119-新增)。独立 MCP 每个进程使用配置的账号，
 DSH 则支持工具级 `account` 选择。任何 AI 可调用工具都不接收密码/MFA，也不导出 Session Token；浏览器认证
 通过对话之外的本机 URL elicitation 完成，完成后由用户重试原工具。
 
@@ -1232,7 +1303,7 @@ npx @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
   - [ ] 增加显式开启的单向轮询同步；dsh 运行时定期检查，重启后补查
   - [ ] 首版不做双向同步、自动删除或 Garmin 全量元数据镜像
 - [ ] **Webhook 推送** — 活动上传实时通知
-- [ ] **OAuth 2.0** — 等待 Garmin 开放个人用途的官方 API 后迁移
+- [x] **官方 Personal API（0.1.19）** — DSH 与 MCP 支持 API Key／token 接入、别名与 Key 两项设置，以及 15 个兼容的读取／本地工具
 
 ---
 

@@ -1,3 +1,4 @@
+import { PublicToolError } from '../src/utils/errors'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   registerEmbeddedAuthRpc,
@@ -185,6 +186,7 @@ describe('DSH embedded Garmin authentication RPC', () => {
       '/api/garmin-auth/begin',
       '/api/garmin-auth/status',
       '/api/garmin-auth/cancel',
+      '/api/garmin-auth/verify',
     ])
     for (const [route] of register.mock.calls) {
       expect(route).toEqual(expect.objectContaining({
@@ -1004,5 +1006,63 @@ describe('DSH embedded authentication for named accounts', () => {
       expect(subject.disposeRpc.mock.invocationCallOrder[0])
         .toBeLessThan(controller.close.mock.invocationCallOrder[0])
     }
+  })
+})
+
+
+describe('Personal API settings verification RPC', () => {
+  function personalFixture() {
+    const subject = fixture()
+    let connected = false
+    const client = {
+      getAuthenticatedAccount: jest.fn(() => undefined),
+      getAuthenticationRequirement: jest.fn(() => undefined),
+      replacePersistedSession: jest.fn(),
+      personalApiConnected: jest.fn(() => connected),
+      connect: jest.fn(async () => { connected = true }),
+    }
+    registerEmbeddedAuthRpcAccounts(subject.ctx as unknown as Context, [{
+      accountId: 'personal-cn', slot: 1, region: 'cn', configured: true,
+      revision: 'a'.repeat(32), alias: 'Official API',
+      config: { provider: 'personal', username: '', region: 'cn', personalApiKey: 'test-only-private-key' } as never,
+      client: client as never,
+    }], { createController: subject.factory })
+    return { ...subject, client, handler: subject.handle.mock.calls[0][1], signal: new AbortController().signal }
+  }
+
+  it('does not create browser controllers or send credentials and verifies explicitly', async () => {
+    const subject = personalFixture()
+    expect(subject.factory).not.toHaveBeenCalled()
+    await expect(subject.handler('begin', { accountId: 'personal-cn' }, subject.signal)).resolves.toEqual({
+      ok: true, value: { success: false, code: 'configuration' },
+    })
+    await expect(subject.handler('verify', { accountId: 'personal-cn', expectedRegion: 'cn', expectedRevision: 'a'.repeat(32) }, subject.signal))
+      .resolves.toEqual({ ok: true, value: { success: true, accountId: 'personal-cn', provider: 'personal', connected: true } })
+    const accounts = await subject.handler('account', {}, subject.signal)
+    expect(parseGarminAuthAccountsRpcResult(accounts)).toMatchObject({ success: true, accounts: [{ provider: 'personal', authenticated: true }] })
+    expect(JSON.stringify(accounts)).not.toContain('test-only-private-key')
+    expect(JSON.stringify(accounts)).not.toContain('email')
+    const account = await subject.handler('account', { accountId: 'personal-cn' }, subject.signal)
+    expect(parseGarminAuthAccountRpcResult(account)).toMatchObject({ success: true, provider: 'personal', authenticated: true })
+    expect(subject.client.getAuthenticatedAccount).not.toHaveBeenCalled()
+  })
+
+  it('rejects old revisions and credential-bearing RPC requests before connecting', async () => {
+    const subject = personalFixture()
+    await expect(subject.handler('verify', { accountId: 'personal-cn', expectedRegion: 'cn', expectedRevision: 'b'.repeat(32) }, subject.signal))
+      .resolves.toEqual({ ok: true, value: { success: false, code: 'stale_config' } })
+    await expect(subject.handler('verify', { accountId: 'personal-cn', personalApiKey: 'injected-key' }, subject.signal))
+      .resolves.toEqual({ ok: true, value: { success: false, code: 'unavailable' } })
+    expect(subject.client.connect).not.toHaveBeenCalled()
+  })
+
+  it('returns only safe public errors and explicitly redacts the configured key', async () => {
+    const subject = personalFixture()
+    subject.client.connect.mockRejectedValueOnce(new PublicToolError('Rejected test-only-private-key'))
+    const response = await subject.handler('verify', { accountId: 'personal-cn' }, subject.signal)
+    expect(response).toEqual({ ok: true, value: { success: false, code: 'unavailable', message: 'Rejected [REDACTED]' } })
+    subject.client.connect.mockRejectedValueOnce(new Error('private upstream response'))
+    expect(JSON.stringify(await subject.handler('verify', { accountId: 'personal-cn' }, subject.signal)))
+      .not.toContain('private upstream response')
   })
 })

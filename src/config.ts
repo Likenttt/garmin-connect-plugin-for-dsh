@@ -16,6 +16,7 @@ dotenv.config()
 // ---------------------------------------------------------------------------
 
 export type GarminRegion = 'global' | 'cn'
+export type GarminProvider = 'connect-web' | 'personal'
 export const MAX_GARMIN_ACCOUNTS = 5
 export const ACCOUNT_REVISION_PATTERN = /^[0-9a-f]{32}$/
 
@@ -23,6 +24,8 @@ export interface AccountMetadata {
   /** Stable opaque identity; never derived from the region or email. */
   id: string
   region: GarminRegion
+  /** Omitted for browser sessions saved before Personal API support. */
+  provider?: GarminProvider
   alias: string
   /** One of the five private email fields. The slot may be reused with a new ID. */
   slot: number
@@ -31,6 +34,12 @@ export interface AccountMetadata {
 }
 
 export interface Config {
+  /** Browser Connect sessions or the official read-only Personal API. */
+  provider?: GarminProvider
+  /** User-facing label; independent of the stable account ID. Env: GARMIN_ALIAS. */
+  accountAlias?: string
+  personalApiKey?: string
+  personalApiKeyFile?: string
   /** Garmin account email address */
   username: string
   /** Garmin account password (loaded from env by default) */
@@ -49,7 +58,7 @@ export interface Config {
   globalUsername?: string
   globalAlias?: string
   globalConfigured?: boolean
-  /** Public account list; emails are stored separately in secret slot fields. */
+  /** Public account list; credentials are stored separately in secret slot fields. */
   accounts?: AccountMetadata[]
   /** True once the account list was explicitly saved, including an empty list. */
   accountsConfigured?: boolean
@@ -64,6 +73,16 @@ export interface Config {
   account3UsernameId?: string
   account4UsernameId?: string
   account5UsernameId?: string
+  account1PersonalApiKey?: string
+  account1PersonalApiKeyId?: string
+  account2PersonalApiKey?: string
+  account2PersonalApiKeyId?: string
+  account3PersonalApiKey?: string
+  account3PersonalApiKeyId?: string
+  account4PersonalApiKey?: string
+  account4PersonalApiKeyId?: string
+  account5PersonalApiKey?: string
+  account5PersonalApiKeyId?: string
   /** In-memory cache TTL in seconds (0 = disabled) */
   cacheTtl: number
   /** Garmin request timeout in milliseconds */
@@ -82,13 +101,23 @@ interface ConfigReference<T> {
 }
 
 export type PluginConfig = Omit<Config,
-  'username' | 'region' | 'cnUsername' | 'cnAlias' | 'cnConfigured'
+  'username' | 'region' | 'provider' | 'accountAlias' | 'personalApiKey' | 'personalApiKeyFile' | 'cnUsername' | 'cnAlias' | 'cnConfigured'
   | 'globalUsername' | 'globalAlias' | 'globalConfigured'
   | 'accounts' | 'accountsConfigured'
   | 'account1Username' | 'account2Username' | 'account3Username'
   | 'account4Username' | 'account5Username'
   | 'account1UsernameId' | 'account2UsernameId' | 'account3UsernameId'
-  | 'account4UsernameId' | 'account5UsernameId'> & {
+  | 'account4UsernameId' | 'account5UsernameId'
+  | 'account1PersonalApiKey' | 'account1PersonalApiKeyId'
+  | 'account2PersonalApiKey' | 'account2PersonalApiKeyId'
+  | 'account3PersonalApiKey' | 'account3PersonalApiKeyId'
+  | 'account4PersonalApiKey' | 'account4PersonalApiKeyId'
+  | 'account5PersonalApiKey' | 'account5PersonalApiKeyId'
+> & {
+  provider?: GarminProvider | ConfigReference<GarminProvider>
+  accountAlias?: string | ConfigReference<string>
+  personalApiKey?: string | ConfigReference<string>
+  personalApiKeyFile?: string | ConfigReference<string>
   username: ConfigReference<string>
   region: ConfigReference<GarminRegion>
   cnUsername?: string | ConfigReference<string>
@@ -109,6 +138,16 @@ export type PluginConfig = Omit<Config,
   account3UsernameId?: string | ConfigReference<string>
   account4UsernameId?: string | ConfigReference<string>
   account5UsernameId?: string | ConfigReference<string>
+  account1PersonalApiKey?: string | ConfigReference<string>
+  account1PersonalApiKeyId?: string | ConfigReference<string>
+  account2PersonalApiKey?: string | ConfigReference<string>
+  account2PersonalApiKeyId?: string | ConfigReference<string>
+  account3PersonalApiKey?: string | ConfigReference<string>
+  account3PersonalApiKeyId?: string | ConfigReference<string>
+  account4PersonalApiKey?: string | ConfigReference<string>
+  account4PersonalApiKeyId?: string | ConfigReference<string>
+  account5PersonalApiKey?: string | ConfigReference<string>
+  account5PersonalApiKeyId?: string | ConfigReference<string>
 }
 
 export interface ResolvedAccountConfig {
@@ -133,6 +172,14 @@ export interface ResolvedAccountConfig {
  * the Harness trajectory / tool-call history.
  */
 export const Config = z.object({
+  provider: z.union(['connect-web', 'personal'] as const)
+    .default(envChoice(process.env.GARMIN_PROVIDER, ['connect-web', 'personal'] as const, 'connect-web')).description('Connection provider. Env: GARMIN_PROVIDER').volatile(),
+  accountAlias: z.string().default('')
+    .description('Display alias for the Garmin account. Env: GARMIN_ALIAS').volatile(),
+  personalApiKey: z.string().role('secret').default('')
+    .description('Official Garmin Personal API key. Env: GARMIN_PERSONAL_API_KEY').volatile(),
+  personalApiKeyFile: z.string().role('secret').default('')
+    .description('Private file containing an official Personal API key. Env: GARMIN_PERSONAL_API_KEY_FILE').volatile(),
   username: z.string()
     .role('secret')
     .default('')
@@ -194,13 +241,14 @@ export const Config = z.object({
   accounts: z.array(z.object({
     id: z.string(),
     region: z.union(['global', 'cn'] as const),
+    provider: z.union(['connect-web', 'personal'] as const),
     alias: z.string(),
     slot: z.number().min(1).max(MAX_GARMIN_ACCOUNTS),
     revision: z.string().pattern(ACCOUNT_REVISION_PATTERN),
   }))
     .max(MAX_GARMIN_ACCOUNTS)
     .default([])
-    .description('Public metadata for up to five Garmin accounts; account emails are stored separately.')
+    .description('Public metadata for up to five Garmin accounts; credentials are stored separately.')
     .volatile(),
 
   accountsConfigured: z.boolean()
@@ -218,6 +266,17 @@ export const Config = z.object({
   account3UsernameId: z.string().default('').volatile(),
   account4UsernameId: z.string().default('').volatile(),
   account5UsernameId: z.string().default('').volatile(),
+  account1PersonalApiKey: z.string().role('secret').default('').volatile(),
+  account1PersonalApiKeyId: z.string().default('').volatile(),
+  account2PersonalApiKey: z.string().role('secret').default('').volatile(),
+  account2PersonalApiKeyId: z.string().default('').volatile(),
+  account3PersonalApiKey: z.string().role('secret').default('').volatile(),
+  account3PersonalApiKeyId: z.string().default('').volatile(),
+  account4PersonalApiKey: z.string().role('secret').default('').volatile(),
+  account4PersonalApiKeyId: z.string().default('').volatile(),
+  account5PersonalApiKey: z.string().role('secret').default('').volatile(),
+  account5PersonalApiKeyId: z.string().default('').volatile(),
+
 
   cacheTtl: z.number()
     .min(0)
@@ -254,6 +313,11 @@ export const Config = z.object({
 export function resolveConfig(input: Config | PluginConfig): Config {
   return {
     ...input,
+    provider: readVolatile(input.provider)
+      ?? envChoice(process.env.GARMIN_PROVIDER, ['connect-web', 'personal'] as const, 'connect-web'),
+    accountAlias: preferNonEmpty(readVolatile(input.accountAlias), process.env.GARMIN_ALIAS).trim(),
+    personalApiKey: preferNonEmpty(readVolatile(input.personalApiKey), process.env.GARMIN_PERSONAL_API_KEY),
+    personalApiKeyFile: preferNonEmpty(readVolatile(input.personalApiKeyFile), process.env.GARMIN_PERSONAL_API_KEY_FILE),
     username: preferNonEmpty(readVolatile(input.username), process.env.GARMIN_USERNAME),
     region: readVolatile(input.region) ?? 'global',
     cnUsername: readVolatile(input.cnUsername) ?? '',
@@ -274,6 +338,16 @@ export function resolveConfig(input: Config | PluginConfig): Config {
     account3UsernameId: readVolatile(input.account3UsernameId) ?? '',
     account4UsernameId: readVolatile(input.account4UsernameId) ?? '',
     account5UsernameId: readVolatile(input.account5UsernameId) ?? '',
+    account1PersonalApiKey: readVolatile(input.account1PersonalApiKey) ?? '',
+    account1PersonalApiKeyId: readVolatile(input.account1PersonalApiKeyId) ?? '',
+    account2PersonalApiKey: readVolatile(input.account2PersonalApiKey) ?? '',
+    account2PersonalApiKeyId: readVolatile(input.account2PersonalApiKeyId) ?? '',
+    account3PersonalApiKey: readVolatile(input.account3PersonalApiKey) ?? '',
+    account3PersonalApiKeyId: readVolatile(input.account3PersonalApiKeyId) ?? '',
+    account4PersonalApiKey: readVolatile(input.account4PersonalApiKey) ?? '',
+    account4PersonalApiKeyId: readVolatile(input.account4PersonalApiKeyId) ?? '',
+    account5PersonalApiKey: readVolatile(input.account5PersonalApiKey) ?? '',
+    account5PersonalApiKeyId: readVolatile(input.account5PersonalApiKeyId) ?? '',
     password: preferNonEmpty(input.password, process.env.GARMIN_PASSWORD),
     sessionToken: preferNonEmpty(input.sessionToken, process.env.GARMIN_SESSION_TOKEN),
     sessionTokenFile: preferNonEmpty(
@@ -293,6 +367,16 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
   const legacyAlias = process.env.GARMIN_ACCOUNT?.trim() || 'default'
   const legacyPath = base.sessionTokenFile?.trim()
     || (ACCOUNT_ALIAS_PATTERN.test(legacyAlias) ? defaultAccountSessionPath(legacyAlias) : '')
+
+  // A global Personal configuration needs no email and never inherits web credentials.
+  if (!base.accountsConfigured && (base.accounts?.length ?? 0) === 0 && base.provider === 'personal') {
+    const alias = base.accountAlias || 'Personal API'
+    return [{
+      accountId: 'personal-default', slot: 1, region: base.region, alias,
+      configured: Boolean(base.personalApiKey?.trim() || base.personalApiKeyFile?.trim()),
+      config: { ...base, accountAlias: alias, username: '', password: '', sessionToken: '', sessionTokenFile: '' },
+    }]
+  }
 
   // These IDs and slots are stable across the migration. The old single account
   // remains in its region, and the two old regional fields retain their paths.
@@ -320,6 +404,7 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
       configured: true,
       config: {
         ...base,
+        provider: 'connect-web', personalApiKey: '', personalApiKeyFile: '',
         username,
         region,
         password: inheritsSingle ? base.password : '',
@@ -345,6 +430,7 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
       || (entry.region !== 'cn' && entry.region !== 'global')
       || !Number.isInteger(entry.slot)
       || entry.slot < 1 || entry.slot > MAX_GARMIN_ACCOUNTS
+      || (entry.provider !== undefined && entry.provider !== 'connect-web' && entry.provider !== 'personal')
       || typeof entry.alias !== 'string'
       || (entry.revision !== undefined
         && (typeof entry.revision !== 'string'
@@ -355,6 +441,21 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
     }
     seenIds.add(entry.id)
     seenSlots.add(entry.slot)
+
+    if (entry.provider === 'personal') {
+      const key = personalSlotOwner(base, entry.slot) === entry.id
+        ? personalSlotKey(base, entry.slot).trim() : ''
+      return {
+        accountId: entry.id, slot: entry.slot, region: entry.region,
+        alias: entry.alias.trim().slice(0, 64), configured: Boolean(key),
+        ...(entry.revision === undefined ? {} : { revision: entry.revision }),
+        config: {
+          ...base, provider: 'personal', personalApiKey: key, personalApiKeyFile: '',
+          accountAlias: entry.alias.trim().slice(0, 64),
+          username: '', region: entry.region, password: '', sessionToken: '', sessionTokenFile: '',
+        },
+      }
+    }
 
     const storedUsername = secretSlotOwner(base, entry.slot) === entry.id
       ? secretSlotUsername(base, entry.slot).trim()
@@ -382,6 +483,7 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
       ...(entry.revision === undefined ? {} : { revision: entry.revision }),
       config: {
         ...base,
+        provider: 'connect-web', personalApiKey: '', personalApiKeyFile: '',
         username,
         region: entry.region,
         password: sameLegacyBinding ? inherited.config.password : '',
@@ -390,6 +492,14 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
       },
     }
   })
+}
+
+function personalSlotKey(config: Config, slot: number): string {
+  return (config as unknown as Record<string, string | undefined>)[`account${slot}PersonalApiKey`] ?? ''
+}
+
+function personalSlotOwner(config: Config, slot: number): string {
+  return (config as unknown as Record<string, string | undefined>)[`account${slot}PersonalApiKeyId`] ?? ''
 }
 
 function secretSlotUsername(config: Config, slot: number): string {

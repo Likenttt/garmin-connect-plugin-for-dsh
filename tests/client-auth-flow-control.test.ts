@@ -1,5 +1,6 @@
 import {
   beginGarminAuthAfterConfigSave,
+  verifyGarminPersonalConnection,
   callGarminAuthRpc,
   releaseGarminAuthFlow,
   retainUnreleasedGarminAuthFlowId,
@@ -242,5 +243,32 @@ describe('DSH Garmin authentication flow control', () => {
     expect(retainUnreleasedGarminAuthFlowId(existingFlowId, flowId, false))
       .toBe(existingFlowId)
     expect(retainUnreleasedGarminAuthFlowId(undefined, flowId, true)).toBeUndefined()
+  })
+})
+
+
+describe('Personal API verification after config reload', () => {
+  it('waits for the exact saved revision and does not send any credential', async () => {
+    jest.useFakeTimers()
+    try {
+      const payload = { accountId: 'personal-a', expectedRegion: 'cn' as const, expectedRevision: 'a'.repeat(32) }
+      const connected = { success: true as const, accountId: 'personal-a', provider: 'personal', connected: true }
+      const call = jest.fn().mockResolvedValueOnce({ ok: true, value: { success: false, code: 'stale_config' } })
+        .mockResolvedValueOnce({ ok: true, value: connected })
+      const result = verifyGarminPersonalConnection({ call }, payload, new AbortController().signal)
+      await jest.advanceTimersByTimeAsync(500)
+      await expect(result).resolves.toEqual(connected)
+      expect(call).toHaveBeenCalledTimes(2)
+      expect(call.mock.calls.every(args => args[1] === 'garmin-auth/verify' && args[2] === payload)).toBe(true)
+    } finally { jest.useRealTimers() }
+  })
+
+  it('does not repeat a rejected credential verification', async () => {
+    const failure = { success: false as const, code: 'unavailable', message: 'Key expired' }
+    const call = jest.fn().mockResolvedValue({ ok: true, value: failure })
+    await expect(verifyGarminPersonalConnection({ call }, {
+      accountId: 'personal-a', expectedRegion: 'global', expectedRevision: 'a'.repeat(32),
+    }, new AbortController().signal)).resolves.toEqual(failure)
+    expect(call).toHaveBeenCalledTimes(1)
   })
 })

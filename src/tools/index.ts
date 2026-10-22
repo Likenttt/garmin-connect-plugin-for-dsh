@@ -1,5 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
-import type { GarminClient } from '../client'
+import type { GarminClientLike } from '../client'
+import { PERSONAL_TOOL_NAMES } from '../personal-capabilities'
 import type { Config, GarminRegion } from '../config'
 import { HEALTH_TOOLS } from '../health-tools'
 import type { HealthMetricArgs } from '../health-tools'
@@ -37,7 +38,7 @@ export interface GarminToolAccount {
   region: GarminRegion
   alias?: string
   configured: boolean
-  client: GarminClient
+  client: GarminClientLike
   config: Config
 }
 
@@ -60,15 +61,25 @@ const accountParameter = {
  *     execution result into text content blocks for the UI / trajectory.
  */
 export function registerTools(ctx: Context, accounts: readonly GarminToolAccount[]): void {
-  const tools = (ctx as any).tools
+  const registry = (ctx as any).tools
+  let registeredCount = 0
+  const personalOnly = accounts.length > 0 && accounts.every(account => account.config.provider === 'personal')
+  const tools = { register: (definition: { name: string; [key: string]: unknown }) => {
+    if (!personalOnly || PERSONAL_TOOL_NAMES.has(definition.name)) {
+      registry.register(definition)
+      registeredCount += 1
+    }
+  } }
   const configuredAccounts = accounts.filter(account => account.configured)
-  const services = new Map(accounts.map(({ accountId, region, client, config }) => [
+  const services = new Map(accounts.map(({ accountId, alias, region, client, config }) => [
     accountId,
     new GarminToolService(client, {
       accountId,
+      accountAlias: alias,
+      provider: config.provider,
       activityDetail: config.activityDetail,
       fitDownloadDir: config.fitDownloadDir,
-      accountUsername: config.username,
+      accountUsername: config.provider === 'personal' ? `personal:${accountId}` : config.username,
       accountRegion: region,
     }),
   ] as const))
@@ -88,7 +99,10 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
         throw new PublicToolError(`No Garmin ${accountId} account is configured. Add it in the plugin settings.`)
       }
       if (accounts.some(account => account.accountId === accountId)) {
-        throw new PublicToolError(`Garmin account ${accountId} has no email configured. Add it in the plugin settings.`)
+        const selected = accounts.find(account => account.accountId === accountId)
+        throw new PublicToolError(selected?.config.provider === 'personal'
+          ? `Garmin account ${accountId} has no Personal API Key configured. Add it in the plugin settings.`
+          : `Garmin account ${accountId} has no email configured. Add it in the plugin settings.`)
       }
       throw new PublicToolError(`Garmin account ${accountId} is not configured. Select an account ID from the plugin settings.`)
     }
@@ -96,13 +110,15 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
     if (configuredAccounts.length === 0) {
       throw new PublicToolError('No Garmin account is configured. Add an account in the plugin settings.')
     }
-    const ids = configuredAccounts.map(account => account.accountId).join(', ')
+    const ids = configuredAccounts.map(account => account.alias
+      ? `${account.accountId} (${JSON.stringify(account.alias)})`
+      : account.accountId).join(', ')
     throw new PublicToolError(`Multiple Garmin accounts are configured. Set account to an account ID: ${ids}.`)
   }
   // Running concepts and intake are local knowledge. Keep them usable before
   // login and without account selection; only activity enrichment reads Garmin.
   const knowledgeService = services.values().next().value as GarminToolService | undefined
-    ?? new GarminToolService({} as GarminClient, {
+    ?? new GarminToolService({} as GarminClientLike, {
       activityDetail: 'full',
       fitDownloadDir: '',
       accountUsername: '',
@@ -654,7 +670,7 @@ export function registerTools(ctx: Context, accounts: readonly GarminToolAccount
     },
   })
 
-  ctx.logger.info(`[garmin] Registered ${13 + HEALTH_TOOLS.length} tools.`)
+  ctx.logger.info(`[garmin] Registered ${registeredCount} tools.`)
 }
 
 // ---------------------------------------------------------------------------
