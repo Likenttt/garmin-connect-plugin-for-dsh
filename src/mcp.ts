@@ -43,6 +43,7 @@ import { resolveFitDownloadDir } from './utils/path'
 import { GARMIN_RESOURCE_ID_PATTERN } from './workout-management'
 import type {
   DeleteWorkoutArgs,
+  ScheduleWorkoutArgs,
   ScheduledWorkoutsArgs,
   UnscheduleWorkoutArgs,
 } from './workout-management'
@@ -56,6 +57,7 @@ type ToolService = Pick<
   | 'getWeight'
   | 'getWorkouts'
   | 'getScheduledWorkouts'
+  | 'scheduleWorkout'
   | 'deleteWorkout'
   | 'unscheduleWorkout'
   | 'getProfile'
@@ -281,6 +283,28 @@ export function createMcpServer(
   )
 
   register(
+    'schedule_garmin_workout',
+    'Schedule one existing workout library template on a specified Garmin calendar date. ' +
+      'First call without confirmed=true for a preview. Show the preview account, workout, and date ' +
+      'to the user, then only after explicit approval call again with the same workoutId, date, ' +
+      'confirmed=true, and confirmationId. Never batch-schedule or automatically retry a write. ' +
+      'If the outcome is unknown, read the calendar before further action. Success means scheduled ' +
+      'and waiting for Garmin Connect sync, not confirmed delivery to the watch.',
+    {
+      workoutId: garminResourceIdSchema.describe(
+        'Workout library ID returned by get_garmin_workouts. Use a decimal string for IDs larger than a safe integer.',
+      ),
+      date: z.string().length(10).regex(/^\d{4}-\d{2}-\d{2}$/).describe(
+        'Calendar date to schedule the workout, in YYYY-MM-DD format.',
+      ),
+      ...destructiveConfirmationSchema,
+    },
+    (args: ScheduleWorkoutArgs) => invokeTool(() => service.scheduleWorkout(args)),
+    WRITE_ANNOTATIONS,
+    false,
+  )
+
+  register(
     'delete_garmin_workout',
     'Delete one workout template from the Garmin workout library; this does not cancel a single ' +
       'calendar occurrence. First call without confirmed=true for a preview. Show the preview account ' +
@@ -387,13 +411,19 @@ export function createMcpServer(
   register(
     'create_garmin_workout',
     'Preview a user-specified structured workout first and create it only after explicit user ' +
-      'confirmation. This execution tool does not generate a training plan. If the assistant ' +
+      'confirmation. Optionally set scheduleDate to create and schedule it in the same preview ' +
+      'and approval; omit it to save only to the workout library. A scheduled workout waits for ' +
+      'Garmin Connect sync; never claim delivery to the watch or automatically retry writes. ' +
+      'This execution tool does not generate a training plan. If the assistant ' +
       'derives a personalized workout, it must first complete get_running_skill_advice with ' +
       'mode=personalized; a directly specified workout may be encoded without coaching intake.',
     {
       name: z.string().min(1).max(80),
       description: z.string().max(1024).optional(),
       sport: z.enum(['running', 'cycling', 'swimming', 'strength']).optional(),
+      scheduleDate: z.string().length(10).regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe(
+        'Optional calendar date in YYYY-MM-DD format, included in the same preview and confirmation. Omit to save only to the workout library.',
+      ),
       steps: z.array(workoutStepSchema).min(1).max(100),
       confirmed: z.boolean().optional().describe(
         'Set true only after the user explicitly approves the preview.',

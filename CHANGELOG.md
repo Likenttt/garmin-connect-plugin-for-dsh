@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.20] - 2026-10-22
+
+### Added
+- Add `schedule_garmin_workout` to DSH and MCP for placing an existing workout-library template on an explicit calendar date with a preview and one-use, account/workout/date-bound confirmation.
+- Accept optional `scheduleDate` in `create_garmin_workout` to create a template and then schedule it after one approved preview. Omitting the date retains library-only creation. Connect web-session accounts support these writes; Personal API accounts remain read-only.
+
+### Changed
+- Preserve the created `workoutId` if scheduling fails, so agents can read the calendar and preview only the missing scheduling step rather than creating a duplicate template. Uncertain writes require readback before another attempt.
+- Update bundled agent guidance and bilingual documentation to report successful scheduling as waiting for Garmin Connect sync. Scheduling creates a new calendar entry and does not move or cancel existing entries or trigger watch synchronization.
+
+### Verification
+- The `0.1.20-dev.20261022.1` candidate passed a real macOS DeepSeek Harness `0.2.1-rc.2` desktop check with the China main account. Both creating a workout with a date and separately scheduling the same template succeeded, with independent calendar readback.
+- Both test calendar entries and the test template were removed after verification. The original 42 workout IDs and account configuration were unchanged. Physical watch delivery was not tested. See the [desktop verification record](docs/testing/workout-scheduling-harness-2026-10-22.md).
+
 ## [0.1.19] - 2026-10-22
 
 ### Added

@@ -24,6 +24,8 @@ async function withMcp(service: unknown, action: (client: Client) => Promise<voi
 function serviceStub() {
   return {
     getScheduledWorkouts: jest.fn().mockResolvedValue([]),
+    scheduleWorkout: jest.fn().mockResolvedValue({ requiresConfirmation: true }),
+    createWorkout: jest.fn().mockResolvedValue({ requiresConfirmation: true }),
     deleteWorkout: jest.fn().mockResolvedValue({ requiresConfirmation: true }),
     unscheduleWorkout: jest.fn().mockResolvedValue({ requiresConfirmation: true }),
   }
@@ -42,6 +44,14 @@ describe('MCP workout management', () => {
       expect(scheduled.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false })
       expect(scheduled.inputSchema.additionalProperties).toBe(false)
       expect(scheduled.inputSchema.required ?? []).toEqual([])
+      const schedule = tools.find(tool => tool.name === 'schedule_garmin_workout')!
+      expect(schedule.annotations).toMatchObject({
+        readOnlyHint: false, destructiveHint: false, idempotentHint: false,
+      })
+      expect(schedule.inputSchema).toMatchObject({ required: ['workoutId', 'date'], additionalProperties: false })
+      expect(schedule.inputSchema.properties).not.toHaveProperty('account')
+      expect(schedule.description).toContain('explicit approval')
+      expect(schedule.description).toContain('waiting for Garmin Connect sync')
 
       for (const route of removalRoutes) {
         const tool = tools.find(item => item.name === route.name)!
@@ -54,6 +64,79 @@ describe('MCP workout management', () => {
         expect(tool.description).toContain('automatically retry')
       }
       for (const method of Object.values(service)) expect(method).not.toHaveBeenCalled()
+    })
+  })
+
+  it('validates scheduling IDs, dates, confirmation, and unknown fields before invoking the service', async () => {
+    const service = serviceStub()
+    await withMcp(service, async client => {
+      const args = { workoutId: '9007199254740993', date: '2026-10-23' }
+      for (const invalid of [
+        {}, { workoutId: '42' }, { date: '2026-10-23' },
+        { ...args, workoutId: Number.MAX_SAFE_INTEGER + 1 }, { ...args, workoutId: '01' },
+        { ...args, workoutId: '42\n' }, { ...args, date: '2026-1-23' },
+        { ...args, date: '2026-10-23\n' }, { ...args, date: 20261023 },
+        { ...args, account: 'other' }, { ...args, unexpected: true },
+        { ...args, confirmed: 'true' }, { ...args, confirmationId: 'not-a-uuid' },
+      ]) {
+        const result = await client.callTool({ name: 'schedule_garmin_workout', arguments: invalid })
+        expect(result.isError).toBe(true)
+      }
+      expect(service.scheduleWorkout).not.toHaveBeenCalled()
+      await client.callTool({ name: 'schedule_garmin_workout', arguments: args })
+      expect(service.scheduleWorkout).toHaveBeenCalledWith(args)
+      const confirmed = { ...args, confirmed: true, confirmationId: '90c4d0ef-f0a3-4ea0-b189-60fe9b29b312' }
+      await client.callTool({ name: 'schedule_garmin_workout', arguments: confirmed })
+      expect(service.scheduleWorkout).toHaveBeenCalledWith(confirmed)
+      expect(service.scheduleWorkout).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it('passes an optional creation date through one preview and confirmation contract', async () => {
+    const service = serviceStub()
+    await withMcp(service, async client => {
+      const args = {
+        name: 'Easy', steps: [{ type: 'warmup', endCondition: 'time', endValue: 600 }],
+        scheduleDate: '2026-10-23',
+      }
+      for (const scheduleDate of ['2026-1-23', '2026-10-23\n', 20261023]) {
+        const invalid = await client.callTool({ name: 'create_garmin_workout', arguments: { ...args, scheduleDate } })
+        expect(invalid.isError).toBe(true)
+      }
+      expect(service.createWorkout).not.toHaveBeenCalled()
+      await client.callTool({ name: 'create_garmin_workout', arguments: args })
+      expect(service.createWorkout).toHaveBeenCalledWith(args)
+      const confirmed = { ...args, confirmed: true, confirmationId: '90c4d0ef-f0a3-4ea0-b189-60fe9b29b312' }
+      await client.callTool({ name: 'create_garmin_workout', arguments: confirmed })
+      expect(service.createWorkout).toHaveBeenCalledWith(confirmed)
+      expect(service.scheduleWorkout).not.toHaveBeenCalled()
+    })
+  })
+
+  it('previews an existing workout and schedules its approved date only once', async () => {
+    const backend = {
+      getWorkoutDetail: jest.fn().mockResolvedValue({ workoutId: '42', workoutName: 'Easy' }),
+      getScheduledWorkouts: jest.fn().mockResolvedValue([]),
+      scheduleWorkout: jest.fn().mockResolvedValue({ scheduleId: '61', workoutId: '42', date: '2026-10-23' }),
+    }
+    const service = new GarminToolService(backend as any, {
+      accountId: 'athlete', activityDetail: 'full', fitDownloadDir: '',
+      accountUsername: 'fixture@example.test', accountRegion: 'cn',
+    })
+    await withMcp(service, async client => {
+      const args = { workoutId: '42', date: '2026-10-23' }
+      const preview = resultValue(await client.callTool({ name: 'schedule_garmin_workout', arguments: args }))
+      expect(preview.requiresConfirmation).toBe(true)
+      expect(preview.preview).toMatchObject({ accountId: 'athlete', workoutId: '42', date: args.date })
+      expect(backend.scheduleWorkout).not.toHaveBeenCalled()
+      const confirmed = { ...args, confirmed: true, confirmationId: preview.confirmationId }
+      const approved = await client.callTool({ name: 'schedule_garmin_workout', arguments: confirmed })
+      expect(approved.isError).not.toBe(true)
+      expect(resultValue(approved)).toMatchObject({ success: true })
+      expect(backend.scheduleWorkout).toHaveBeenCalledWith('42', args.date)
+      const replay = await client.callTool({ name: 'schedule_garmin_workout', arguments: confirmed })
+      expect(replay.isError).toBe(true)
+      expect(backend.scheduleWorkout).toHaveBeenCalledTimes(1)
     })
   })
 

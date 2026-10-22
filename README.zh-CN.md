@@ -13,7 +13,7 @@
 
 **由李二牛开发，让 AI 更懂你的 Garmin 训练。**
 
-这是一款开源的 DeepSeek Harness 插件与 MCP 连接器，支持中国区和国际区账号。让 AI 查询完整活动与分段、睡眠、心率和 HRV 等数据，并在你确认后创建、删除训练课表或取消日历排期，更方便地分析训练、调整安排。
+这是一款开源的 DeepSeek Harness 插件与 MCP 连接器，支持中国区和国际区账号。让 AI 查询完整活动与分段、睡眠、心率和 HRV 等数据，并在你确认后创建、排期、删除训练课表或取消日历排期，更方便地分析训练、调整安排。
 
 **账号由你掌握，密码不交给 AI。** 使用推荐的 Garmin 官方网页登录流程，密码和验证码只在官方页面输入，不交给 AI 或开发者。登录会话凭据保存在本机，并通过私密文件权限保护；你授权查询的运动与健康数据，会返回给你选择的 AI 客户端用于分析。
 
@@ -72,9 +72,9 @@
 
 ### 注册的工具
 
-0.1.19 为 Connect 网页会话账号提供 **28 个工具**，其中 24 个用于读取数据或本地知识查询；
+**0.1.20 为 Connect 网页会话账号提供 29 个工具**，其中 24 个用于读取数据或本地知识查询；
 `download_garmin_activity_fit` 会在 MCP/dsh 所在主机写入一个本地文件。
-创建课表、删除课表和取消日历排期会在用户显式确认后修改 Garmin 数据。
+创建课表、安排日期、删除课表和取消日历排期会在用户显式确认后修改 Garmin 数据。
 仅配置 Personal 的 DSH 连接和 Personal MCP 服务提供 **15 个兼容工具**，覆盖
 Garmin 数据读取、FIT 本地下载和本地训练知识查询。DSH 混合配置两种账号时保留
 工具合集，并按所选账号的能力执行调用。
@@ -92,7 +92,8 @@ SDK，详见[自行维护的 SDK 依赖](#自行维护的-sdk-依赖)。
 | `get_garmin_profile`    | 获取经过字段白名单过滤的个人资料摘要 | `{}` 或省略 |
 | `get_running_skill_advice` | 讲解 8 种课型与 4 套训练理念，或先完成必问信息再提供个性化建议 | `{"mode": "explain", "query": "丹尼尔斯", "language": "zh-CN"}` |
 | `download_garmin_activity_fit` | 下载活动的原始归档，并把其中唯一的 FIT 文件安全提取到所配置父目录下的账号目录 | `{"activityId": 123456789}` |
-| `create_garmin_workout` | 预览结构化训练；仅在显式确认后创建 | `{"name": "门槛巡航3×8分钟", "steps": [...]}` |
+| `create_garmin_workout` | 预览并确认创建结构化训练；可用 `scheduleDate` 同时安排日期 | `{"name": "门槛巡航3×8分钟", "steps": [...], "scheduleDate": "2026-10-24"}` |
+| `schedule_garmin_workout` | 为已有课表预览并确认日历日期 | `{"workoutId": "123456", "date": "2026-10-24"}` |
 
 #### 恢复与训练工具（0.1.14 新增）
 
@@ -149,6 +150,29 @@ Harness 配置多个账号时，访问账号数据的工具调用需添加 `acco
 创建训练采用两次调用流程。首次调用只返回预览和一次性
 `confirmationId`；用户确认未更改的预览后，再使用相同训练定义、
 `confirmed: true` 及该 `confirmationId` 调用。确认 ID 10 分钟后失效，且不可复用。
+
+### 课表排期（0.1.20）
+
+使用 Connect 网页会话账号，可以说：“创建这节训练并安排到 2026-10-24”，或
+“把课表 123456 安排到 2026-10-24”。Personal API 账号仍只读。该能力由 0.1.20 正式提供。
+
+- **新课表**：向 `create_garmin_workout` 添加可选
+  `scheduleDate: "2026-10-24"`。一次预览展示课表与日期；用户明确确认后，以完全
+  相同的参数、`confirmed: true` 和返回的 `confirmationId` 执行。不传日期只保存到训练库。
+- **已有课表**：用 `workoutId`、`date` 调用 `schedule_garmin_workout` 取得预览，
+  用户确认后，以相同账号、课表、日期以及 `confirmed: true` 和一次性
+  `confirmationId` 执行。更换账号、课表或日期时重新预览和确认。
+- **完成状态**：日历写入成功后显示“已排期，等待 Garmin Connect 同步”。插件
+  不主动触发手表同步，也不把排期成功称为已到手表。排期工具新增一次日历记录；
+  移动或取消已有排期需要用户另行明确要求。
+
+如果课表已创建但排期失败，保留返回的 `workoutId`，先通过
+`get_garmin_scheduled_workouts` 查询目标日期；仍需补排时，只使用
+`schedule_garmin_workout` 重新预览和确认，不要重复创建课表。任何写操作结果不明确时，
+先只读核对，再决定下一步。
+
+开发候选已通过大陆主账号的真实 Harness 桌面验收：创建并排期、已有课表单独排期均成功，
+测试模板与两条排期已清理，原有 42 条训练库课表保留。详见[排期实测记录](docs/testing/workout-scheduling-harness-2026-10-22.md)。
 
 ### 课表删除与取消排期（0.1.17）
 
@@ -278,7 +302,7 @@ SDK 负责 Personal API Key 换取令牌及其支持的数据读取。
   "mcpServers": {
     "garmin-personal": {
       "command": "npx",
-      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.19", "garmin-connect-mcp"],
+      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.20", "garmin-connect-mcp"],
       "env": {
         "GARMIN_PROVIDER": "personal",
         "GARMIN_ACCOUNT": "my-garmin",
@@ -903,7 +927,9 @@ session 文件；多个条目可共享同一个 FIT 父目录，“区域+邮箱
 及 schema 选择调用；单独更新技能或 SDK 不会给旧插件增加工具。DSH/MCP 的训练建议
 指导也已接入 `get_running_skill_advice`，宿主不会自动读取这份 Markdown 技能。
 
-技能可按用户请求调用 `create_garmin_workout`，先预览训练，经用户确认后创建。
+技能可按用户请求调用 `create_garmin_workout`，先预览训练及可选的 `scheduleDate`，
+经用户确认后执行；已有课表使用 `schedule_garmin_workout` 单独预览和确认日期。
+排期能力由 0.1.20 正式提供。
 使用 `download_garmin_activity_fit` 下载指定活动时，需在 MCP 服务的 `env` 中设置
 `GARMIN_FIT_DOWNLOAD_DIR`，值为可信本地父目录的绝对路径。完整配置步骤见随包附带的
 `references/workbuddy-setup.md`。
@@ -984,8 +1010,8 @@ node lib/mcp.js
 ```
 
 使用 Connect 网页会话账号时，MCP 服务器通过标准协议暴露与 dsh 插件
-**相同的 28 个工具及日期语义**：
-原有 10 个工具、3 个课表管理工具、前述 13 个恢复与训练工具，以及
+**相同的 29 个工具及日期语义**（0.1.20）：
+原有 10 个工具、4 个课表管理工具、前述 13 个恢复与训练工具，以及
 2 个血氧与呼吸单日读取工具。Personal MCP 提供前述 **15 个兼容工具**，配置方式见
 [官方 Personal API](#官方-personal-api0119-新增)。独立 MCP 每个进程使用配置的账号，
 DSH 则支持工具级 `account` 选择。任何 AI 可调用工具都不接收密码/MFA，也不导出 Session Token；浏览器认证
@@ -1208,7 +1234,7 @@ node scripts/check-health-release.cjs \
 ```
 
 五个参数均必填，路径须为绝对路径，报告目标文件须尚不存在。脚本通过编译后的插件
-使用真实 DI 认证和 Garmin 只读请求，执行 DSH 注册的工具；随后校验 MCP 共 28 个
+使用真实 DI 认证和 Garmin 只读请求，执行 DSH 注册的工具；随后校验 MCP 共 29 个
 工具，通过内存 MCP 连接调用 15 个健康与训练工具，检查结果一致性与缓存复用，并回归个人
 资料、运动记录和睡眠工具。原始响应仅留在内存，终端与报告只输出状态、结构/数量及
 请求元信息。该检查不覆盖 Harness 桌面 UI，也不会重新发起浏览器登录；任一检查
@@ -1241,7 +1267,7 @@ src/
 │   ├── running-skills.ts  # 8 种课型 + 4 套精简训练理念
 │   └── workout-schema.ts  # 训练定义 → Garmin JSON 构建器
 ├── tools/
-│   └── index.ts      # 工具定义与注册（28 个工具）
+│   └── index.ts      # 工具定义与注册（29 个工具）
 └── utils/
     ├── errors.ts      # 安全错误输出与上游日志脱敏
     ├── cache.ts       # 内存 TTL/LRU 缓存与 single-flight 刷新
@@ -1282,6 +1308,7 @@ npx @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
 - [x] **身体成分** — 体重、BMI、体脂率
 - [x] **训练库** — 查询可复用的 Garmin 训练模板
 - [x] **创建训练** — 安全预览并创建训练库条目
+- [x] **课表排期（0.1.20）** — 确认新课表或已有课表的日历日期，等待 Garmin Connect 同步
 - [x] **MCP 服务器** — 支持 Codex、Claude Code/Desktop、Cursor、Windsurf、WorkBuddy、ZCode
 - [x] **跑步教练** — 8 种课型、4 套训练理念与强制个性化问询
 - [x] **浏览器 MFA 初始化** — 已通过 dsh 本机网页、系统浏览器 `serve` 与 MCP URL elicitation 正式支持中国区和国际区账号；两区真实 MFA 均已通过，并持续扩展兼容性测试

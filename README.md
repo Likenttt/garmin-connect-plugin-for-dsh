@@ -13,7 +13,7 @@ English | **[简体中文](README.zh-CN.md)** | **[Test Report](TEST_REPORT.md)*
 
 **Developed by Li Erniu (李二牛), connecting Garmin training to your AI assistant.**
 
-This open-source DeepSeek Harness plugin and MCP connector support Garmin China and International accounts. Explore full activities and splits, sleep, heart rate and HRV with AI, then create or delete workouts or cancel calendar entries after your confirmation.
+This open-source DeepSeek Harness plugin and MCP connector support Garmin China and International accounts. Explore full activities and splits, sleep, heart rate and HRV with AI, then create, schedule or delete workouts or cancel calendar entries after your confirmation.
 
 **You control your account. Your password is not shared with AI.** With the recommended Garmin browser sign-in, passwords and verification codes are entered only on Garmin’s official page, not given to AI or the developer. Session credentials are stored locally with restricted file permissions. Authorized fitness and health queries return data to your chosen AI client for analysis.
 
@@ -68,8 +68,8 @@ This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-
 
 ### Registered Tools
 
-Version 0.1.19 provides **28 tools** for Connect web-session accounts. Twenty-four provide queries or local advice without writing;
-`download_garmin_activity_fit` writes one local file on the MCP/dsh host. Creating or deleting
+Version **0.1.20 provides 29 tools** for Connect web-session accounts. Twenty-four provide queries or local advice without writing;
+`download_garmin_activity_fit` writes one local file on the MCP/dsh host. Creating, scheduling or deleting
 a workout and cancelling a calendar entry change Garmin data after explicit confirmation.
 Personal-only DSH connections and Personal MCP servers expose **15 compatible tools** for
 Garmin reads, local FIT downloads and local coaching knowledge. Mixed DSH accounts keep
@@ -89,7 +89,8 @@ the published maintained SDK through an exact npm alias; see
 | `get_garmin_profile` | User profile summary | `{}` or omit |
 | `get_running_skill_advice` | Explain 8 workout types and 4 training philosophies, or collect the mandatory intake for personalized coaching | `{"mode": "explain", "query": "Daniels", "language": "en"}` |
 | `download_garmin_activity_fit` | Download an activity's original archive and safely extract its single FIT file to the account directory under the configured host parent | `{"activityId": 123456789}` |
-| `create_garmin_workout` | Preview a structured workout; create it only after explicit confirmation | `{"name": "Threshold 3×8min", "steps": [...]}` |
+| `create_garmin_workout` | Preview and confirm a structured workout; optionally schedule it on `scheduleDate` | `{"name": "Threshold 3×8min", "steps": [...], "scheduleDate": "2026-10-24"}` |
+| `schedule_garmin_workout` | Preview and confirm a calendar date for an existing workout | `{"workoutId": "123456", "date": "2026-10-24"}` |
 
 #### Recovery and training tools (introduced in 0.1.14)
 
@@ -155,6 +156,34 @@ Workout creation is a two-call flow. The preview response includes a one-time
 `confirmationId`; after the user approves the unchanged preview, call the tool
 again with the same definition, `confirmed: true`, and that `confirmationId`.
 An ID expires after 10 minutes and cannot be reused.
+
+### Schedule a workout (0.1.20)
+
+With a Connect web-session account, you can ask: “Create this workout and arrange it
+for 2026-10-24” or “Schedule workout 123456 for 2026-10-24.” Personal API accounts
+remain read-only. This capability is available in 0.1.20.
+
+- **New workout:** add optional `scheduleDate: "2026-10-24"` to
+  `create_garmin_workout`. One preview covers both the workout and its date; after
+  explicit approval, repeat the unchanged inputs with `confirmed: true` and the
+  returned `confirmationId`. Without `scheduleDate`, creation saves only to the library.
+- **Existing workout:** preview `schedule_garmin_workout` with `workoutId` and `date`,
+  then confirm the same account, workout and date with `confirmed: true` and the
+  one-use `confirmationId`. Changing any of them requires a fresh preview and approval.
+- **Result:** a successful calendar write is “scheduled, waiting for Garmin Connect
+  sync.” The plugin does not trigger watch synchronization or confirm delivery to
+  the watch. Scheduling adds a new calendar entry; moving or cancelling an existing
+  entry is a separate, explicitly requested operation.
+
+If the workout is created but scheduling fails, retain the returned `workoutId`.
+Read the target date with `get_garmin_scheduled_workouts`; if scheduling is still
+needed, preview and confirm only `schedule_garmin_workout`. Do not repeat creation.
+Read back any uncertain write outcome before another attempt.
+
+The development candidate passed a real Harness desktop check with the China main
+account: both creation with a date and scheduling an existing template succeeded.
+The test template and both calendar entries were removed afterward; the original
+42 library entries were preserved. See the [verification record](docs/testing/workout-scheduling-harness-2026-10-22.md).
 
 ### Workout deletion and calendar cancellation (0.1.17)
 
@@ -297,7 +326,7 @@ For standalone MCP, use the released package:
   "mcpServers": {
     "garmin-personal": {
       "command": "npx",
-      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.19", "garmin-connect-mcp"],
+      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.20", "garmin-connect-mcp"],
       "env": {
         "GARMIN_PROVIDER": "personal",
         "GARMIN_ACCOUNT": "my-garmin",
@@ -1044,8 +1073,10 @@ skill or standalone SDK does not add the new tools to an older plugin. DSH and
 MCP coaching guidance is also returned by `get_running_skill_advice`; the host
 does not automatically load this skill's Markdown files.
 
-The skill can use `create_garmin_workout` on request: preview the workout first,
-then create it after the user confirms the preview. To download a requested
+The skill can use `create_garmin_workout` on request: preview the workout and any
+`scheduleDate`, then execute after confirmation. `schedule_garmin_workout` arranges an
+existing template after its own preview and confirmation. Scheduling is available
+in 0.1.20. To download a requested
 activity with `download_garmin_activity_fit`, set `GARMIN_FIT_DOWNLOAD_DIR` to
 the absolute path of a trusted local parent directory in the MCP service's
 `env`. See the bundled `references/workbuddy-setup.md` for setup details.
@@ -1134,7 +1165,7 @@ node lib/mcp.js
 ```
 
 With Connect web-session authentication, the MCP server exposes the same
-**28 tools and date semantics** as the dsh plugin: the original ten tools, three workout management tools, and the
+**29 tools and date semantics** as the 0.1.20 dsh plugin: the original ten tools, four workout management tools, and the
 13 recovery and training tools plus two daily blood oxygen/respiration tools listed above.
 Personal MCP servers expose the **15 compatible tools** described in the
 [Personal API configuration](#official-personal-api-introduced-in-0119).
@@ -1392,7 +1423,7 @@ node scripts/check-health-release.cjs \
 All five flags are required; path arguments must be absolute and the report
 destination must not already exist. The runner uses real DI authentication and
 read-only Garmin requests through the compiled plugin's DSH tool registry. It
-also checks all 28 MCP registrations, calls the 15 health and training tools through an
+also checks all 29 MCP registrations, calls the 15 health and training tools through an
 in-memory MCP connection, verifies response parity and cache reuse, and checks
 profile/activity/sleep regressions. Raw responses remain in memory; terminal
 and report output contain only status, response shape/count and request
@@ -1426,7 +1457,7 @@ src/
 │   ├── running-skills.ts  # 8 workout types + 4 compact training philosophies
 │   └── workout-schema.ts  # Workout definition → Garmin JSON builder
 ├── tools/
-│   └── index.ts      # Tool definitions & registration (28 tools)
+│   └── index.ts      # Tool definitions & registration (29 tools)
 └── utils/
     ├── errors.ts      # Safe public errors and upstream-log redaction
     ├── cache.ts       # In-memory TTL/LRU cache with single-flight refresh
@@ -1467,6 +1498,7 @@ Distribution notes:
 - [x] **Body Composition** — weight, BMI, body fat %
 - [x] **Workout Library** — list reusable Garmin workout templates
 - [x] **Workout Creation** — safely preview and create structured workout-library entries
+- [x] **Workout Scheduling (0.1.20)** — confirm a new or existing workout’s calendar date; wait for Garmin Connect sync
 - [x] **MCP Server** — use with Codex, Claude Code/Desktop, Cursor, Windsurf, WorkBuddy, ZCode
 - [x] **Running Coach** — 8 workout types, 4 training philosophies, and mandatory personalized intake
 - [x] **Browser MFA Bootstrap** — supported for China and International accounts through local dsh Web, system-browser `serve`, and MCP URL elicitation; real MFA passed in both regions, with broader compatibility testing continuing

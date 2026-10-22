@@ -23,17 +23,19 @@ import {
   validateWorkoutDef,
 } from './knowledge/workout-schema'
 import type { WorkoutDef } from './knowledge/workout-schema'
-import { PublicToolError } from './utils/errors'
+import { PublicToolError, publicErrorMessage } from './utils/errors'
 import { parseLocalDate } from './utils/date'
 import { HEALTH_TOOLS } from './health-tools'
 import type { GarminRecoveryDataClient, HealthMetricArgs, HealthMetricMethod } from './health-tools'
 import {
   canonicalGarminResourceId,
   resolveScheduledWorkoutRange,
+  validateWorkoutScheduleDate,
 } from './workout-management'
 import type {
   DeleteWorkoutArgs,
   GarminWorkoutManagementClient,
+  ScheduleWorkoutArgs,
   ScheduledWorkoutsArgs,
   UnscheduleWorkoutArgs,
 } from './workout-management'
@@ -183,13 +185,22 @@ export interface DownloadActivityFitResult {
 }
 
 export type CreateWorkoutArgs = WorkoutDef & {
+  scheduleDate?: string
   confirmed?: boolean
   confirmationId?: string
 }
 
 interface PendingWorkoutConfirmation {
   definitionHash: string
+  accountUsername: string
+  accountRegion: GarminRegion
+  accountId?: string
   expiresAt: number
+}
+
+interface PendingWorkoutScheduleConfirmation extends PendingWorkoutConfirmation {
+  workoutId: string
+  date: string
 }
 
 type WorkoutRemovalOperation = 'deleteWorkout' | 'unscheduleWorkout'
@@ -209,6 +220,8 @@ const MAX_PENDING_CONFIRMATIONS = 20
 
 export class GarminToolService {
   private readonly workoutConfirmations = new Map<string, PendingWorkoutConfirmation>()
+  private readonly workoutScheduleConfirmations = new Map<string, PendingWorkoutScheduleConfirmation>()
+  private readonly workoutScheduleWrites = new Set<string>()
   private readonly workoutRemovalConfirmations = new Map<string, PendingWorkoutRemovalConfirmation>()
   private readonly dateRequestLimiter = new AsyncSemaphore(4)
 
@@ -390,6 +403,102 @@ export class GarminToolService {
     const action = this.client.getScheduledWorkouts
     if (typeof action !== 'function') throw unsupportedWorkoutManagement()
     return action.call(this.client, startDate, endDate)
+  }
+
+  async scheduleWorkout(args: ScheduleWorkoutArgs): Promise<Record<string, unknown>> {
+    validateWorkoutManagementArgs(args, ['workoutId', 'date', 'confirmed', 'confirmationId'])
+    if (args.confirmed !== undefined && typeof args.confirmed !== 'boolean') {
+      throw new PublicToolError('confirmed must be a boolean')
+    }
+    if (args.confirmationId !== undefined
+      && (typeof args.confirmationId !== 'string' || args.confirmationId.trim().length === 0)) {
+      throw new PublicToolError('confirmationId must be a non-empty string')
+    }
+    if (args.confirmed !== true && args.confirmationId !== undefined) {
+      throw new PublicToolError('A confirmationId can only be used with confirmed=true')
+    }
+    const pending = args.confirmed === true && args.confirmationId !== undefined
+      ? this.workoutScheduleConfirmations.get(args.confirmationId)
+      : undefined
+    if (args.confirmed === true && args.confirmationId !== undefined) {
+      this.workoutScheduleConfirmations.delete(args.confirmationId)
+    }
+    const workoutId = canonicalGarminResourceId(args.workoutId, 'workoutId')
+    validateWorkoutScheduleDate(args.date)
+    this.requireWorkoutScheduling()
+    const read = this.client.getWorkoutDetail
+    if (typeof read !== 'function') throw unsupportedWorkoutManagement()
+
+    if (args.confirmed === true
+      && (!pending || pending.expiresAt <= Date.now()
+        || pending.workoutId !== workoutId || pending.date !== args.date
+        || !this.workoutConfirmationMatchesAccount(pending))) {
+      throw invalidWorkoutRemovalConfirmation()
+    }
+    const detail = validateWorkoutRemovalDetail(await read.call(this.client, workoutId), 'deleteWorkout', workoutId)
+    const definitionHash = workoutRemovalDetailHash(detail)
+    const preview = {
+      ...workoutRemovalPreview(detail, 'deleteWorkout', workoutId, this.options.accountRegion),
+      action: 'schedule_workout',
+      date: args.date,
+      ...(this.options.accountId ? { accountId: this.options.accountId } : {}),
+    }
+    if (args.confirmed === true) {
+      if (!this.workoutConfirmationMatchesAccount(pending!)) {
+        throw invalidWorkoutRemovalConfirmation()
+      }
+      if (pending!.definitionHash !== definitionHash) {
+        throw new PublicToolError('The workout changed after the preview; request a new preview and user confirmation')
+      }
+      const result = await this.writeWorkoutSchedule(workoutId, args.date)
+      return {
+        success: true,
+        ...preview,
+        ...workoutScheduleIdentity(result),
+        deviceSync: 'pending',
+        message: 'The workout was scheduled in the Garmin Connect calendar. It will be downloaded by a compatible device on its next normal Garmin Connect sync; delivery to the watch has not been verified.',
+      }
+    }
+
+    pruneWorkoutConfirmationMap(this.workoutScheduleConfirmations)
+    const confirmationId = randomUUID()
+    this.workoutScheduleConfirmations.set(confirmationId, {
+      workoutId,
+      date: args.date,
+      definitionHash,
+      accountUsername: this.options.accountUsername,
+      accountRegion: this.options.accountRegion,
+      accountId: this.options.accountId,
+      expiresAt: Date.now() + CONFIRMATION_TTL_MS,
+    })
+    return {
+      requiresConfirmation: true,
+      confirmationId,
+      expiresInSeconds: CONFIRMATION_TTL_MS / 1000,
+      preview,
+      message: 'Review this workout, account and date with the user. Only after explicit approval, call schedule_garmin_workout with the same workoutId and date, confirmed=true, and this confirmationId. This adds one calendar entry and does not move or cancel existing entries.',
+    }
+  }
+
+  private requireWorkoutScheduling(): void {
+    if (this.options.provider === 'personal') {
+      throw new PublicToolError('Calendar scheduling is not available through the read-only Garmin Personal API. Select a Connect web-session account.')
+    }
+    if (typeof this.client.scheduleWorkout !== 'function') throw unsupportedWorkoutManagement()
+  }
+
+  private async writeWorkoutSchedule(workoutId: string, date: string): Promise<unknown> {
+    this.requireWorkoutScheduling()
+    const key = `${workoutId}:${date}`
+    if (this.workoutScheduleWrites.has(key)) {
+      throw new PublicToolError('Scheduling for this workout and date is already in progress; verify the calendar with a read-only query before requesting another preview')
+    }
+    this.workoutScheduleWrites.add(key)
+    try {
+      return await this.client.scheduleWorkout!(workoutId, date)
+    } finally {
+      this.workoutScheduleWrites.delete(key)
+    }
   }
 
   async deleteWorkout(args: DeleteWorkoutArgs): Promise<Record<string, unknown>> {
@@ -657,30 +766,97 @@ export class GarminToolService {
   }
 
   async createWorkout(args: CreateWorkoutArgs): Promise<Record<string, unknown>> {
-    const { confirmed, confirmationId, ...definition } = args
+    const { confirmed, confirmationId, scheduleDate, ...definition } = args
+    if (this.options.provider === 'personal') {
+      throw new PublicToolError('Workout creation is not available through the read-only Garmin Personal API. Select a Connect web-session account.')
+    }
+    if (scheduleDate !== undefined) {
+      validateWorkoutScheduleDate(scheduleDate, 'scheduleDate')
+      this.requireWorkoutScheduling()
+    }
     const validationError = validateWorkoutDef(definition)
     if (validationError) {
       throw new PublicToolError(`Invalid workout definition: ${validationError}`)
     }
 
     if (confirmed !== true) {
-      const issuedConfirmationId = this.issueWorkoutConfirmation(definition)
+      const issuedConfirmationId = this.issueWorkoutConfirmation(definition, scheduleDate)
       return {
         requiresConfirmation: true,
         confirmationId: issuedConfirmationId,
         workoutName: definition.name,
         sport: definition.sport ?? 'running',
         stepCount: definition.steps.length,
-        preview: definition,
+        accountRegion: this.options.accountRegion,
+        ...(this.options.accountId ? { accountId: this.options.accountId } : {}),
+        preview: { ...definition, ...(scheduleDate !== undefined ? { scheduleDate } : {}) },
+        ...(scheduleDate !== undefined ? { scheduleDate } : {}),
         message:
-          'Review this workout with the user, then call create_garmin_workout again ' +
-          'with the same definition, confirmed=true, and this confirmationId.',
+          'Review this workout' + (scheduleDate !== undefined ? ', account and scheduled date' : '') +
+          ' with the user, then call create_garmin_workout again ' +
+          'with the same definition' + (scheduleDate !== undefined ? ' and scheduleDate' : '') +
+          ', confirmed=true, and this confirmationId.',
       }
     }
 
-    this.consumeWorkoutConfirmation(confirmationId, definition)
+    this.consumeWorkoutConfirmation(confirmationId, definition, scheduleDate)
 
     const result = await this.client.addWorkout(buildGarminWorkout(definition))
+    if (scheduleDate !== undefined) {
+      let workoutId: string
+      try {
+        workoutId = canonicalGarminResourceId(result?.workoutId, 'workoutId')
+      } catch {
+        return {
+          success: false,
+          partialSuccess: true,
+          workoutCreated: true,
+          workoutId: null,
+          workoutName: definition.name,
+          scheduleDate,
+          accountRegion: this.options.accountRegion,
+          ...(this.options.accountId ? { accountId: this.options.accountId } : {}),
+          scheduling: { status: 'not_attempted', outcomeUnknown: false },
+          message: 'The workout creation request succeeded, but Garmin did not return a usable workoutId. Scheduling was not attempted. Read get_garmin_workouts to find the created workout; do not repeat create_garmin_workout. Then use schedule_garmin_workout with a new preview and confirmation.',
+        }
+      }
+      try {
+        const scheduled = await this.writeWorkoutSchedule(workoutId, scheduleDate)
+        return {
+          success: true,
+          workoutCreated: true,
+          workoutId,
+          workoutName: definition.name,
+          scheduleDate,
+          accountRegion: this.options.accountRegion,
+          ...(this.options.accountId ? { accountId: this.options.accountId } : {}),
+          ...workoutScheduleIdentity(scheduled),
+          scheduling: { status: 'scheduled', date: scheduleDate },
+          deviceSync: 'pending',
+          message: `Workout "${definition.name}" was created and scheduled for ${scheduleDate} in Garmin Connect. Waiting for the compatible device's next normal Garmin Connect sync; delivery to the watch has not been verified.`,
+        }
+      } catch (error) {
+        return {
+          success: false,
+          partialSuccess: true,
+          workoutCreated: true,
+          workoutId,
+          workoutName: definition.name,
+          scheduleDate,
+          accountRegion: this.options.accountRegion,
+          ...(this.options.accountId ? { accountId: this.options.accountId } : {}),
+          scheduling: { status: 'unconfirmed', outcomeUnknown: true },
+          error: publicErrorMessage(error, 'Garmin scheduling failed; the calendar write outcome is unknown.'),
+          recovery: {
+            tool: 'get_garmin_scheduled_workouts',
+            arguments: { startDate: scheduleDate, endDate: scheduleDate },
+            nextToolIfMissing: 'schedule_garmin_workout',
+            nextArguments: { workoutId, date: scheduleDate },
+          },
+          message: 'The workout was created, but scheduling could not be confirmed. Do not repeat create_garmin_workout. First read the calendar for the requested date; if the entry is absent, use schedule_garmin_workout for this workoutId with a new preview and user confirmation.',
+        }
+      }
+    }
     return {
       success: true,
       workoutId: result.workoutId ?? null,
@@ -689,7 +865,7 @@ export class GarminToolService {
     }
   }
 
-  private issueWorkoutConfirmation(definition: WorkoutDef): string {
+  private issueWorkoutConfirmation(definition: WorkoutDef, scheduleDate?: string): string {
     this.pruneWorkoutConfirmations()
     while (this.workoutConfirmations.size >= MAX_PENDING_CONFIRMATIONS) {
       const oldest = this.workoutConfirmations.keys().next().value
@@ -699,7 +875,10 @@ export class GarminToolService {
 
     const confirmationId = randomUUID()
     this.workoutConfirmations.set(confirmationId, {
-      definitionHash: workoutDefinitionHash(definition),
+      definitionHash: workoutDefinitionHash({ ...definition, ...(scheduleDate !== undefined ? { scheduleDate } : {}) }),
+      accountUsername: this.options.accountUsername,
+      accountRegion: this.options.accountRegion,
+      accountId: this.options.accountId,
       expiresAt: Date.now() + CONFIRMATION_TTL_MS,
     })
     return confirmationId
@@ -708,6 +887,7 @@ export class GarminToolService {
   private consumeWorkoutConfirmation(
     confirmationId: string | undefined,
     definition: WorkoutDef,
+    scheduleDate?: string,
   ): void {
     this.pruneWorkoutConfirmations()
     if (!confirmationId) {
@@ -718,11 +898,18 @@ export class GarminToolService {
 
     const pending = this.workoutConfirmations.get(confirmationId)
     this.workoutConfirmations.delete(confirmationId)
-    if (!pending || pending.definitionHash !== workoutDefinitionHash(definition)) {
+    if (!pending || !this.workoutConfirmationMatchesAccount(pending)
+      || pending.definitionHash !== workoutDefinitionHash({ ...definition, ...(scheduleDate !== undefined ? { scheduleDate } : {}) })) {
       throw new PublicToolError(
         'Invalid workout confirmation: the preview is missing, expired, already used, or changed',
       )
     }
+  }
+
+  private workoutConfirmationMatchesAccount(pending: PendingWorkoutConfirmation): boolean {
+    return pending.accountUsername === this.options.accountUsername
+      && pending.accountRegion === this.options.accountRegion
+      && pending.accountId === this.options.accountId
   }
 
   private pruneWorkoutConfirmations(): void {
@@ -1293,7 +1480,33 @@ function workoutRemovalPreview(
   }
 }
 
-function workoutDefinitionHash(definition: WorkoutDef): string {
+function workoutScheduleIdentity(result: unknown): { scheduleId?: string } {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return {}
+  const record = result as Record<string, unknown>
+  for (const field of ['workoutScheduleId', 'scheduledWorkoutId', 'scheduleId']) {
+    if (!Object.hasOwn(record, field)) continue
+    try {
+      return { scheduleId: canonicalGarminResourceId(record[field], 'scheduleId') }
+    } catch {
+      // A resolved write is still successful when Garmin omits a usable ID.
+    }
+  }
+  return {}
+}
+
+function pruneWorkoutConfirmationMap<T extends { expiresAt: number }>(confirmations: Map<string, T>): void {
+  const now = Date.now()
+  for (const [id, confirmation] of confirmations) {
+    if (confirmation.expiresAt <= now) confirmations.delete(id)
+  }
+  while (confirmations.size >= MAX_PENDING_CONFIRMATIONS) {
+    const oldest = confirmations.keys().next().value
+    if (oldest === undefined) break
+    confirmations.delete(oldest)
+  }
+}
+
+function workoutDefinitionHash(definition: WorkoutDef & { scheduleDate?: string }): string {
   return createHash('sha256')
     .update(canonicalJson(definition))
     .digest('hex')

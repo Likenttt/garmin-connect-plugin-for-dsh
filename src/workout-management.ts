@@ -15,6 +15,13 @@ export interface DeleteWorkoutArgs {
   confirmationId?: string
 }
 
+export interface ScheduleWorkoutArgs {
+  workoutId: GarminResourceId
+  date: string
+  confirmed?: boolean
+  confirmationId?: string
+}
+
 export interface UnscheduleWorkoutArgs {
   scheduleId: GarminResourceId
   confirmed?: boolean
@@ -26,8 +33,19 @@ export interface GarminWorkoutManagementClient {
   getWorkoutDetail(workoutId: GarminResourceId): Promise<unknown>
   getScheduledWorkouts(startDate: string, endDate: string): Promise<unknown>
   getScheduledWorkout(scheduleId: GarminResourceId): Promise<unknown>
+  scheduleWorkout(workoutId: GarminResourceId, date: string): Promise<unknown>
   deleteWorkout(workoutId: GarminResourceId): Promise<void>
   unscheduleWorkout(scheduleId: GarminResourceId): Promise<void>
+}
+
+export function validateWorkoutScheduleDate(value: unknown, field = 'date'): asserts value is string {
+  if (typeof value === 'string' && value.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number)
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+    const monthDays = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    if (year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= monthDays[month - 1]) return
+  }
+  throw new PublicToolError(`Invalid ${field}: expected a real date in YYYY-MM-DD format`)
 }
 
 export function canonicalGarminResourceId(value: unknown, field: string): string {
