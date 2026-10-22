@@ -85,9 +85,9 @@ export function redactSensitiveText(
   }
 
   return message
-    .replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, '$1 [REDACTED]')
+    .replace(/\b(Bearer|Basic|ApiKey)\s+[^\s,;]+/gi, '$1 [REDACTED]')
     .replace(
-      /(["']?(?:authorization|proxy-authorization|cookie|set-cookie|password|passwd|access[_-]?token|refresh[_-]?token|session[_-]?token|oauth[_-]?token[_-]?secret|oauth[_-]?signature|oauth[_-]?token|client[_-]?secret|consumer[_-]?secret)["']?\s*[:=]\s*["']?)(?:bearer\s+)?[^\s,;&"'}]+/gi,
+      /(["']?(?:authorization|proxy-authorization|cookie|set-cookie|password|passwd|api[_-]?key|personal[_-]?api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|oauth[_-]?token[_-]?secret|oauth[_-]?signature|oauth[_-]?token|client[_-]?secret|consumer[_-]?secret)["']?\s*[:=]\s*["']?)(?:(?:bearer|apikey)\s+)?[^\s,;&"'}]+/gi,
       '$1[REDACTED]',
     )
     .slice(0, 1000)

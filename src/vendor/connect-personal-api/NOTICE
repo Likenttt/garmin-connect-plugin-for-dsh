@@ -1,0 +1,20 @@
+connect-personal-api-ts
+Copyright 2026 李二牛 (Likenttt)
+
+Community TypeScript implementation, not an official Garmin product.
+
+Endpoint mappings and the API-key/JWT exchange flow are adapted from:
+garmin/connect-personal-api-python
+Copyright 2026 Garmin Ltd. or its subsidiaries.
+https://github.com/garmin/connect-personal-api-python
+Reference commit: ac111a0ff8e37dfbc24c616fcc27691520c7278b
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Changed from the Python reference: TypeScript implementation, native fetch,
+in-memory-only credential/token handling, bounded responses, guarded origins,
+single-flight authentication, one-time 401 refresh, and generated response types.
+
+spec/openapi.json is a snapshot of Garmin's publicly served Personal API schema,
+retrieved on 2026-10-22. src/generated.ts is generated from that snapshot.
+https://developer.garmin.com/gc-developer-program/personal/swagger-docs/
+Garmin trademarks belong to their respective owners.

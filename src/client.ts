@@ -61,6 +61,11 @@ export interface GarminClientOptions {
   allowUnconfigured?: boolean
 }
 
+/** Public runtime contract shared by the browser and Personal API providers. */
+export type GarminClientLike = Pick<GarminClient, keyof GarminClient> & {
+  personalApiConnected?(): boolean
+}
+
 export interface GarminAuthenticatedAccount {
   email: string
   region: Config['region']

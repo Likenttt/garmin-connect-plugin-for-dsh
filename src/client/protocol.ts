@@ -37,6 +37,7 @@ export type GarminAuthAccountSummary = {
   maskedEmail?: string
   configured: true
   authenticated: boolean
+  provider?: 'personal'
 }
 
 export type GarminAuthAccountsResult = {
@@ -51,7 +52,29 @@ export type GarminAuthenticationRequirement = {
   authenticationRequired: true
 } & GarminAuthenticationRequirementWire
 
-export type GarminAuthAccountResult = {
+export type GarminPersonalAccountResult = {
+  success: true
+  accountId: string
+  slot: number
+  provider: 'personal'
+  region: GarminAuthRegion
+  configured: boolean
+  authenticated: boolean
+  alias?: string
+}
+
+export type GarminAuthVerifyResult = {
+  success: true
+  accountId: string
+  provider: 'personal'
+  connected: true
+} | {
+  success: false
+  code: GarminAuthClientErrorCode
+  message?: string
+}
+
+export type GarminAuthAccountResult = GarminPersonalAccountResult | {
   success: true
   accountId: string
   slot: number
@@ -176,6 +199,7 @@ export function parseGarminAuthAccountsRpcResult(value: unknown): GarminAuthAcco
       authenticated: raw.authenticated,
       ...(typeof raw.alias === 'string' ? { alias: raw.alias } : {}),
       ...(typeof raw.maskedEmail === 'string' ? { maskedEmail: raw.maskedEmail } : {}),
+      ...(raw.provider === 'personal' ? { provider: 'personal' as const } : {}),
     })
   }
   return { success: true, accounts }
@@ -187,6 +211,18 @@ export function parseGarminAuthAccountRpcResult(value: unknown): GarminAuthAccou
   }
   const business = value.value
   if (isBusinessFailure(business)) return business
+  if (isCurrentAccountRecord(business, [
+    'success', 'accountId', 'slot', 'provider', 'configured', 'authenticated', 'region',
+  ]) && business.success === true && business.provider === 'personal'
+    && isAccountId(business.accountId) && isSlot(business.slot) && isRegion(business.region)
+    && typeof business.configured === 'boolean' && typeof business.authenticated === 'boolean'
+    && (business.configured || !business.authenticated)) {
+    return { success: true, accountId: business.accountId, slot: business.slot,
+      provider: 'personal', region: business.region, configured: business.configured,
+      authenticated: business.authenticated,
+      ...(typeof business.alias === 'string' ? { alias: business.alias } : {}),
+    }
+  }
   if (
     isExactRecord(business, [
       'success', 'accountId', 'slot', 'configured', 'authenticated', 'region',
@@ -420,13 +456,30 @@ function isCurrentAccountRecord(
 }
 
 function isAccountSummaryRecord(value: unknown, expectedKeys: readonly string[]): value is Record<string, unknown> {
-  const hasAlias = isExactRecord(value, [...expectedKeys, 'alias'])
-    || isExactRecord(value, [...expectedKeys, 'alias', 'maskedEmail'])
-  const hasMask = isExactRecord(value, [...expectedKeys, 'maskedEmail'])
-    || isExactRecord(value, [...expectedKeys, 'alias', 'maskedEmail'])
-  if (!isExactRecord(value, expectedKeys) && !hasAlias && !hasMask) return false
-  return (!hasAlias || isSafeAlias(value.alias))
-    && (!hasMask || isSafeMaskedEmail(value.maskedEmail))
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const raw = value as Record<string, unknown>
+  const optional = ['alias', 'maskedEmail', 'provider']
+  const actualOptional = optional.filter(key => Object.hasOwn(raw, key))
+  if (!isExactRecord(value, [...expectedKeys, ...actualOptional])) return false
+  return (!Object.hasOwn(raw, 'alias') || isSafeAlias(raw.alias))
+    && (!Object.hasOwn(raw, 'maskedEmail') || isSafeMaskedEmail(raw.maskedEmail))
+    && (!Object.hasOwn(raw, 'provider') || (raw.provider === 'personal' && !Object.hasOwn(raw, 'maskedEmail')))
+}
+
+export function parseGarminAuthVerifyRpcResult(value: unknown): GarminAuthVerifyResult {
+  if (!isExactRecord(value, ['ok', 'value']) || value.ok !== true) return unavailable()
+  const business = value.value
+  if (isBusinessFailure(business)) return business
+  if (isExactRecord(business, ['success', 'code', 'message']) && business.success === false
+    && isClientErrorCode(business.code) && typeof business.message === 'string'
+    && business.message.length > 0 && business.message.length <= 500
+    && !/[\u0000-\u001f\u007f-\u009f]/.test(business.message)) {
+    return { success: false, code: business.code, message: business.message }
+  }
+  if (!isExactRecord(business, ['success', 'accountId', 'provider', 'connected'])
+    || business.success !== true || !isAccountId(business.accountId)
+    || business.provider !== 'personal' || business.connected !== true) return unavailable()
+  return { success: true, accountId: business.accountId, provider: 'personal', connected: true }
 }
 
 /** A display-only hint, never an address accepted by a configuration write. */

@@ -1,10 +1,10 @@
 /** Shared DSH/MCP contract for raw recovery and training metrics. */
 export const HEALTH_TOOLS = [
   { name: 'get_garmin_spo2', method: 'getSpO2Data', kind: 'daily', description: 'Get daily Garmin blood oxygen (SpO2), preserving all available readings and returned fields. Data availability depends on the device and recorded measurements.' },
-  { name: 'get_garmin_respiration', method: 'getRespirationData', kind: 'daily', description: 'Get daily Garmin respiration, preserving all available breathing-rate readings and returned fields. Data availability depends on the device and recorded measurements.' },
+  { name: 'get_garmin_respiration', method: 'getRespirationData', kind: 'daily', description: 'Get daily Garmin respiration, preserving all available breathing-rate readings and returned fields. Personal API returns explicitly labeled daily summaries, not a full-day curve. Data availability depends on the device and recorded measurements.' },
   { name: 'get_garmin_hrv', method: 'getHrvData', kind: 'daily', description: 'Get daily Garmin HRV status, baseline and every overnight reading.' },
   { name: 'get_garmin_hrv_summaries', method: 'getHrvSummaries', kind: 'range', description: 'Get Garmin daily HRV summaries over an inclusive date range. These are summaries, not overnight readings.' },
-  { name: 'get_garmin_stress', method: 'getStressData', kind: 'daily', description: 'Get daily Garmin stress with the complete stress and available Body Battery time series.' },
+  { name: 'get_garmin_stress', method: 'getStressData', kind: 'daily', description: 'Get daily Garmin stress with the complete available response. Browser connections may include stress and Body Battery time series; Personal API provides daily stress summaries.' },
   { name: 'get_garmin_stress_summaries', method: 'getStressSummaries', kind: 'range', description: 'Get daily Garmin stress summaries over an inclusive date range.' },
   { name: 'get_garmin_body_battery', method: 'getBodyBattery', kind: 'range', description: 'Get Garmin Body Battery reports and their full time series over an inclusive date range.' },
   { name: 'get_garmin_training_readiness', method: 'getTrainingReadiness', kind: 'daily', description: 'Get all Garmin training readiness snapshots and recovery factors for a date.' },

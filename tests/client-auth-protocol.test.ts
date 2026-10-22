@@ -1,5 +1,6 @@
 import {
   parseGarminAuthAccountRpcResult,
+  parseGarminAuthVerifyRpcResult,
   parseGarminAuthAccountsRpcResult,
   parseGarminAuthBeginRpcResult,
   parseGarminAuthCancelRpcResult,
@@ -388,5 +389,28 @@ describe('DSH Garmin authentication client protocol', () => {
       ok: true,
       value: { success: true, ticket: 'ST-secret' },
     })).toEqual({ success: false, code: 'unavailable' })
+  })
+})
+
+
+describe('Personal API public auth protocol', () => {
+  it('accepts an email-free Personal account and summary', () => {
+    const account = { success: true as const, accountId: 'personal-a', slot: 1, provider: 'personal',
+      configured: true, authenticated: true, region: 'cn' }
+    expect(parseGarminAuthAccountRpcResult({ ok: true, value: account })).toEqual(account)
+    expect(parseGarminAuthAccountsRpcResult({ ok: true, value: { success: true, accounts: [{
+      accountId: 'personal-a', slot: 1, provider: 'personal', configured: true, authenticated: true, region: 'cn',
+    }] } })).toMatchObject({ success: true, accounts: [{ provider: 'personal', authenticated: true }] })
+    expect(parseGarminAuthAccountRpcResult({ ok: true, value: { ...account, personalApiKey: 'private-key' } }))
+      .toEqual({ success: false, code: 'unavailable' })
+  })
+
+  it('accepts only a small credential-free verification result', () => {
+    const result = { success: true as const, accountId: 'personal-a', provider: 'personal', connected: true }
+    expect(parseGarminAuthVerifyRpcResult({ ok: true, value: result })).toEqual(result)
+    expect(parseGarminAuthVerifyRpcResult({ ok: true, value: { ...result, personalApiKey: 'private-key' } }))
+      .toEqual({ success: false, code: 'unavailable' })
+    expect(parseGarminAuthVerifyRpcResult({ ok: true, value: { success: false, code: 'unavailable', message: 'Key expired' } }))
+      .toEqual({ success: false, code: 'unavailable', message: 'Key expired' })
   })
 })

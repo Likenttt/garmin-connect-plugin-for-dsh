@@ -262,6 +262,74 @@ The web UI starts at `http://127.0.0.1:3080` by default. If you launch Harness v
 
 ### 3. Configure the Garmin account when you are ready to sign in
 
+Choose the connection method per account. The existing browser flow below remains
+available; the new Personal API option is described separately here.
+
+#### Official Personal API (development version)
+
+**This feature is in the current development version; published npm 0.1.18 does
+not include it.** The plugin uses the separately maintained
+[connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts)
+implementation based on Garmin's official Python client. It bundles the required
+SDK, so plugin users do not need to install another package.
+The SDK exchanges a Personal API key for a token and reads supported resources.
+
+In a development build of Harness, add an account with **+**, choose **Official
+Personal API Key (read-only)** (`官方 Personal API Key（只读）`), enter its alias and
+API key, save, then select **Verify connection** (`验证连接`). No email or Garmin
+password is required. Saved keys are
+not returned to the settings form or AI tools.
+
+For standalone MCP, use the built development server with:
+
+```json
+{
+  "mcpServers": {
+    "garmin-personal": {
+      "command": "node",
+      "args": ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],
+      "env": {
+        "GARMIN_PROVIDER": "personal",
+        "GARMIN_ACCOUNT": "my-garmin",
+        "GARMIN_REGION": "global",
+        "GARMIN_PERSONAL_API_KEY_FILE": "/absolute/private/path/garmin-personal.key"
+      }
+    }
+  }
+}
+```
+
+The key file contains only the key and must be private to its owner. An explicit
+`GARMIN_PERSONAL_API_KEY` environment variable is also supported; keep real keys
+out of shared JSON, source control, screenshots, and AI conversations.
+`GARMIN_USERNAME` and browser session variables are unnecessary for this provider.
+`GARMIN_REGION=global` selects `personal.connectapi.garmin.com`;
+`GARMIN_REGION=cn` selects `personal.connectapi.garmin.cn`. Match the region to
+where the key was created. Personal authentication errors never silently select
+a browser session or send the key to the other region.
+
+Personal API covers supported **reads**, including HRV and SpO2. Respiration is
+limited to available daily/sleep summaries. Workout creation/deletion and calendar
+changes still require a separate **Connect web session (existing method)** account;
+Personal does not provide those operations or Webhooks. Although the existing
+method uses Garmin's official sign-in page, its web-session data access is not
+Personal API authorization. Our 2026-10-22 China-account test created a key;
+sending that China key to `.com` returned 404/`NotFoundException`. That cross-region
+result is not evidence that `.cn` is unsupported. A new TS SDK test sent the
+China key to the matching `.cn` endpoint and received HTTP 526 /
+`TOKEN_EXCHANGE_FAILED` during token exchange. No token was obtained and no
+subsequent data read ran. Region routing is implemented, but this attempt did
+not establish a working China connection; one service-access failure does not
+prove that China is generally unsupported. See the
+[illustrated guide and results (Chinese)](docs/guides/garmin-personal-api-guide.zh-CN.md)
+and [Garmin's official instructions](https://developer.garmin.com/gc-developer-program/personal/personal-api/).
+
+For SDK maintenance, update the independently committed source with
+`npm run sync:personal-sdk -- /absolute/path/to/connect-personal-api-ts`.
+The bundled snapshot records its source commit, file hashes and attribution.
+
+#### Browser Connect configuration
+
 The Harness plugin can be installed and started without a Garmin email. In the
 local Harness **Plugins** page, open **dsh-plugin-garmin-connect** and use
 **Garmin 账号配置** and click **+** to add accounts as needed, up to five. Choose
@@ -298,7 +366,7 @@ dependency rather than your current directory. The plugin loads the workspace
 
 | Variable | Required | Description |
 |---|---|---|
-| `GARMIN_USERNAME` | CLI/MCP | Garmin account email; Harness users can instead save it in the plugin settings after installation |
+| `GARMIN_USERNAME` | Browser CLI/MCP | Garmin account email; Harness users can instead save it in the plugin settings after installation. Not needed for Personal API |
 | `GARMIN_ACCOUNT` | ❌ | Lowercase local alias used for the implicit Web/CLI/MCP session path (`default` when omitted) |
 | `GARMIN_PASSWORD` | ✅* | Legacy direct-login password; do not use this for the interactive MFA setup below |
 | `GARMIN_SESSION_TOKEN` | ✅* | Inline pre-authenticated token (supported, but the session file is safer) |
@@ -310,7 +378,7 @@ dependency rather than your current directory. The plugin loads the workspace
 | `GARMIN_LOG_LEVEL` | ❌ | `debug` \| `info` \| `warn` \| `error` |
 | `GARMIN_ACTIVITY_DETAIL` | ❌ | `full` (default; preserves available expanded activity-list fields, including lap counts and split summaries when Garmin supplies them; may include precise route/location) or `compact` (smaller output). Credentials and unrelated account/social identifiers are filtered. |
 
-> \* Normal data access needs one of `GARMIN_PASSWORD`, `GARMIN_SESSION_TOKEN`,
+> \* Browser Connect data access needs one of `GARMIN_PASSWORD`, `GARMIN_SESSION_TOKEN`,
 > or `GARMIN_SESSION_TOKEN_FILE`. The local Web, `auth:serve`, and
 > standalone MCP flows may start without one and create the implicit account
 > session file. The account email is still needed before starting authentication;
@@ -1406,7 +1474,7 @@ Distribution notes:
   - [ ] Add opt-in polling schedules for one-way automatic sync while dsh is running, with catch-up after restart
   - [ ] Keep bidirectional sync, automatic deletion, and full Garmin metadata mirroring out of the first release
 - [ ] **Webhook / Push** — real-time activity upload notifications
-- [ ] **OAuth 2.0** — migrate to official Garmin API when available for personal use
+- [ ] **Personal API release** — API-key/token access is implemented in the development version; complete release validation and publish the plugin update
 
 ---
 

@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.19-dev.0] - Unreleased
+
+### Added
+- Add an official Personal API Key provider to DSH account settings and standalone MCP, without requiring an email. Keep up to five independently named accounts, private credential slots, and an explicit connection check.
+- Integrate a pinned, attributed source snapshot of [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts). Route `global` and `cn` credentials to their configured regional endpoints without cross-region fallback.
+- Advertise 15 supported tools for Personal-only connections. Preserve original read responses, label respiration and stress summaries, and keep unsupported training writes unavailable.
+- Add the illustrated Chinese Personal API guide and a standalone responsive HTML preview.
+
+### Verification
+- The independent SDK passes 24 offline tests, including credential-rotation races. Plugin configuration, account isolation, RPC validation, provider routing and tool filtering have focused regression coverage.
+- A real mainland Key with `region: cn` reached the `.cn` token exchange but returned HTTP 526. The real MCP process exposed the 15 expected tools and relayed the failure without attempting another authentication provider. Successful authenticated mainland data access remains unverified.
+- This development version and SDK have not been published to npm.
+
 ## [0.1.18] - 2026-10-22
 
 ### Added

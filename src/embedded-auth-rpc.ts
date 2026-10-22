@@ -8,7 +8,8 @@ import {
   defaultAccountSessionPath,
 } from './account-session'
 import type { Config, GarminRegion } from './config'
-import type { GarminClient } from './client'
+import type { GarminClientLike } from './client'
+import { publicErrorMessage, redactSensitiveText } from './utils/errors'
 import {
   type EmbeddedAuthBeginResult,
   type EmbeddedAuthCancelResult,
@@ -23,7 +24,7 @@ import {
 
 const RPC_CHANNEL = '/garmin-auth'
 const FETCH_RPC_CHANNEL = '/api/garmin-auth'
-const RPC_ENDPOINTS = ['account', 'begin', 'status', 'cancel'] as const
+const RPC_ENDPOINTS = ['account', 'begin', 'status', 'cancel', 'verify'] as const
 const RPC_EFFECT_LABEL = 'garmin-connect: embedded auth rpc'
 const ACCOUNT_ID_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/
 const ACCOUNT_REVISION_PATTERN = /^[0-9a-f]{32}$/
@@ -93,8 +94,9 @@ export interface EmbeddedAuthAccountOption {
   configured: boolean
   alias?: string
   revision?: string
-  client: Pick<GarminClient,
+  client: Pick<GarminClientLike,
     'getAuthenticatedAccount' | 'getAuthenticationRequirement' | 'replacePersistedSession'>
+    & Partial<Pick<GarminClientLike, 'connect' | 'personalApiConnected'>>
   /** The Host's background session restore, if one is in progress. */
   initialConnection?: Promise<unknown>
 }
@@ -107,7 +109,19 @@ export interface EmbeddedAuthAccountsRegistrationOptions {
   ) => EmbeddedAuthRpcController
 }
 
+type PersonalAccountResult = {
+  success: true
+  accountId: string
+  slot: number
+  region: GarminRegion
+  provider: 'personal'
+  alias?: string
+  configured: boolean
+  authenticated: boolean
+}
+
 type MultiAccountResult =
+  | PersonalAccountResult
   | { success: true; accounts: MultiAccountSummary[] }
   | {
     success: true
@@ -139,6 +153,7 @@ type MultiAccountResult =
   }
 
 interface MultiAccountSummary {
+  provider?: 'personal'
   accountId: string
   slot: number
   region: GarminRegion
@@ -306,7 +321,7 @@ export function registerEmbeddedAuthRpcAccounts(
   ctx.inject(['connection'], (connectionCtx) => {
     const runtimes = new Map<string, AccountRuntime>()
     for (const account of accountById.values()) {
-      const controller = account.configured
+      const controller = account.configured && account.config.provider !== 'personal'
         ? (options.createController?.(account.config, account)
           ?? createEmbeddedAuthController({
             username: account.config.username,
@@ -410,14 +425,19 @@ function createMultiAccountRpcHandler(
               let authenticated = false
               try {
                 await account.initialConnection
-                const rawAccount = await account.client.getAuthenticatedAccount()
-                authenticated = rawAccount !== undefined
-                  && exactAuthenticatedAccount(rawAccount)?.region === account.region
+                if (account.config.provider === 'personal') {
+                  authenticated = account.client.personalApiConnected?.() === true
+                } else {
+                  const rawAccount = await account.client.getAuthenticatedAccount()
+                  authenticated = rawAccount !== undefined
+                    && exactAuthenticatedAccount(rawAccount)?.region === account.region
+                }
               } catch {
                 // A temporarily unavailable account must not hide other slots.
               }
               const alias = publicAlias(account.alias)
-              const maskedEmail = maskedConfiguredEmail(account.config.username)
+              const maskedEmail = account.config.provider === 'personal'
+                ? undefined : maskedConfiguredEmail(account.config.username)
               return {
                 accountId: account.accountId,
                 slot: account.slot,
@@ -426,6 +446,7 @@ function createMultiAccountRpcHandler(
                 ...(maskedEmail === undefined ? {} : { maskedEmail }),
                 configured: true,
                 authenticated,
+                ...(account.config.provider === 'personal' ? { provider: 'personal' as const } : {}),
               }
             }))
           if (signal.aborted) return unavailable()
@@ -442,6 +463,17 @@ function createMultiAccountRpcHandler(
         }
         const { account } = runtime
         const { region } = account
+        if (account.config.provider === 'personal') {
+          await account.initialConnection?.catch(() => undefined)
+          if (signal.aborted) return unavailable()
+          const alias = publicAlias(account.alias)
+          return { ok: true, value: {
+            success: true, accountId, slot: account.slot, region,
+            provider: 'personal', configured: account.configured,
+            authenticated: account.configured && account.client.personalApiConnected?.() === true,
+            ...(alias === undefined ? {} : { alias }),
+          } satisfies MultiAccountResult }
+        }
         if (!runtime?.account.configured) {
           return {
             ok: true,
@@ -509,6 +541,36 @@ function createMultiAccountRpcHandler(
             region,
             ...(alias === undefined ? {} : { alias }),
           } satisfies MultiAccountResult,
+        }
+      }
+      if (endpoint === 'verify') {
+        const request = exactMultiAccountBeginPayload(payload)
+        if (!request) return unavailable()
+        const runtime = runtimes.get(request.accountId)
+        if (request.expectedRevision !== undefined
+          && (!runtime?.account.configured
+            || runtime.account.region !== request.expectedRegion
+            || runtime.account.revision !== request.expectedRevision)) {
+          return { ok: true, value: { success: false, code: 'stale_config' } }
+        }
+        if (!runtime?.account.configured || runtime.account.config.provider !== 'personal'
+          || !runtime.account.client.connect) {
+          return { ok: true, value: { success: false, code: 'configuration' } }
+        }
+        try {
+          await runtime.account.initialConnection?.catch(() => undefined)
+          if (signal.aborted) return unavailable()
+          await runtime.account.client.connect()
+          if (signal.aborted) return unavailable()
+          if (runtime.account.client.personalApiConnected?.() !== true) return unavailable()
+          return { ok: true, value: {
+            success: true, accountId: request.accountId, provider: 'personal', connected: true,
+          } }
+        } catch (error) {
+          const message = redactSensitiveText(publicErrorMessage(
+            error, '官方 Personal API 连接验证失败，请检查密钥、有效期和账号可用性。',
+          ), [runtime.account.config.personalApiKey]).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, 500)
+          return { ok: true, value: { success: false, code: 'unavailable', message } }
         }
       }
       if (endpoint === 'begin') {

@@ -60,6 +60,7 @@ export interface GarminDataClient extends Partial<GarminRecoveryDataClient>, Par
 }
 
 export interface GarminToolServiceOptions {
+  provider?: 'connect-web' | 'personal'
   activityDetail: ActivityDetail
   fitDownloadDir: string
   accountUsername: string
@@ -333,6 +334,7 @@ export class GarminToolService {
     const dates = getDatesInRange(start, end)
     const results = await mapConcurrent(dates, 4, async (date) => {
       const raw = await this.dateRequestLimiter.run(() => this.client.getSleep(date))
+      if (this.options.provider === 'personal') return { provider: 'personal', calendarDate: date, data: raw }
       return formatSleep(raw as Record<string, unknown>)
     })
     return results.length === 1 ? results[0] : results
@@ -344,6 +346,7 @@ export class GarminToolService {
     const dates = getDatesInRange(start, end)
     const results = await mapConcurrent(dates, 4, async (date) => {
       const raw = await this.dateRequestLimiter.run(() => this.client.getSteps(date))
+      if (this.options.provider === 'personal') return { provider: 'personal', calendarDate: date, data: raw }
       return formatSteps(raw as Record<string, unknown>)
     })
     return results.length === 1 ? results[0] : results
@@ -355,6 +358,7 @@ export class GarminToolService {
     const dates = getDatesInRange(start, end)
     const results = await mapConcurrent(dates, 4, async (date) => {
       const raw = await this.dateRequestLimiter.run(() => this.client.getHeartRate(date))
+      if (this.options.provider === 'personal') return { provider: 'personal', calendarDate: date, data: raw }
       return formatHeartRate(raw as Record<string, unknown>)
     })
     return results.length === 1 ? results[0] : results
@@ -366,6 +370,7 @@ export class GarminToolService {
     const dates = getDatesInRange(start, end)
     const results = await mapConcurrent(dates, 4, async (date) => {
       const raw = await this.dateRequestLimiter.run(() => this.client.getWeight(date))
+      if (this.options.provider === 'personal') return { provider: 'personal', calendarDate: date, data: raw }
       return formatWeight(raw as Record<string, unknown>)
     })
     return results.length === 1 ? results[0] : results

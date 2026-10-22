@@ -59,6 +59,31 @@ describe('Garmin settings account writes', () => {
       { op: 'set', path: ['accountsConfigured'], value: true },
       { op: 'set', path: ['account1Username'], value: '' },
       { op: 'set', path: ['account1UsernameId'], value: '' },
+      { op: 'set', path: ['account1PersonalApiKey'], value: '' },
+      { op: 'set', path: ['account1PersonalApiKeyId'], value: '' },
     ])
   })
+
+  it('saves a Personal API account with an ID-bound private key and no email', () => {
+    const personal = { ...second, provider: 'personal' as const }
+    const mutations = saveAccountMutations([legacy], personal, '', revision, 'test-private-key')!
+    expect(mutations).toContainEqual({ op: 'set', path: ['account3PersonalApiKey'], value: 'test-private-key' })
+    expect(mutations).toContainEqual({ op: 'set', path: ['account3PersonalApiKeyId'], value: personal.id })
+    const publicAccounts = mutations.find(operation => operation.path[0] === 'accounts')
+    expect(JSON.stringify(publicAccounts)).not.toContain('test-private-key')
+    expect(mutations).toContainEqual({ op: 'set', path: ['account3Username'], value: '' })
+    expect(saveAccountMutations([legacy], personal, '', revision)).toBeUndefined()
+  })
+
+  it('preserves a Personal API key on an alias-only edit and requires a new key when switching provider', () => {
+    const personal = { ...second, provider: 'personal' as const }
+    const writes = saveAccountMutations([personal], { ...personal, alias: 'My watch' }, '', revision)!
+    expect(writes.some(operation => operation.path[0] === 'account3PersonalApiKey')).toBe(false)
+    expect(saveAccountMutations([second], personal, '', revision)).toBeUndefined()
+    expect(saveAccountMutations([personal], second, '', revision)).toBeUndefined()
+    expect(saveAccountMutations([personal], second, 'web@example.test', revision)).toContainEqual({
+      op: 'set', path: ['account3PersonalApiKey'], value: '',
+    })
+  })
+
 })

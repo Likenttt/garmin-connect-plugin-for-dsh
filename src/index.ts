@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { Config, type PluginConfig, resolveAccountConfigs, resolveConfig } from './config'
-import { GarminClient } from './client'
+import { createGarminClient } from './client-factory'
 import { registerEmbeddedAuthRpcAccounts } from './embedded-auth-rpc'
 import { registerTools } from './tools'
 
@@ -16,7 +16,7 @@ declare module '@deepseek-ai/cordis' {
 
 export function apply(ctx: Context, config: Config | PluginConfig) {
   const accounts = resolveAccountConfigs(config).map(account => {
-    const client = new GarminClient(ctx, account.config, { allowUnconfigured: true })
+    const client = createGarminClient(ctx, account.config, { allowUnconfigured: true })
     return { ...account, client }
   })
 
@@ -35,6 +35,11 @@ export function apply(ctx: Context, config: Config | PluginConfig) {
         'account4Username', 'account5Username',
         'account1UsernameId', 'account2UsernameId', 'account3UsernameId',
         'account4UsernameId', 'account5UsernameId',
+        'provider', 'personalApiKey', 'personalApiKeyFile',
+        'account1PersonalApiKey', 'account2PersonalApiKey', 'account3PersonalApiKey',
+        'account4PersonalApiKey', 'account5PersonalApiKey',
+        'account1PersonalApiKeyId', 'account2PersonalApiKeyId', 'account3PersonalApiKeyId',
+        'account4PersonalApiKeyId', 'account5PersonalApiKeyId',
       ].includes(path[0]))
     ) return
     restartQueued = true

@@ -9,12 +9,13 @@ import {
   assertAccountAlias,
   defaultAccountSessionPath,
 } from './account-session'
-import { GarminClient } from './client'
+import { createGarminClient } from './client-factory'
 import type { Config } from './config'
 import { HEALTH_TOOLS } from './health-tools'
 import type { HealthMetricArgs } from './health-tools'
 import { McpGarminAuthCoordinator } from './mcp-auth'
 import { GARMIN_MCP_INSTRUCTIONS } from './mcp-instructions'
+import { PERSONAL_TOOL_NAMES, PERSONAL_PROVIDER_INSTRUCTIONS } from './personal-capabilities'
 import { installMcpShutdownHooks } from './mcp-shutdown'
 import {
   GarminToolService,
@@ -141,6 +142,7 @@ export interface McpAuthenticationHandler {
 }
 
 export interface CreateMcpServerOptions {
+  provider?: 'connect-web' | 'personal'
   createAuthentication?: (server: McpServer) => McpAuthenticationHandler
 }
 
@@ -149,12 +151,12 @@ class GarminMcpServer extends McpServer {
   private closeAuthentication?: () => Promise<void>
   private closingAuthentication?: Promise<void>
 
-  constructor() {
+  constructor(provider?: 'connect-web' | 'personal') {
     super({
       name: 'garmin-connect',
       version: MCP_SERVER_VERSION,
     }, {
-      instructions: GARMIN_MCP_INSTRUCTIONS,
+      instructions: GARMIN_MCP_INSTRUCTIONS + (provider === 'personal' ? PERSONAL_PROVIDER_INSTRUCTIONS : ''),
     })
     const previousOnClose = this.server.onclose
     this.server.onclose = (): void => {
@@ -187,8 +189,8 @@ export function createMcpServer(
   service: ToolService,
   options: CreateMcpServerOptions = {},
 ): McpServer {
-  const server = new GarminMcpServer()
-  const authentication = options.createAuthentication?.(server)
+  const server = new GarminMcpServer(options.provider)
+  const authentication = options.provider === 'personal' ? undefined : options.createAuthentication?.(server)
   server.attachAuthenticationCleanup(
     authentication?.close?.bind(authentication),
   )
@@ -204,6 +206,7 @@ export function createMcpServer(
     annotations: Record<string, boolean> = READ_ONLY_ANNOTATIONS,
     acceptOmittedArguments = true,
   ): void => {
+    if (options.provider === 'personal' && !PERSONAL_TOOL_NAMES.has(name)) return
     const inputSchema = schema === undefined
       ? undefined
       : acceptOmittedArguments
@@ -496,7 +499,16 @@ export function standaloneConfig(): Config {
   const sessionToken = process.env.GARMIN_SESSION_TOKEN
   const sessionTokenFile = process.env.GARMIN_SESSION_TOKEN_FILE?.trim()
     || defaultAccountSessionPath(account, process.env)
-  if (!username) throw new PublicToolError('GARMIN_USERNAME is required')
+  const provider = process.env.GARMIN_PROVIDER?.trim() || 'connect-web'
+  if (provider !== 'personal' && provider !== 'connect-web') {
+    throw new PublicToolError('GARMIN_PROVIDER must be exactly connect-web or personal')
+  }
+  const personalApiKey = process.env.GARMIN_PERSONAL_API_KEY?.trim() || ''
+  const personalApiKeyFile = process.env.GARMIN_PERSONAL_API_KEY_FILE?.trim() || ''
+  if (provider === 'connect-web' && !username) throw new PublicToolError('GARMIN_USERNAME is required')
+  if (provider === 'personal' && !personalApiKey && !personalApiKeyFile) {
+    throw new PublicToolError('GARMIN_PERSONAL_API_KEY_FILE or GARMIN_PERSONAL_API_KEY is required for Personal API')
+  }
 
   const configuredRegion = process.env.GARMIN_REGION
   if (
@@ -509,6 +521,8 @@ export function standaloneConfig(): Config {
   const region = configuredRegion ?? 'global'
   const activityDetail = process.env.GARMIN_ACTIVITY_DETAIL === 'compact' ? 'compact' : 'full'
   return {
+    provider,
+    ...(provider === 'personal' ? { personalApiKey, personalApiKeyFile } : {}),
     username,
     password,
     sessionToken,
@@ -572,6 +586,8 @@ async function main(): Promise<void> {
   const writeStderr = console.error.bind(console)
   let logSecrets: ReadonlyArray<string | undefined> = [
     process.env.GARMIN_SESSION_TOKEN_FILE,
+    process.env.GARMIN_PERSONAL_API_KEY,
+    process.env.GARMIN_PERSONAL_API_KEY_FILE,
     process.env.DOTENV_KEY,
   ]
   console.log = (...args: unknown[]) => {
@@ -592,26 +608,30 @@ async function main(): Promise<void> {
     config.password,
     config.sessionToken,
     config.sessionTokenFile,
+    config.personalApiKey,
+    config.personalApiKeyFile,
     process.env.DOTENV_KEY,
   ]
   const account = standaloneAccountAlias()
-  const client = new GarminClient(stderrContext(), config, { allowUnconfigured: true })
+  const client = createGarminClient(stderrContext(), config, { allowUnconfigured: true })
   const service = new GarminToolService(client, {
+    provider: config.provider,
     accountId: account,
     activityDetail: config.activityDetail,
     fitDownloadDir: config.fitDownloadDir,
-    accountUsername: config.username,
+    accountUsername: config.provider === 'personal' ? `personal:${account}` : config.username,
     accountRegion: config.region,
   })
   const server = createMcpServer(service, {
-    createAuthentication: mcpServer => new McpGarminAuthCoordinator({
+    provider: config.provider,
+    ...(config.provider === 'personal' ? {} : { createAuthentication: (mcpServer: McpServer) => new McpGarminAuthCoordinator({
       protocol: mcpServer.server,
       account,
       username: config.username,
       region: config.region,
       sessionTokenFile: config.sessionTokenFile!,
       replaceSession: writeSession => client.replacePersistedSession(writeSession),
-    }),
+    }) }),
   })
   await server.connect(new StdioServerTransport())
   const shutdown = installMcpShutdownHooks(server)
