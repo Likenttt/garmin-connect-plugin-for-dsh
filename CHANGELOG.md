@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Simplify Personal account settings to a required alias and API Key, with international defaults and preserved regional binding for existing mainland credentials. Add `GARMIN_ALIAS` and safe connection metadata for MCP/DSH account identification.
 
 ### Verification
+- Release host/client builds, the maintained-SDK dependency gate and 146 focused tests across seven suites passed, covering Personal routing, account configuration, settings RPC/UI, health tools and Harness compatibility.
 - The independent SDK passes 24 offline tests, including credential-rotation races. Plugin configuration, account isolation, RPC validation, provider routing and tool filtering have focused regression coverage.
 - A real mainland Key with `region: cn` reached the `.cn` token exchange but returned HTTP 526. The real MCP process exposed the 15 expected tools and relayed the failure without attempting another authentication provider. Successful authenticated mainland data access remains unverified.
 - A separate international Key with `region: global` passed token exchange and eight SDK reads, plus five real MCP tool reads. A concurrent mainland-Key check still returned HTTP 526. See the regional endpoint test report.
