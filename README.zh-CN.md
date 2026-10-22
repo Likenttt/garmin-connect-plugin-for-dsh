@@ -292,13 +292,14 @@ SDK 负责 Personal API Key 换取令牌及其支持的数据读取。
 Personal 支持其公开范围内的**读取**，包括 HRV、血氧；呼吸读取为可用的日／睡眠汇总。
 创建、删除课表和日历操作仍需单独配置**Connect 网页会话（原有方式）**账号，Personal
 当前不提供这些操作或 Webhook。原有方式虽然在 Garmin 官方页面登录，其网页会话
-数据调用并不等于 Personal API 官方授权。2026-10-22 的大陆账号实测创建了 Key，
-将大陆 Key 发往 `.com` 返回 404／`NotFoundException`，这项跨区结果不能证明 `.cn`
-不支持。本轮新 TS SDK 已将大陆 Key 发往对应 `.cn` 端点，换取令牌时返回
-HTTP 526／`TOKEN_EXCHANGE_FAILED`；未取得令牌，也未执行后续数据读取。SDK 已支持
-地区路由，但本次尚未跑通大陆连接；这次服务访问失败不能推出大陆全面不支持。详见
+数据调用并不等于 Personal API 官方授权。详见
 [图文申请指南与实测结果](docs/guides/garmin-personal-api-guide.zh-CN.md)及
 [官方申请说明](https://developer.garmin.com/gc-developer-program/personal/personal-api/)。
+
+**2026-10-22 区域验证：**国际账号新建的独立 Key 请求 `.com`，令牌交换、8 项 SDK
+读取和 5 项真实 MCP 工具读取通过；同时使用大陆 Key 请求 `.cn`，仍返回 HTTP 526，
+**大陆端点本次暂时无法访问**。两区凭据分开保存与使用，没有跨区回退。详见
+[端点测试报告](docs/research/personal-api-endpoint-test-report-2026-10-22.md)。
 
 维护 SDK 时，先提交独立仓库，再运行
 `npm run sync:personal-sdk -- /absolute/path/to/connect-personal-api-ts`。

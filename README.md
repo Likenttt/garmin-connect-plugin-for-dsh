@@ -313,16 +313,16 @@ limited to available daily/sleep summaries. Workout creation/deletion and calend
 changes still require a separate **Connect web session (existing method)** account;
 Personal does not provide those operations or Webhooks. Although the existing
 method uses Garmin's official sign-in page, its web-session data access is not
-Personal API authorization. Our 2026-10-22 China-account test created a key;
-sending that China key to `.com` returned 404/`NotFoundException`. That cross-region
-result is not evidence that `.cn` is unsupported. A new TS SDK test sent the
-China key to the matching `.cn` endpoint and received HTTP 526 /
-`TOKEN_EXCHANGE_FAILED` during token exchange. No token was obtained and no
-subsequent data read ran. Region routing is implemented, but this attempt did
-not establish a working China connection; one service-access failure does not
-prove that China is generally unsupported. See the
+Personal API authorization. See the
 [illustrated guide and results (Chinese)](docs/guides/garmin-personal-api-guide.zh-CN.md)
 and [Garmin's official instructions](https://developer.garmin.com/gc-developer-program/personal/personal-api/).
+
+**Regional validation (2026-10-22):** a separately created international Key on
+`.com` passed token exchange, eight SDK reads and five real MCP tool reads.
+A concurrent check using the mainland Key on `.cn` still returned HTTP 526:
+the mainland endpoint is temporarily inaccessible in this test. Credentials
+were kept separate; no cross-region fallback was used. See the
+[endpoint test report (Chinese)](docs/research/personal-api-endpoint-test-report-2026-10-22.md).
 
 For SDK maintenance, update the independently committed source with
 `npm run sync:personal-sdk -- /absolute/path/to/connect-personal-api-ts`.

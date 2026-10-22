@@ -91,17 +91,17 @@ API Key 会先换成访问令牌，再调用数据接口。令牌最长有效 24
 
 ## 大陆账号本次到底成功了吗？
 
+**同日补测：国际账号新建独立 Key 请求 `.com`，令牌交换、8 项 SDK 读取及 5 项真实 MCP 工具读取均通过；大陆 Key 请求 `.cn` 仍返回 526，暂时无法访问。** 两区 Key 分开保存与使用，没有混用或跨区回退。[完整测试报告](../research/personal-api-endpoint-test-report-2026-10-22.md)
+
 截至本文日期，**大陆账号已创建 Key；本轮用新 TS SDK 请求对应 `.cn` 端点，仍未跑通读取链路**：
 
 | 检查项 | 本次结果 |
 |---|---|
 | 创建 30 天 Key、刷新后保留记录 | 成功 |
-| 将大陆 Key 发往国际区 `.com` 令牌接口 | HTTP 404／`NotFoundException`，找不到对应 Key ID，属于跨区请求结果 |
 | 用新 TS SDK 将大陆 Key 发往对应 `.cn` 端点 | 换取令牌返回 HTTP 526／`TOKEN_EXCHANGE_FAILED` |
 | 取得令牌、读取账户设置或健康数据 | 未完成；未取得令牌，也未执行后续读取 |
-| 先前 `.cn` 无凭据检查 | 返回 526；当时没有向它发送真实 Key |
 
-官方文档示例目前公开 `.com`。本次实现将大陆 Key 明确发往对应 `.cn` 端点；SDK 支持地区配置，不等于端点本次可用。此前跨区 `.com` 的 404 与这次 `.cn` 的 526 是两项不同结果：前者不能用于判断大陆支持情况，后者只说明本次服务访问失败。**目前尚未验证大陆读取成功，也不能断言大陆全面不支持。**
+国际 Key 使用 `.com`，大陆 Key 使用 `.cn`。SDK 支持地区配置，不等于端点本次可用。**大陆端点本次暂时无法访问，尚未验证大陆读取成功；这不等于大陆账号永久不受支持。**
 
 我们参考 [Garmin 官方 Python 客户端](https://github.com/garmin/connect-personal-api-python)，已建立独立仓库 [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts)，维护 TypeScript 实现。**新 SDK 专注 Personal API Key 换取令牌和读取数据**。仓库代码已建立，本轮尚未发布 npm，使用时以包含此功能的实际版本为准。
 
