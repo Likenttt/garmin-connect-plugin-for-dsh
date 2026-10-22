@@ -4,7 +4,7 @@
 
 ## 结论
 
-**官方已经有 Personal API 的 Python SDK 与 CLI；最初生态检索没有确认可直接采用的 Personal API TypeScript SDK。此后本项目已建立独立仓库 [Likenttt/connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts)，参考官方 Python 实现 API Key 换 token 与数据读取。** 源码版本为 `@likenttt/connect-personal-api-ts@0.1.0`，本轮未发布 npm；独立仓库代码与 npm 上架状态分开记录。[官方 Python 仓库](https://github.com/garmin/connect-personal-api-python)、[官方 Python 包](https://pypi.org/project/garmin-connect-personal-api-python/)。
+**官方已经有 Personal API 的 Python SDK 与 CLI；最初生态检索没有确认可直接采用的 Personal API TypeScript SDK。此后本项目已建立独立仓库 [Likenttt/connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts)，参考官方 Python 实现 API Key 换 token 与数据读取。** [`@likenttt/connect-personal-api-ts@0.1.0`](https://www.npmjs.com/package/@likenttt/connect-personal-api-ts) 已于 2026-10-22 发布到官方 npm；包含 Personal 接入的插件仍为未发布的开发版。[官方 Python 仓库](https://github.com/garmin/connect-personal-api-python)、[官方 Python 包](https://pypi.org/project/garmin-connect-personal-api-python/)。
 
 新 SDK 支持 `region: 'global' | 'cn'`，分别路由 `personal.connectapi.garmin.com` / `personal.connectapi.garmin.cn`，也可显式配置 `baseUrl`。**大陆 Key 请求对应 `.cn` 的实测在换 token 时返回 HTTP 526，未取得 token、未执行数据读取；地区配置支持不等于该端点本次可用。** 此前大陆 Key 请求 `.com` 的 404 是跨区请求结果，不能用于证明大陆端点不支持。
 
@@ -13,7 +13,7 @@
 | 项目 | 实际协议与定位 | 判断 |
 | --- | --- | --- |
 | `garmin/connect-personal-api-python` | Garmin 官方；ApiKey 换 Bearer，调用 `personal.connectapi.garmin.com`；Python 客户端和 `gc-personal` CLI | **真正的新 Personal API SDK**。[源码](https://github.com/garmin/connect-personal-api-python/tree/ac111a0ff8e37dfbc24c616fcc27691520c7278b) |
-| `Likenttt/connect-personal-api-ts` | 本项目独立维护；参考官方 Python 实现 Personal API Key / token 与数据读取，支持 `global` / `cn` 及显式 `baseUrl` | **已建立源码仓库，本轮未发布 npm；大陆对应端点实测换 token 返回 526**。[仓库](https://github.com/Likenttt/connect-personal-api-ts) |
+| `Likenttt/connect-personal-api-ts` | 本项目独立维护；参考官方 Python 实现 Personal API Key / token 与数据读取，支持 `global` / `cn` 及显式 `baseUrl` | **SDK 0.1.0 已发布到官方 npm；大陆对应端点实测换 token 返回 526**。[npm](https://www.npmjs.com/package/@likenttt/connect-personal-api-ts)、[仓库](https://github.com/Likenttt/connect-personal-api-ts) |
 | `cyberjunky/python-garminconnect` | 已核查 master `5ddb9eecbc938b83ddb27a8f57552c556f112310`；仍有 mobile / widget / portal SSO 登录链与 DI token；未发现新 Personal 域名或换 token 路径支持 | **现有私有 Connect 客户端，不能当作新官方 SDK**。[SSO 实现](https://github.com/cyberjunky/python-garminconnect/blob/5ddb9eecbc938b83ddb27a8f57552c556f112310/garminconnect/client/sso.py)、[域名及 DI 常量](https://github.com/cyberjunky/python-garminconnect/blob/5ddb9eecbc938b83ddb27a8f57552c556f112310/garminconnect/client/constants.py) |
 | `matin/garth` | 官方仓库明确标注停止维护，旧的 SSO / OAuth1 路线 | **不是 Personal API SDK，也不宜作为新认证实现底座**。[维护者说明](https://github.com/matin/garth#garth) |
 | npm `garmin-connect@1.6.2` | npm 包指向 `Pythe1337N/garmin-connect`；源码使用登录 ticket、OAuth1、OAuth2 exchange | **旧私有 API SDK**。[npm](https://www.npmjs.com/package/garmin-connect)、[固定版本源码](https://github.com/Pythe1337N/garmin-connect/blob/b2718bfe7c8454348d42a3cd72ff9dc1e2dfba0d/src/common/HttpClient.ts) |
@@ -50,7 +50,7 @@ HRV 有两条正式读取路径，SpO2 有独立单日接口。没有独立全�
 
 最初工程建议为同仓库独立模块；**用户随后明确选择新仓库，实际已建立 [Likenttt/connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts)**，包名为 `@likenttt/connect-personal-api-ts`。新 SDK 集中实现 Personal API Key → token → 数据读取，不把 Key 混入其他凭据格式，也不把其他接口的成功视为 Personal API 验证通过。
 
-新 SDK 的认证与资源读取使用独立的 Personal 数据契约，支持可注入请求、令牌缓存、地区路由和受控错误。类型与路径以官方 Swagger 为依据，工程审查关注凭据隔离、并发取 token、只读重试、429 退避、敏感字段过滤及重定向边界。源码已建立，本轮未执行 npm 发布。
+新 SDK 的认证与资源读取使用独立的 Personal 数据契约，支持可注入请求、令牌缓存、地区路由和受控错误。类型与路径以官方 Swagger 为依据，工程审查关注凭据隔离、并发取 token、只读重试、429 退避、敏感字段过滤及重定向边界。SDK [`0.1.0` 已发布到官方 npm](https://www.npmjs.com/package/@likenttt/connect-personal-api-ts)；插件的 Personal 接入仍处于源码开发版，尚未发布到 npm。
 
 DSH / MCP 账号显式选择 `personal` provider，按所配置地区发送 Key，并仅暴露该接入支持的能力。真实插件 MCP 验证已在无邮箱配置下启动并返回 **15 项工具**，包含 HRV，未暴露 Garmin 写操作工具；读取 profile 时安全返回 `.cn` 的 526，未返回浏览器认证 challenge。该验证确认配置、工具能力和错误处理路径，不构成健康数据读取成功。
 

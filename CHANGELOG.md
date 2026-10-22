@@ -15,7 +15,8 @@ All notable changes to this project will be documented in this file.
 - The independent SDK passes 24 offline tests, including credential-rotation races. Plugin configuration, account isolation, RPC validation, provider routing and tool filtering have focused regression coverage.
 - A real mainland Key with `region: cn` reached the `.cn` token exchange but returned HTTP 526. The real MCP process exposed the 15 expected tools and relayed the failure without attempting another authentication provider. Successful authenticated mainland data access remains unverified.
 - A separate international Key with `region: global` passed token exchange and eight SDK reads, plus five real MCP tool reads. A concurrent mainland-Key check still returned HTTP 526. See the regional endpoint test report.
-- This development version and SDK have not been published to npm.
+- The independent SDK [`@likenttt/connect-personal-api-ts@0.1.0`](https://www.npmjs.com/package/@likenttt/connect-personal-api-ts) was published to the official npm registry on 2026-10-22. This plugin version remains an unpublished development build.
+- The published SDK integrity matches the reviewed tarball. A clean install from the official registry passes ESM and CommonJS import checks without contacting Garmin.
 
 ## [0.1.18] - 2026-10-22
 
