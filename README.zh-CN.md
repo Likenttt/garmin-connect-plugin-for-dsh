@@ -1,6 +1,6 @@
 # dsh-plugin-garmin-connect
 
-> 一个基于 TypeScript、包含**安全浏览器 MFA 认证**的 Garmin Connect 插件与 MCP 服务器：为 DeepSeek Harness 打造，也适用于更多 AI Agent。
+> 一个基于 TypeScript、支持**官方 Personal API 与安全浏览器 MFA 认证**的 Garmin Connect 插件与 MCP 服务器：为 DeepSeek Harness 打造，也适用于更多 AI Agent。
 
 [![npm version](https://img.shields.io/npm/v/dsh-plugin-garmin-connect.svg?logo=npm)](https://www.npmjs.com/package/dsh-plugin-garmin-connect)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-plugin-garmin-connect.svg?logo=npm)](https://www.npmjs.com/package/dsh-plugin-garmin-connect)
@@ -72,9 +72,12 @@
 
 ### 注册的工具
 
-0.1.18 共注册 **28 个工具**，其中 24 个用于读取数据或本地知识查询；
+0.1.19 为 Connect 网页会话账号提供 **28 个工具**，其中 24 个用于读取数据或本地知识查询；
 `download_garmin_activity_fit` 会在 MCP/dsh 所在主机写入一个本地文件。
 创建课表、删除课表和取消日历排期会在用户显式确认后修改 Garmin 数据。
+仅配置 Personal 的 DSH 连接和 Personal MCP 服务提供 **15 个兼容工具**，覆盖
+Garmin 数据读取、FIT 本地下载和本地训练知识查询。DSH 混合配置两种账号时保留
+工具合集，并按所选账号的能力执行调用。
 0.1.14 引入的下方 13 个恢复与训练工具通过精确 npm 别名依赖已发布的维护版
 SDK，详见[自行维护的 SDK 依赖](#自行维护的-sdk-依赖)。
 
@@ -251,30 +254,31 @@ npx @deepseek-ai/dsh web
 
 每个账号分别选择接入方式。原有浏览器流程继续可用；新的 Personal API 方式见下方说明。
 
-#### 官方 Personal API（开发版）
+#### 官方 Personal API（0.1.19 新增）
 
-**本功能属于本次开发版，npm 已发布的 0.1.18 尚不包含。** 插件使用参考佳明官方
-Python 客户端开发、独立维护的
+**0.1.19 已提供。** 插件使用参考佳明官方 Python 客户端开发、独立维护的
 [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts)，
-所需 SDK 随插件提供，使用者无需额外安装。
+SDK 已以 [@likenttt/connect-personal-api-ts@0.1.0](https://www.npmjs.com/package/@likenttt/connect-personal-api-ts/v/0.1.0)
+发布到官方 npm。所需 SDK 随插件提供，使用者无需额外安装。
 SDK 负责 Personal API Key 换取令牌及其支持的数据读取。
 
-在包含此功能的 Harness 开发版插件设置中，点击 **+**，选择**官方 Personal API（国际版，只读）**
+在 Harness 插件设置中，点击 **+**，选择**官方 Personal API（国际版，只读）**
 接入方式，填写别名和 API Key，保存后点击**验证连接**。不要求邮箱或 Garmin 密码；
 **新建 Personal 账号只需别名和 API Key 两项，默认连接国际版 `.com`**，不要求填写
 邮箱、密码或地区。已有大陆 Personal 账号保留 `cn` 配置，并显示当前不可访问提示。
 保存后的 Key 不会回填到设置表单，也不返回给 AI 工具。
-指南中的[账号表单组件预览](docs/assets/personal-api-guide/global-05-settings-component.png)使用
-隔离的演示配置渲染；真实 API／MCP 的验证结果见下方说明。
+[真实 Harness 桌面截图](docs/assets/personal-api-guide/global-06-harness-connected.png)和
+[桌面验收报告](docs/testing/personal-api-harness-desktop-2026-10-22.md)记录了候选版的
+6 次真实读取：5 次 Personal API、1 次原大陆网页会话，全部通过。重启后设置保留，再次验证连接成功。
 
-独立 MCP 可使用构建后的开发版服务：
+独立 MCP 可直接使用正式 npm 包：
 
 ```json
 {
   "mcpServers": {
     "garmin-personal": {
-      "command": "node",
-      "args": ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],
+      "command": "npx",
+      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.19", "garmin-connect-mcp"],
       "env": {
         "GARMIN_PROVIDER": "personal",
         "GARMIN_ACCOUNT": "my-garmin",
@@ -304,8 +308,8 @@ Personal 支持其公开范围内的**读取**，包括 HRV、血氧；呼吸读
 [官方申请说明](https://developer.garmin.com/gc-developer-program/personal/personal-api/)。
 
 **2026-10-22 区域验证：**国际账号新建的独立 Key 请求 `.com`，令牌交换、8 项 SDK
-读取和 5 项真实 MCP 工具读取通过；同时使用大陆 Key 请求 `.cn`，仍返回 HTTP 526，
-**大陆端点本次暂时无法访问**。两区凭据分开保存与使用，没有跨区回退。详见
+读取和 5 项真实 MCP 工具读取通过；大陆 Key 请求 `.cn` 返回 HTTP 526，
+**大陆 Personal 端点当前不可用**。两区凭据分开保存与使用，没有跨区回退。详见
 [端点测试报告](docs/research/personal-api-endpoint-test-report-2026-10-22.md)。
 
 维护 SDK 时，先提交独立仓库，再运行
@@ -979,9 +983,11 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-MCP 服务器通过标准协议暴露与 dsh 插件**相同的 28 个工具及日期语义**：
+使用 Connect 网页会话账号时，MCP 服务器通过标准协议暴露与 dsh 插件
+**相同的 28 个工具及日期语义**：
 原有 10 个工具、3 个课表管理工具、前述 13 个恢复与训练工具，以及
-2 个血氧与呼吸单日读取工具。独立 MCP 每个进程使用配置的账号，
+2 个血氧与呼吸单日读取工具。Personal MCP 提供前述 **15 个兼容工具**，配置方式见
+[官方 Personal API](#官方-personal-api0119-新增)。独立 MCP 每个进程使用配置的账号，
 DSH 则支持工具级 `account` 选择。任何 AI 可调用工具都不接收密码/MFA，也不导出 Session Token；浏览器认证
 通过对话之外的本机 URL elicitation 完成，完成后由用户重试原工具。
 
@@ -1297,7 +1303,7 @@ npx @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
   - [ ] 增加显式开启的单向轮询同步；dsh 运行时定期检查，重启后补查
   - [ ] 首版不做双向同步、自动删除或 Garmin 全量元数据镜像
 - [ ] **Webhook 推送** — 活动上传实时通知
-- [ ] **Personal API 正式接入** — 开发版已实现 API Key／token 接入，完成发布验证并发布插件升级版
+- [x] **官方 Personal API（0.1.19）** — DSH 与 MCP 支持 API Key／token 接入、别名与 Key 两项设置，以及 15 个兼容的读取／本地工具
 
 ---
 

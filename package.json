@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-garmin-connect",
-  "version": "0.1.19-dev.0",
-  "description": "A TypeScript-based Garmin Connect plugin and MCP server with secure browser-based MFA for DeepSeek Harness and other AI agents",
+  "version": "0.1.19",
+  "description": "A Garmin Connect plugin and MCP server with official Personal API and secure browser-based MFA for DeepSeek Harness and other AI agents",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {

@@ -1,6 +1,6 @@
 # dsh-plugin-garmin-connect
 
-> A TypeScript-based Garmin Connect plugin and MCP server with **secure browser-based MFA**, built for DeepSeek Harness and designed to work with other AI agents.
+> A TypeScript-based Garmin Connect plugin and MCP server with **official Personal API and secure browser-based MFA**, built for DeepSeek Harness and designed to work with other AI agents.
 
 [![npm version](https://img.shields.io/npm/v/dsh-plugin-garmin-connect.svg?logo=npm)](https://www.npmjs.com/package/dsh-plugin-garmin-connect)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-plugin-garmin-connect.svg?logo=npm)](https://www.npmjs.com/package/dsh-plugin-garmin-connect)
@@ -68,9 +68,12 @@ This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-
 
 ### Registered Tools
 
-Version 0.1.18 registers **28 tools**. Twenty-four provide queries or local advice without writing;
+Version 0.1.19 provides **28 tools** for Connect web-session accounts. Twenty-four provide queries or local advice without writing;
 `download_garmin_activity_fit` writes one local file on the MCP/dsh host. Creating or deleting
 a workout and cancelling a calendar entry change Garmin data after explicit confirmation.
+Personal-only DSH connections and Personal MCP servers expose **15 compatible tools** for
+Garmin reads, local FIT downloads and local coaching knowledge. Mixed DSH accounts keep
+the combined tool set and route each call by the selected account’s capabilities.
 The 13 recovery and training tools introduced in 0.1.14 depend on
 the published maintained SDK through an exact npm alias; see
 [Maintained SDK dependency](#maintained-sdk-dependency).
@@ -265,16 +268,16 @@ The web UI starts at `http://127.0.0.1:3080` by default. If you launch Harness v
 Choose the connection method per account. The existing browser flow below remains
 available; the new Personal API option is described separately here.
 
-#### Official Personal API (development version)
+#### Official Personal API (introduced in 0.1.19)
 
-**This feature is in the current development version; published npm 0.1.18 does
-not include it.** The plugin uses the separately maintained
+**Available in 0.1.19.** The plugin uses the separately maintained
 [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts)
-implementation based on Garmin's official Python client. It bundles the required
-SDK, so plugin users do not need to install another package.
+implementation based on Garmin's official Python client. The SDK is published on
+official npm as [@likenttt/connect-personal-api-ts@0.1.0](https://www.npmjs.com/package/@likenttt/connect-personal-api-ts/v/0.1.0).
+It is bundled with the plugin, so plugin users do not need to install another package.
 The SDK exchanges a Personal API key for a token and reads supported resources.
 
-In a development build of Harness, add an account with **+**, choose **Official
+In Harness plugin settings, add an account with **+**, choose **Official
 Personal API (International, read-only)** (`官方 Personal API（国际版，只读）`), enter its alias and
 API key, save, then select **Verify connection** (`验证连接`). No email or Garmin
 password is required. A new Personal account has only two required inputs:
@@ -282,17 +285,19 @@ password is required. A new Personal account has only two required inputs:
 the form does not ask for an email, password or region. Existing mainland Personal
 accounts retain their `cn` configuration and show the current availability note.
 Saved keys are not returned to the settings form or AI tools.
-The guide's [account form component preview](docs/assets/personal-api-guide/global-05-settings-component.png)
-uses isolated demo configuration; the API/MCP validation results are documented separately below.
+The [real Harness desktop screenshot](docs/assets/personal-api-guide/global-06-harness-connected.png)
+and [desktop acceptance report](docs/testing/personal-api-harness-desktop-2026-10-22.md) record
+six successful reads in the release candidate: five using Personal API and one using the
+existing mainland web session. Saved settings survived a restart and connection verification passed again.
 
-For standalone MCP, use the built development server with:
+For standalone MCP, use the released package:
 
 ```json
 {
   "mcpServers": {
     "garmin-personal": {
-      "command": "node",
-      "args": ["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js"],
+      "command": "npx",
+      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.19", "garmin-connect-mcp"],
       "env": {
         "GARMIN_PROVIDER": "personal",
         "GARMIN_ACCOUNT": "my-garmin",
@@ -327,9 +332,8 @@ and [Garmin's official instructions](https://developer.garmin.com/gc-developer-p
 
 **Regional validation (2026-10-22):** a separately created international Key on
 `.com` passed token exchange, eight SDK reads and five real MCP tool reads.
-A concurrent check using the mainland Key on `.cn` still returned HTTP 526:
-the mainland endpoint is temporarily inaccessible in this test. Credentials
-were kept separate; no cross-region fallback was used. See the
+The mainland Key on `.cn` returned HTTP 526; the mainland Personal endpoint is
+currently unavailable. Credentials were kept separate; no cross-region fallback was used. See the
 [endpoint test report (Chinese)](docs/research/personal-api-endpoint-test-report-2026-10-22.md).
 
 For SDK maintenance, update the independently committed source with
@@ -1129,9 +1133,11 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-The MCP server exposes the same **28 tools and date semantics** as
-the dsh plugin: the original ten tools, three workout management tools, and the
+With Connect web-session authentication, the MCP server exposes the same
+**28 tools and date semantics** as the dsh plugin: the original ten tools, three workout management tools, and the
 13 recovery and training tools plus two daily blood oxygen/respiration tools listed above.
+Personal MCP servers expose the **15 compatible tools** described in the
+[Personal API configuration](#official-personal-api-introduced-in-0119).
 Account selection differs: each standalone MCP process uses its
 configured account, while DSH accepts an explicit `account` selector.
 No AI-callable tool accepts a password/MFA code or exports a session token.
@@ -1482,7 +1488,7 @@ Distribution notes:
   - [ ] Add opt-in polling schedules for one-way automatic sync while dsh is running, with catch-up after restart
   - [ ] Keep bidirectional sync, automatic deletion, and full Garmin metadata mirroring out of the first release
 - [ ] **Webhook / Push** — real-time activity upload notifications
-- [ ] **Personal API release** — API-key/token access is implemented in the development version; complete release validation and publish the plugin update
+- [x] **Official Personal API (0.1.19)** — API-key/token access in DSH and MCP, alias-and-Key settings, and 15 compatible read/local tools
 
 ---
 

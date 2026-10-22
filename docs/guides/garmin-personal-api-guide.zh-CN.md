@@ -10,7 +10,7 @@
 
 ## 一、先弄清它能做什么
 
-Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET 数据接口，覆盖活动、步数、睡眠、心率、HRV、血氧、压力、身体电量等，也能下载原始活动文件。呼吸数据包含日汇总、睡眠等字段，不能等同于完整全天曲线。[官方 FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/) · [接口文档](https://developer.garmin.com/gc-developer-program/personal/swagger-docs/)
+Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET 数据接口，覆盖活动、步数、睡眠、心率、HRV、血氧、压力、身体电量等，也能下载原始活动文件。呼吸数据包含日汇总、睡眠等字段，<span style="color: #b42318; font-weight: 600;">暂无独立的完整全天呼吸曲线接口</span>。[官方 FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/) · [接口文档](https://developer.garmin.com/gc-developer-program/personal/swagger-docs/)
 
 同一个 `dsh-plugin-garmin-connect` 插件有两种接入方式：
 
@@ -20,13 +20,13 @@ Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET �
 | 插件配置 | 邮箱、区域、可选别名，再完成网页登录 | 仅别名 + Key，新建账号默认国际版 |
 | 密码处理 | 密码只填 Garmin 官方表单；当前插件设置保存邮箱和会话，不保存密码 | 插件不需要密码；Key 是敏感凭据，保存在本机 |
 | 读取范围 | 活动、健康与训练相关数据，以工具和设备实际记录为准 | 官方开放的读取，包括 HRV、血氧、呼吸摘要等 |
-| 训练库／日历写操作 | 按已提供工具创建、删除课表或取消排期，需预览确认 | 当前不提供 |
+| 训练库／日历写操作 | 按已提供工具创建、删除课表或取消排期，需预览确认 | <span style="color: #b42318; font-weight: 600;">暂不支持（Personal API 当前只读）</span> |
 | 有效期与撤销 | 会话有效期和刷新由 Garmin 控制；可停用本机账号并清理会话，远端撤销规则以 Garmin 为准 | Key 可选 30／90／180 天或一年；token 最长 24 小时；官网 Delete 撤销 Key 和关联 token |
 | MFA | 登录时在 Garmin 官方页完成 | 申领 Key 时按账号要求验证，后续用 Key 获取 token |
-| 账号地区 | 原有方式支持中国区和国际区 | 国际实测通过；大陆对应端点本次 526，暂不可访问 |
+| 账号地区 | 原有方式支持中国区和国际区 | 国际实测通过；<span style="color: #b42318; font-weight: 600;">大陆令牌交换返回 HTTP 526，暂时无法读取数据</span> |
 | 适用场景 | 已有账号继续使用，需要训练库和排期管理 | 希望通过官方个人 API 做数据读取与分析 |
 
-**插件的课表与日历管理能力继续由 Connect 网页会话提供**，写操作仍需预览和确认。Personal 模式当前只读，其公开范围也未包含 Webhook。
+**插件的课表与日历管理能力继续由 Connect 网页会话提供**，写操作仍需预览和确认。Personal 模式当前只读，<span style="color: #b42318; font-weight: 600;">其公开范围也未包含 Webhook</span>。
 
 ![Garmin 官方 Personal API 说明](../assets/personal-api-guide/01-official-instructions.png)
 
@@ -68,9 +68,15 @@ Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET �
 
 ## 五、在 DeepSeek Harness 里接入
 
-**以下设置属于本次源码开发版，npm 已发布的 0.1.18 尚不包含 Personal 接入。** 正式版发布后可按新版本安装；现在体验需要使用 [Personal 开发分支](https://github.com/Likenttt/garmin-connect-plugin-for-dsh/tree/codex/personal-api)构建的插件，不能直接安装旧版 `latest` 代替。
+**本文对应 dsh-plugin-garmin-connect 0.1.19 正式版，包含官方 Personal API 接入。** macOS 用户先退出 DeepSeek Harness，再使用应用内置 CLI 从官方 npm 安装：
 
-新用户先安装本次开发版；原用户更新后可以保留已有网页会话账号，再新增 Personal 账号。按顺序操作：
+```bash
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+  plugin --profile desktop add dsh-plugin-garmin-connect@0.1.19 \
+  --ignore-scripts --registry=https://registry.npmjs.org/
+```
+
+安装后重新打开 Harness。原用户可以保留已有网页会话账号，再新增 Personal 账号。按顺序操作：
 
 1. 打开 Harness 的**插件**页面，找到 **dsh-plugin-garmin-connect**，进入账号设置。
 2. 点击 **+ 添加账号**，接入方式选择 **官方 Personal API（国际版，只读）**。
@@ -81,20 +87,20 @@ Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET �
 
 建议用 **+ 添加账号**保留两种方式。若修改已有账号的接入方式，需要提供新方式的凭据：Personal 填 API Key，网页会话重新完成对应登录。
 
-![开发版Personal账号表单组件预览](../assets/personal-api-guide/global-05-settings-component.png)
+![真实 Harness 桌面 Personal 账号连接成功](../assets/personal-api-guide/global-06-harness-connected.png)
 
-*图 6：开发版账号表单组件预览：只填写别名和 API Key。使用演示配置渲染。*
+*图 6：真实 Harness 桌面验收：保存别名和 Key 后连接成功，重启后仍可验证；完整 Key 不回填。*
 
 ### 本机 DSH 怎么验收？
 
-安装并重新加载开发版后，依次检查：
+安装并重新加载插件后，依次检查：
 
 1. Personal 账号点击**验证连接**成功，目标别名正确。
 2. 在对话中指定该别名，先查询 profile，再读取有记录日期的单日 HRV；多账号时由 Agent 映射到设置页显示的稳定账号 ID。
 3. 返回设置页，确认 Key 显示“已设置”，完整密钥没有回填。
 4. 再明确选择原有网页会话账号查询 profile，核对账号隔离，避免混用数据。
 
-这是一份本机验收清单。上图为组件演示配置预览；已完成的真实 MCP 验证见测试报告。
+以上已使用发布前的 **0.1.19-dev.0** 在真实 Harness 桌面完成：5 次 Personal 工具读取与 1 次原大陆网页会话读取均成功，重启后的连接验证也通过。HRV 时序与血氧测量值有空缺，呼吸为每日摘要。见[桌面验收报告](../testing/personal-api-harness-desktop-2026-10-22.md)。
 具体操作见[本机 DSH／MCP 验证指南](personal-api-local-validation.zh-CN.md)。
 
 ### 开发者：安装当前源码版
@@ -102,7 +108,7 @@ Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET �
 源码体验者可先构建本地安装包：
 
 ```bash
-git clone --branch codex/personal-api --single-branch https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
+git clone --branch main --single-branch https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git
 cd garmin-connect-plugin-for-dsh
 npm ci
 npm run build
@@ -110,12 +116,12 @@ npm pack --ignore-scripts
 ```
 
 macOS 桌面版先**退出 DeepSeek Harness**，再使用应用内置 CLI 安装到 `desktop` profile。
-本机核实的内置 CLI 版本为 **0.2.1-rc.2**；桌面当前安装的插件为 **0.1.18**。
+本机核实的内置 CLI 版本为 **0.2.1-rc.2**。
 将下方安装包路径换成生成文件的绝对路径：
 
 ```bash
 "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add /absolute/path/dsh-plugin-garmin-connect-0.1.19-dev.0.tgz \
+  plugin --profile desktop add /absolute/path/dsh-plugin-garmin-connect-0.1.19.tgz \
   --ignore-scripts --registry=https://registry.npmjs.org/
 ```
 
@@ -156,15 +162,9 @@ Codex、Claude Code 等支持 stdio MCP 的客户端，运行的是**同一插�
 
 本次已验证 MCP 的 profile、活动、HRV、血氧、呼吸 5 项读取。呼吸返回的是每日摘要。先用小查询确认账号与日期，再逐步分析趋势；工具存在和读取成功要分别确认。
 
-## 七、大陆账号：有入口，本次暂不可访问
+### 令牌有效期与 SDK 安装
 
-大陆账号可在登录后直达 [大陆 Personal API Key 页面](https://connect.garmin.cn/app/settings/personalApiToken)。本次可以创建 30 天 Key，刷新后记录保留，但部分文案及条款显示为占位符。
-
-使用**大陆 Key 请求对应 `personal.connectapi.garmin.cn`**，本轮换取令牌返回 **HTTP 526／`TOKEN_EXCHANGE_FAILED`**，没有取得 token，也没有继续读取健康数据。当前只能说**大陆端点本次暂时无法访问**，不能据此断言永久不支持。
-
-国际用国际 Key，大陆用大陆 Key，分开保存、不跨区回退。MCP 保留 `GARMIN_REGION=cn` 配置；已经保存的大陆 Personal 账号会保留区域并显示暂不可访问提示。新建 Harness Personal 账号默认国际版，不能把大陆 Key 当国际 Key 填入。
-
-最后补充：访问令牌最长有效 24 小时，且不超过 Key 的到期时间；过期后用 Key 重新获取，没有 refresh token。[认证 FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/)
+访问令牌最长有效 24 小时，且不超过 Key 的到期时间；过期后用 Key 重新获取，没有 refresh token。[认证 FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/)
 
 底层 [connect-personal-api-ts](https://github.com/Likenttt/connect-personal-api-ts) 专注 Personal Key、token 与数据读取。开发者可从官方 npm 安装已发布的 SDK 0.1.0：
 
@@ -172,7 +172,39 @@ Codex、Claude Code 等支持 stdio MCP 的客户端，运行的是**同一插�
 npm install @likenttt/connect-personal-api-ts@0.1.0
 ```
 
-**插件用户不必单独安装 SDK。** 本文插件的 Personal 功能仍是未发布的源码开发版，npm 正式插件 0.1.18 尚不包含新模式。
+**插件用户不必单独安装 SDK。** dsh-plugin-garmin-connect 0.1.19 已集成 Personal API；Harness 和 MCP 均通过同一个插件包使用。
+
+## 七、中国大陆站与端点现状：功能尚未完善
+
+以下是 **2026 年 10 月 22 日的大陆站实测情况**。大陆账号登录后可以直达 [Personal API Key 页面](https://connect.garmin.cn/app/settings/personalApiToken)，也能创建 Key 并保留记录；<span style="color: #b42318; font-weight: 600;">页面文案尚未完善，令牌交换返回 HTTP 526，暂时无法读取数据</span>。
+
+### 1. 密钥页面能打开，部分文案仍是键名
+
+设置页能加载，但本应显示为标题和按钮的内容，仍出现 `personal_api_key`、`create_key` 等键名。<span style="color: #b42318; font-weight: 600;">页面标题和按钮文案尚未完善。</span>
+
+![大陆 Personal API Key 页面显示未替换的文案键名](../assets/personal-api-guide/02-cn-key-page.png)
+
+*图 7：大陆密钥页面可以打开，部分标题和按钮文案尚未正常显示。*
+
+### 2. 条款页面尚未显示可读正文
+
+申请时出现的条款页面，标题与正文仍显示 `personal_api_terms_*` 占位符。<span style="color: #b42318; font-weight: 600;">本次页面未能显示可正常阅读的条款内容。</span>
+
+![大陆 Personal API 条款显示占位符](../assets/personal-api-guide/03-cn-terms.png)
+
+*图 8：大陆申请条款的标题和正文仍是占位符，页面文案尚未完善。*
+
+### 3. Key 创建记录保留，数据接口仍未跑通
+
+本次创建了 **30 天有效期的大陆 Key**，刷新后仍能看到记录，但日期标签未正常呈现。<span style="color: #b42318; font-weight: 600;">密钥记录已保留，数据读取仍未跑通。</span>
+
+![大陆 Key 创建后刷新仍显示记录](../assets/personal-api-guide/06-key-list.png)
+
+*图 9：大陆 Key 创建后刷新仍有记录，日期标签未正常显示；对应令牌交换返回 HTTP 526。*
+
+随后使用**大陆 Key 请求对应 `personal.connectapi.garmin.cn`**，换取令牌返回 <span style="color: #b42318; font-weight: 600;">HTTP 526／<code>TOKEN_EXCHANGE_FAILED</code></span>，<span style="color: #b42318; font-weight: 600;">大陆 Personal API 暂时无法读取健康数据</span>。完整过程见 [端点实测报告](../research/personal-api-endpoint-test-report-2026-10-22.md)。
+
+国际用国际 Key，大陆用大陆 Key，分开保存、不跨区回退。MCP 保留 `GARMIN_REGION=cn` 配置；已经保存的大陆 Personal 账号会保留区域并显示暂不可访问提示。新建 Harness Personal 账号默认国际版，不能把大陆 Key 当国际 Key 填入。
 
 ## 八、连接后，用这个插件问两句
 

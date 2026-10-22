@@ -1,6 +1,6 @@
 # 本机验证 dsh-plugin-garmin-connect 的 Personal API 模式
 
-本指南针对 2026-10-22 的开发版 `0.1.19-dev.0`。本机桌面 Harness 为 `0.2.1-rc.2`，`desktop` profile 当前安装插件 `0.1.18`；`web` 是另一份旧配置。本次使用桌面自带 CLI，避免另行下载 DSH 或装错 profile。插件已包含固定版本的 TS SDK 源码，用户无需另外安装 SDK。
+本指南针对 2026-10-22 的开发版 `0.1.19-dev.0`。本机桌面 Harness 为 `0.2.1-rc.2`，`desktop` profile 已从 `0.1.18` 更新到 `0.1.19-dev.0`，并完成真实桌面验收，见[实测报告](../testing/personal-api-harness-desktop-2026-10-22.md)。`web` 是另一份旧配置。本次使用桌面自带 CLI，避免另行下载 DSH 或装错 profile。插件已包含固定版本的 TS SDK 源码，用户无需另外安装 SDK。
 
 ## 1. 构建并安装开发包
 
@@ -29,7 +29,7 @@ node -p "require('/Users/kent/.dsh/profiles/desktop/node_modules/dsh-plugin-garm
 
 重开 Harness，进入 Garmin 插件设置，点击 **＋添加账号**，选择 **Personal API**。该账号只需两个输入项：**必填别名、国际版 API Key**，不需要邮箱或密码。保存后别名应保留，Key 显示“已设置”而不回填原文；随后点击 **验证连接**。
 
-新建 Personal 账号使用国际端点：国际 Key 配 `.com`，大陆 Key 配 `.cn`，不能混用。大陆端点本次实测为 **HTTP 526，暂时无法访问**。保留原有 Connect 网页会话账号，使用设置页各自的账号 ID 核对隔离。
+新建 Personal 账号使用国际端点：国际 Key 配 `.com`，大陆 Key 配 `.cn`，不能混用。大陆 Personal 端点在此前独立测试中返回 **HTTP 526，暂时无法访问**，本轮桌面验收未重测。保留原有 Connect 网页会话账号，使用设置页各自的账号 ID 核对隔离。
 
 ## 3. 在新对话中验收
 
@@ -37,13 +37,14 @@ node -p "require('/Users/kent/.dsh/profiles/desktop/node_modules/dsh-plugin-garm
 
 > 使用“我的佳明国际版”账号，先读取 profile 确认连接，再查询昨天的 HRV、血氧、呼吸摘要和活动。请说明实际查询日期；此次只读取数据。
 
-- [ ] 验证连接成功，别名及稳定账号 ID 对应正确。
-- [ ] 对话能找到 Personal 工具，profile 读取成功。
-- [ ] 单日健康数据和活动返回符合预期；呼吸为每日摘要。
-- [ ] 返回设置页，别名仍在，完整 Key 不出现。
-- [ ] 指定原网页会话账号再次查 profile，两种账号互不串用。
+- [x] 验证连接成功，别名及稳定账号 ID 对应正确。
+- [x] 对话能找到 Personal 工具，profile 读取成功。
+- [x] 单日健康数据和活动返回成功；呼吸为每日摘要，HRV、血氧中的空值仍按空值处理。
+- [x] 保存后别名仍在，完整 Key 不回填。
+- [x] 完全退出并重开 Harness 后，别名、稳定账号 ID 和 Key 配置保留，再次验证连接成功。
+- [x] 指定原大陆网页会话账号再次查 profile，返回独立账号数据。
 
-目前已有真实 stdio MCP 读取及 DSH 工具适配器测试；完整桌面界面流程需按上述步骤完成验收。
+以上已在真实桌面 Harness 设置页和新对话中完成。新对话实际执行了 5 次国际 Personal 读取，以及 1 次原大陆网页会话 profile 读取，全部成功。此次 HRV 明细为空，血氧虽有 24 个小时条目，其测量值均为空；不能据此声称读到了有效 HRV 曲线或 24 次血氧测量。详情见[实测报告](../testing/personal-api-harness-desktop-2026-10-22.md)。此前的 stdio MCP 和 DSH 工具适配器测试仍作为独立证据保留。
 
 ## 4. 单独验证 MCP
 
@@ -55,7 +56,7 @@ node -p "require('/Users/kent/.dsh/profiles/desktop/node_modules/dsh-plugin-garm
 | --- | --- |
 | 没有 Personal 模式或缺少工具 | 核验上述安装版本，重启桌面 Harness，并新建对话 |
 | 401／403 | Key 是否有效、过期或撤销，以及是否选对区域 |
-| 526 | 对应端点暂不可访问；大陆本次已复现 |
+| 526 | 对应端点暂不可访问；大陆 Personal 在此前独立测试中复现，本轮桌面未重测 |
 | 返回空数据 | 核对日期与设备记录；空值不等于 0 |
 
 需要回退时，退出 Harness，用同一桌面 CLI 将安装参数改为 `dsh-plugin-garmin-connect@0.1.18`，再重开应用。正式版 `0.1.18` 不包含 Personal 模式。
