@@ -100,7 +100,7 @@ Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET �
 3. 返回设置页，确认 Key 显示“已设置”，完整密钥没有回填。
 4. 再明确选择原有网页会话账号查询 profile，核对账号隔离，避免混用数据。
 
-以上已使用发布前的 **0.1.19-dev.0** 在真实 Harness 桌面完成：5 次 Personal 工具读取与 1 次原大陆网页会话读取均成功，重启后的连接验证也通过。HRV 时序与血氧测量值有空缺，呼吸为每日摘要。见[桌面验收报告](../testing/personal-api-harness-desktop-2026-10-22.md)。
+本机已从官方 npm 安装 **0.1.19**，Personal 连接验证成功。发布前的 **0.1.19-dev.0** 已在真实 Harness 桌面完成：5 次 Personal 工具读取与 1 次原大陆网页会话读取均成功，重启后的连接验证也通过。HRV 时序与血氧测量值有空缺，呼吸为每日摘要。见[桌面验收报告](../testing/personal-api-harness-desktop-2026-10-22.md)。
 具体操作见[本机 DSH／MCP 验证指南](personal-api-local-validation.zh-CN.md)。
 
 ### 开发者：安装当前源码版

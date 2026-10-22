@@ -40,11 +40,20 @@
 
 已在桌面的“轨迹”页逐项核对工具名、显式账号参数和真实响应，以上均为 Harness 内模型发起的真实工具调用，没有用终端调用替代。未重新登录 Garmin，未写入 Garmin 数据。
 
+## 正式版发布与本机复核
+
+- 官方 npm `latest` 已更新为 `0.1.19`，GitHub 已发布 [v0.1.19](https://github.com/Likenttt/garmin-connect-plugin-for-dsh/releases/tag/v0.1.19)。
+- 官方包完整性与发布前校验的安装包一致；217 个编译文件与桌面候选完全一致。
+- 全新目录从官方 npm 安装成功，真实 stdio MCP 初始化及 15 项 Personal 工具发现通过；此项没有请求 Garmin 数据。
+- 本机使用桌面内置 CLI 将 `desktop` profile 切为官方 npm 的 `dsh-plugin-garmin-connect@0.1.19`。逐文件核对 217 个编译文件均与发布包一致。
+- 重开 Harness，界面显示 `v0.1.19` 和正式 npm 来源；原三个账号保留。Personal 账号再次点击验证连接成功，Key 无需重填。
+- 发布检查：本机 146 项定向测试通过；[GitHub CI](https://github.com/Likenttt/garmin-connect-plugin-for-dsh/actions/runs/39731558560) 的 Node 20/22 各 1112 项、Windows 15 项、macOS 51 项测试及对应构建通过。
+
 ## 尚未覆盖
 
 - 本轮未重测大陆 Personal API。此前独立端点测试返回 HTTP 526，见[区域端点测试报告](../research/personal-api-endpoint-test-report-2026-10-22.md)；不能将其当成本轮桌面测试的新结论。
 - 本轮没有有效 HRV 明细或血氧测量值，未验证这两类有效曲线的展示。
 - 未测试全部 Personal API、长期运行、Key 过期或撤销后的恢复流程。
-- 本次验证的是本机开发版，不代表正式 npm 插件已升级。
+- 六次模型工具读取来自发布候选；正式 npm 包已完成安装、编译文件一致性和设置页连接复核。
 
 复现安装和设置步骤见[本机验证指南](../guides/personal-api-local-validation.zh-CN.md)。

@@ -1,25 +1,16 @@
 # 本机验证 dsh-plugin-garmin-connect 的 Personal API 模式
 
-本指南针对 2026-10-22 的开发版 `0.1.19-dev.0`。本机桌面 Harness 为 `0.2.1-rc.2`，`desktop` profile 已从 `0.1.18` 更新到 `0.1.19-dev.0`，并完成真实桌面验收，见[实测报告](../testing/personal-api-harness-desktop-2026-10-22.md)。`web` 是另一份旧配置。本次使用桌面自带 CLI，避免另行下载 DSH 或装错 profile。插件已包含固定版本的 TS SDK 源码，用户无需另外安装 SDK。
+本指南对应正式版 `0.1.19`。本机桌面 Harness 为 `0.2.1-rc.2`，`desktop` profile 已从开发候选切换为官方 npm 的 `0.1.19`，Personal 连接复核成功。完整候选验收与正式版复核见[实测报告](../testing/personal-api-harness-desktop-2026-10-22.md)。`web` 是另一份旧配置。本次使用桌面自带 CLI，避免另行下载 DSH 或装错 profile。插件已包含固定版本的 TS SDK 源码，用户无需另外安装 SDK。
 
-## 1. 构建并安装开发包
-
-在当前工作树执行：
-
-```bash
-cd /Users/kent/.codex/worktrees/activity-full-default-018/garmin-connect-plugin-for-dsh
-npm run build
-npm run check:sdk
-npm pack --ignore-scripts
-```
+## 1. 安装官方 npm 正式版
 
 **完全退出 DeepSeek Harness**，再执行：
 
 ```bash
-"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add "/Users/kent/.codex/worktrees/activity-full-default-018/garmin-connect-plugin-for-dsh/dsh-plugin-garmin-connect-0.1.19-dev.0.tgz" --ignore-scripts --registry=https://registry.npmjs.org/
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add dsh-plugin-garmin-connect@0.1.19 --ignore-scripts --registry=https://registry.npmjs.org/
 ```
 
-只读核验安装结果，应输出 `0.1.19-dev.0`：
+只读核验安装结果，应输出 `0.1.19`：
 
 ```bash
 node -p "require('/Users/kent/.dsh/profiles/desktop/node_modules/dsh-plugin-garmin-connect/package.json').version"
@@ -44,7 +35,7 @@ node -p "require('/Users/kent/.dsh/profiles/desktop/node_modules/dsh-plugin-garm
 - [x] 完全退出并重开 Harness 后，别名、稳定账号 ID 和 Key 配置保留，再次验证连接成功。
 - [x] 指定原大陆网页会话账号再次查 profile，返回独立账号数据。
 
-以上已在真实桌面 Harness 设置页和新对话中完成。新对话实际执行了 5 次国际 Personal 读取，以及 1 次原大陆网页会话 profile 读取，全部成功。此次 HRV 明细为空，血氧虽有 24 个小时条目，其测量值均为空；不能据此声称读到了有效 HRV 曲线或 24 次血氧测量。详情见[实测报告](../testing/personal-api-harness-desktop-2026-10-22.md)。此前的 stdio MCP 和 DSH 工具适配器测试仍作为独立证据保留。
+完整验收在发布候选 `0.1.19-dev.0` 中完成，新对话实际执行了 5 次国际 Personal 读取，以及 1 次原大陆网页会话 profile 读取，全部成功。正式包的 217 个编译文件与该候选完全一致；官方 npm 正式版 `0.1.19` 安装后，设置页连接复核也已通过。此次 HRV 明细为空，血氧的 24 个小时条目中测量值均为空，未取得有效 HRV 时序或当日血氧测量。详情见[实测报告](../testing/personal-api-harness-desktop-2026-10-22.md)。此前的 stdio MCP 和 DSH 工具适配器测试仍作为独立证据保留。
 
 ## 4. 单独验证 MCP
 
