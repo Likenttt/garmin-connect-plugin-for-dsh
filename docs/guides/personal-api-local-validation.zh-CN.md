@@ -1,6 +1,6 @@
 # 本机验证 dsh-plugin-garmin-connect 的 Personal API 模式
 
-本指南按正式版 `0.1.21` 的账号工作台整理。账号不设固定数量上限，使用自由备注识别；Harness 与共享工作区 MCP 共用账号、时间线和备注。SQLite 工作台需要 Node 22.13+，旧版单账号 MCP 仍支持 Node 20。历史 `0.1.19` 候选验收与正式版复核见[实测报告](../testing/personal-api-harness-desktop-2026-10-22.md)。以下使用桌面自带 CLI，避免另行下载 DSH 或装错 profile；用户无需另外安装底层 SDK。
+本指南按正式版 `0.1.21` 的账号工作台整理。账号不设固定数量上限，使用自由备注识别；Harness 与共享工作区 MCP 共用账号、时间线和备注。SQLite 工作台需要 Node 22.13+，旧版单账号 MCP 支持 Node 20.19+。历史 `0.1.19` 候选验收与正式版复核见[实测报告](../testing/personal-api-harness-desktop-2026-10-22.md)。以下使用桌面自带 CLI，避免另行下载 DSH 或装错 profile；用户无需另外安装底层 SDK。
 
 ## 1. 安装官方 npm 正式版
 

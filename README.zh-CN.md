@@ -6,7 +6,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/dsh-plugin-garmin-connect.svg?logo=npm)](https://www.npmjs.com/package/dsh-plugin-garmin-connect)
 [![CI](https://github.com/Likenttt/garmin-connect-plugin-for-dsh/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Likenttt/garmin-connect-plugin-for-dsh/actions/workflows/ci.yml)
 [![测试报告](https://img.shields.io/badge/%E6%B5%8B%E8%AF%95%E6%8A%A5%E5%91%8A-%E6%9F%A5%E7%9C%8B-blue.svg)](TEST_REPORT.zh-CN.md)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%5E20.19%20%7C%20%3E%3D22.13-brightgreen.svg)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **[English](README.md)** | 中文 | **[测试报告](TEST_REPORT.zh-CN.md)** | **[更新日志](CHANGELOG.md)**
@@ -758,7 +758,8 @@ username、region 和 `profileIdHash`；为兼容旧版本，无绑定的 `oauth
 
 ### 共享本机工作区（0.1.21）
 
-SQLite 工作区需使用 **Node 22.13 或更新版本**。Node 20 仍可使用原有的环境变量
+本版本支持 **Node 20.19+（20.x）或 Node 22.13 及更新版本**。
+SQLite 工作区需使用 **Node 22.13 或更新版本**；Node 20.19+ 可使用原有的环境变量
 单账号 MCP 模式。
 
 需要时打开账号、时间线和备注页面：
