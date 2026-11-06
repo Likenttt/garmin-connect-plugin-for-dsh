@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, readdir, rename, rm } from 'node:fs/promises'
+import { lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { defaultAccountSessionPath } from './account-session'
 import { PublicToolError } from './utils/errors'
@@ -65,15 +65,32 @@ async function privateJson(path: string): Promise<unknown> {
 }
 async function writePrivateJson(path: string, value: unknown): Promise<void> {
   const temporary = `${path}.${randomBytes(12).toString('hex')}.tmp`
-  const handle = await open(temporary, 'wx', 0o600)
+  let created = false
   try {
-    const acl = await windows()
-    if (acl) await acl.secureFile(temporary)
-    await handle.writeFile(JSON.stringify(value), 'utf8')
-    await handle.sync()
-  } finally { await handle.close() }
-  try { await rename(temporary, path) }
-  finally { await rm(temporary, { force: true }) }
+    const handle = await open(temporary, 'wx', 0o600)
+    created = true
+    try {
+      const acl = await windows()
+      if (acl) await acl.secureFile(temporary)
+      await handle.writeFile(JSON.stringify(value), 'utf8')
+      await handle.sync()
+    } finally { await handle.close() }
+    await rename(temporary, path)
+  }
+  finally { if (created) await rm(temporary, { force: true }) }
+}
+
+/** Only a contender that won an exclusive mkdir may secure this new directory. */
+async function prepareCreatedWorkspaceDirectory(path: string): Promise<void> {
+  const acl = await windows()
+  if (acl) await acl.secureDirectory(path)
+  await prepareWorkspaceDirectory(path)
+}
+
+async function removeEmptyCreatedDirectory(path: string): Promise<void> {
+  // Do not delete an unexpected file/owner another actor placed, and do not
+  // replace the original initialization failure with a cleanup error.
+  await rmdir(path).catch(() => undefined)
 }
 export async function registerWorkspace(input: WorkspaceDescriptor): Promise<WorkspaceDescriptor> {
   const descriptor = normalizeWorkspace(input)
@@ -150,12 +167,17 @@ export async function acquireWorkspaceLease(input: WorkspaceDescriptor): Promise
     // checks this gate before creating a lease, so stale cleanup cannot delete a
     // newly published owner's files.
     const reclaimId = randomBytes(24).toString('hex')
+    let createdReclaim = false
     try {
       await mkdir(paths.reclaim, { mode: 0o700 })
-      await prepareWorkspaceDirectory(paths.reclaim)
+      createdReclaim = true
+      await prepareCreatedWorkspaceDirectory(paths.reclaim)
       await writePrivateJson(join(paths.reclaim, 'owner.json'), { version: 1, pid: process.pid, instanceId: reclaimId })
     }
-    catch { return undefined }
+    catch {
+      if (createdReclaim) await removeEmptyCreatedDirectory(paths.reclaim)
+      return undefined
+    }
     try {
       let owner: unknown
       try { owner = await privateJson(join(paths.lock, 'owner.json')) }
@@ -183,9 +205,9 @@ export async function acquireWorkspaceLease(input: WorkspaceDescriptor): Promise
   const instanceId = randomBytes(24).toString('hex')
   let closed = false
   try {
-    await prepareWorkspaceDirectory(paths.lock)
+    await prepareCreatedWorkspaceDirectory(paths.lock)
     await writePrivateJson(join(paths.lock, 'owner.json'), { version: 1, pid: process.pid, instanceId })
-  } catch (error) { await rm(paths.lock, { recursive: true, force: true }); throw error }
+  } catch (error) { await removeEmptyCreatedDirectory(paths.lock); throw error }
   const own = async () => {
     const owner = await privateJson(join(paths.lock, 'owner.json'))
     return validOwner(owner) && owner.instanceId === instanceId && owner.pid === process.pid
