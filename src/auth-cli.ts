@@ -6,6 +6,13 @@ import readline from 'node:readline/promises'
 import type { Readable, Writable } from 'node:stream'
 import type { GarminAuthOptions, GarminAuthResult } from './auth'
 import {
+  authDiagnosticCodeFromError,
+  createAuthDiagnosticReporter,
+  reportAuthDiagnostic,
+  resolveAuthDiagnosticPathSource,
+  type AuthDiagnosticReporter,
+} from './auth-diagnostics'
+import {
   assertAccountAlias,
   defaultAccountSessionPath,
 } from './account-session'
@@ -103,6 +110,7 @@ export interface BrowserAuthSetupResult {
 export interface AuthServeCliDependencies {
   authenticate(options: EmbeddedAuthRuntimeConfig & {
     signal?: AbortSignal
+    diagnostics?: AuthDiagnosticReporter
   }): Promise<LocalAuthSuccessResult>
   prepareDestination(path: string): Promise<void>
 }
@@ -158,14 +166,21 @@ const defaultServeDependencies: AuthServeCliDependencies = {
     const runtime = require('./embedded-auth-runtime') as {
       createEmbeddedAuthController(
         config: EmbeddedAuthRuntimeConfig,
+        options?: { diagnostics?: AuthDiagnosticReporter },
       ): LocalAuthBrokerController
     }
     const controller = runtime.createEmbeddedAuthController({
       username: options.username,
       region: options.region,
       sessionTokenFile: options.sessionTokenFile,
+    }, {
+      diagnostics: options.diagnostics,
     })
-    return new LocalAuthBroker({ controller }).authenticateInSystemBrowser(
+    const brokerOptions = {
+      controller,
+      diagnostics: options.diagnostics,
+    }
+    return new LocalAuthBroker(brokerOptions).authenticateInSystemBrowser(
       options.region,
       options.signal,
     )
@@ -199,6 +214,7 @@ Canary options:
   --region <global|cn>    Required; never inferred from environment
 
 General options:
+  --verbose               Emit redacted authentication diagnostics
   -h, --help              Show this help
   -V, --version           Show the installed version
 
@@ -231,6 +247,17 @@ export async function runAuthSetup(input: AuthSetupInput): Promise<AuthSetupResu
   const sessionTokenFile = configuredPath
     ? path.resolve(expandHome(configuredPath))
     : defaultAccountSessionPath(account, input.env)
+  const diagnostics = parsed.verbose
+    ? createCliDiagnosticReporter(input.io, {
+      source: 'cli_login',
+      region,
+      sessionPathSource: resolveAuthDiagnosticPathSource(
+        Boolean(configuredPath),
+        input.env,
+      ),
+    })
+    : undefined
+  reportAuthDiagnostic(diagnostics, 'diagnostics_started')
 
   const username = input.env.GARMIN_USERNAME?.trim()
     || (await promptAuthCli(
@@ -250,15 +277,19 @@ export async function runAuthSetup(input: AuthSetupInput): Promise<AuthSetupResu
     true,
     input.signal,
   )
+  let terminalAuthenticated = false
 
   try {
     if (!password) {
+      reportAuthDiagnostic(diagnostics, 'terminal_browser_fallback')
       return continueAuthSetupInBrowser(
         input,
         { account, region, sessionTokenFile, username },
         'blank_password',
+        parsed.verbose,
       )
     }
+    reportAuthDiagnostic(diagnostics, 'terminal_auth_started')
     const authenticated = await dependencies.authenticate({
       username,
       password,
@@ -272,11 +303,20 @@ export async function runAuthSetup(input: AuthSetupInput): Promise<AuthSetupResu
         signal,
       ),
     })
+    terminalAuthenticated = true
+    reportAuthDiagnostic(diagnostics, 'terminal_auth_succeeded')
     throwIfAuthCliCancelled(input.signal)
-    await dependencies.writeSession(
-      sessionTokenFile,
-      bindSessionTokensToAccount(authenticated.tokens, username, region),
-    )
+    reportAuthDiagnostic(diagnostics, 'session_persist_started')
+    try {
+      await dependencies.writeSession(
+        sessionTokenFile,
+        bindSessionTokensToAccount(authenticated.tokens, username, region),
+      )
+      reportAuthDiagnostic(diagnostics, 'session_persist_succeeded')
+    } catch (error) {
+      reportAuthDiagnostic(diagnostics, 'session_persist_failed')
+      throw error
+    }
 
     input.io.write('Authentication succeeded.\n')
     input.io.write(
@@ -299,12 +339,17 @@ export async function runAuthSetup(input: AuthSetupInput): Promise<AuthSetupResu
       !(error instanceof GarminAuthenticationRequiredError)
       || error.reason !== 'challenge'
     ) {
+      if (!terminalAuthenticated) {
+        reportAuthDiagnostic(diagnostics, 'terminal_auth_failed')
+      }
       throw error
     }
+    reportAuthDiagnostic(diagnostics, 'terminal_browser_fallback')
     return continueAuthSetupInBrowser(
       input,
       { account, region, sessionTokenFile, username },
       error.challengeKind ?? 'challenge',
+      parsed.verbose,
     )
   } finally {
     // JavaScript strings cannot be reliably zeroized, but dropping the last
@@ -322,6 +367,7 @@ async function continueAuthSetupInBrowser(
     username: string
   },
   browserTrigger: 'blank_password' | 'mfa' | 'verification' | 'challenge',
+  verbose: boolean,
 ): Promise<AuthSetupResult> {
   await runAuthServe({
     argv: [
@@ -330,6 +376,7 @@ async function continueAuthSetupInBrowser(
       '--account', details.account,
       '--region', details.region,
       '--output', details.sessionTokenFile,
+      ...(verbose ? ['--verbose'] : []),
     ],
     env: {
       ...input.env,
@@ -370,7 +417,29 @@ export async function runBrowserAuthSetup(
   const sessionTokenFile = configuredPath
     ? path.resolve(expandHome(configuredPath))
     : defaultAccountSessionPath(account, input.env)
-  await dependencies.prepareDestination(sessionTokenFile)
+  const diagnostics = parsed.verbose
+    ? createCliDiagnosticReporter(input.io, {
+      source: 'cli_browser',
+      region,
+      sessionPathSource: resolveAuthDiagnosticPathSource(
+        Boolean(configuredPath),
+        input.env,
+      ),
+    })
+    : undefined
+  reportAuthDiagnostic(diagnostics, 'diagnostics_started')
+  reportAuthDiagnostic(diagnostics, 'session_destination_prepare_started')
+  try {
+    await dependencies.prepareDestination(sessionTokenFile)
+    reportAuthDiagnostic(diagnostics, 'session_destination_prepare_succeeded')
+  } catch (error) {
+    reportAuthDiagnostic(
+      diagnostics,
+      'session_destination_prepare_failed',
+      authDiagnosticCodeFromError(error, 'destination_prepare_failed'),
+    )
+    throw error
+  }
   const username = input.env.GARMIN_USERNAME?.trim()
     || (await promptAuthCli(input.io, 'Garmin email: ', false, input.signal)).trim()
   if (!username) throw new PublicToolError('Garmin username is required')
@@ -379,28 +448,37 @@ export async function runBrowserAuthSetup(
     'Opening an isolated Garmin page. Enter password, MFA, or CAPTCHA only ' +
     'on Garmin\'s page; this CLI reads only the username.\n',
   )
-  const result = await dependencies.setup({
-    username,
-    region,
-    sessionTokenFile,
-    signal: input.signal,
-    confirmIdentity: async identity => (
-      (await promptAuthCli(
-        input.io,
-        browserIdentityConfirmationPrompt(identity, account, username),
-        false,
-        input.signal,
-      )).trim().toLowerCase() === 'yes'
-    ),
-    onStage: (stage) => {
-      if (isBrowserDiAuthCanaryStage(stage)) {
-        input.io.write(`auth_stage=${stage}\n`)
-      }
-    },
-  })
+  let result: BrowserDiAuthSetupResult
+  try {
+    result = await dependencies.setup({
+      username,
+      region,
+      sessionTokenFile,
+      signal: input.signal,
+      confirmIdentity: async identity => (
+        (await promptAuthCli(
+          input.io,
+          browserIdentityConfirmationPrompt(identity, account, username),
+          false,
+          input.signal,
+        )).trim().toLowerCase() === 'yes'
+      ),
+      onStage: (stage) => {
+        if (isBrowserDiAuthCanaryStage(stage)) {
+          input.io.write(`auth_stage=${stage}\n`)
+          reportAuthDiagnostic(diagnostics, stage)
+        }
+      },
+    })
+  } catch (error) {
+    reportAuthDiagnostic(diagnostics, 'auth_flow_failed')
+    throw error
+  }
   if (!result.ok || result.region !== region || result.persisted !== true) {
+    reportAuthDiagnostic(diagnostics, 'auth_flow_failed')
     throw new PublicToolError('Garmin browser authentication returned an invalid result')
   }
+  reportAuthDiagnostic(diagnostics, 'auth_flow_succeeded')
 
   input.io.write('authentication_status=passed\n')
   input.io.write(`region=${region}\n`)
@@ -440,7 +518,29 @@ export async function runAuthServe(
   const sessionTokenFile = configuredPath
     ? path.resolve(expandHome(configuredPath))
     : defaultAccountSessionPath(account, input.env)
-  await dependencies.prepareDestination(sessionTokenFile)
+  const diagnostics = parsed.verbose
+    ? createCliDiagnosticReporter(input.io, {
+      source: 'cli_serve',
+      region,
+      sessionPathSource: resolveAuthDiagnosticPathSource(
+        Boolean(configuredPath),
+        input.env,
+      ),
+    })
+    : undefined
+  reportAuthDiagnostic(diagnostics, 'diagnostics_started')
+  reportAuthDiagnostic(diagnostics, 'session_destination_prepare_started')
+  try {
+    await dependencies.prepareDestination(sessionTokenFile)
+    reportAuthDiagnostic(diagnostics, 'session_destination_prepare_succeeded')
+  } catch (error) {
+    reportAuthDiagnostic(
+      diagnostics,
+      'session_destination_prepare_failed',
+      authDiagnosticCodeFromError(error, 'destination_prepare_failed'),
+    )
+    throw error
+  }
   const username = input.env.GARMIN_USERNAME?.trim()
     || (await promptAuthCli(input.io, 'Garmin email: ', false, input.signal)).trim()
   if (!username) throw new PublicToolError('Garmin username is required')
@@ -449,15 +549,24 @@ export async function runAuthServe(
     'Opening Garmin authentication in your system browser. Enter password, ' +
     'verification code, CAPTCHA, or MFA only on Garmin\'s page.\n',
   )
-  const result = await dependencies.authenticate({
-    username,
-    region,
-    sessionTokenFile,
-    signal: input.signal,
-  })
+  let result: LocalAuthSuccessResult
+  try {
+    result = await dependencies.authenticate({
+      username,
+      region,
+      sessionTokenFile,
+      signal: input.signal,
+      ...(diagnostics ? { diagnostics } : {}),
+    })
+  } catch (error) {
+    reportAuthDiagnostic(diagnostics, 'auth_flow_failed')
+    throw error
+  }
   if (!result.success || result.region !== region) {
+    reportAuthDiagnostic(diagnostics, 'auth_flow_failed')
     throw new PublicToolError('Garmin browser authentication returned an invalid result')
   }
+  reportAuthDiagnostic(diagnostics, 'auth_flow_succeeded')
 
   input.io.write('authentication_status=passed\n')
   input.io.write(`region=${region}\n`)
@@ -476,25 +585,42 @@ export async function runAuthCanary(
   input: AuthCanaryInput,
 ): Promise<BrowserDiAuthCanaryResult> {
   rejectSensitiveArgs(input.argv)
-  const region = parseCanaryRegion(input.argv)
+  const parsed = parseCanaryArgs(input.argv)
+  const region = parsed.region
   const dependencies = input.dependencies ?? defaultCanaryDependencies
+  const diagnostics = parsed.verbose
+    ? createCliDiagnosticReporter(input.io, {
+      source: 'cli_canary',
+      region,
+    })
+    : undefined
+  reportAuthDiagnostic(diagnostics, 'diagnostics_started')
 
   input.io.write(
     'Opening an isolated Garmin page. Enter email, password, MFA, or CAPTCHA ' +
     'only in that page; this CLI does not read those values or save a session.\n',
   )
-  const result = await dependencies.canary({
-    region,
-    signal: input.signal,
-    onStage: (stage) => {
-      if (isBrowserDiAuthCanaryStage(stage)) {
-        input.io.write(`canary_stage=${stage}\n`)
-      }
-    },
-  })
+  let result: BrowserDiAuthCanaryResult
+  try {
+    result = await dependencies.canary({
+      region,
+      signal: input.signal,
+      onStage: (stage) => {
+        if (isBrowserDiAuthCanaryStage(stage)) {
+          input.io.write(`canary_stage=${stage}\n`)
+          reportAuthDiagnostic(diagnostics, stage)
+        }
+      },
+    })
+  } catch (error) {
+    reportAuthDiagnostic(diagnostics, 'auth_flow_failed')
+    throw error
+  }
   if (!result.ok || result.region !== region || result.persisted !== false) {
+    reportAuthDiagnostic(diagnostics, 'auth_flow_failed')
     throw new PublicToolError('Garmin browser authentication canary returned an invalid result')
   }
+  reportAuthDiagnostic(diagnostics, 'auth_flow_succeeded')
 
   input.io.write('canary_status=passed\n')
   input.io.write(`region=${region}\n`)
@@ -511,6 +637,7 @@ interface ParsedArgs {
   account?: string
   region?: string
   output?: string
+  verbose: boolean
 }
 
 interface ParsedBrowserLoginArgs extends ParsedArgs {
@@ -563,11 +690,15 @@ function parseAuthenticationOptions(
   if (args[0] === config.command) args.shift()
   rejectSensitiveArgs(args)
   let booleanEnabled = false
-  const options: ParsedArgs = {}
+  const options: ParsedArgs = { verbose: false }
   while (args.length > 0) {
     const flag = args.shift()
     if (flag === config.booleanFlag && !booleanEnabled) {
       booleanEnabled = true
+      continue
+    }
+    if (flag === '--verbose' && !options.verbose) {
+      options.verbose = true
       continue
     }
     if (flag === '--account' || flag === '--region' || flag === '--output') {
@@ -585,12 +716,20 @@ function parseAuthenticationOptions(
   return { options, booleanEnabled }
 }
 
-function parseCanaryRegion(argv: string[]): GarminRegion {
+function parseCanaryArgs(argv: string[]): {
+  region: GarminRegion
+  verbose: boolean
+} {
   const args = [...argv]
   if (args[0] === 'canary') args.shift()
   let region: string | undefined
+  let verbose = false
   while (args.length > 0) {
     const flag = args.shift()
+    if (flag === '--verbose' && !verbose) {
+      verbose = true
+      continue
+    }
     if (flag !== '--region' || region !== undefined) {
       throw new PublicToolError('Unknown canary option')
     }
@@ -604,7 +743,17 @@ function parseCanaryRegion(argv: string[]): GarminRegion {
   if (region !== 'global' && region !== 'cn') {
     throw new PublicToolError('Invalid canary region; expected global or cn')
   }
-  return region
+  return { region, verbose }
+}
+
+function createCliDiagnosticReporter(
+  io: AuthCliIO,
+  context: Parameters<typeof createAuthDiagnosticReporter>[1],
+): AuthDiagnosticReporter {
+  return createAuthDiagnosticReporter(
+    line => io.write(`${line}\n`),
+    context,
+  )
 }
 
 function rejectSensitiveArgs(argv: readonly string[]): void {

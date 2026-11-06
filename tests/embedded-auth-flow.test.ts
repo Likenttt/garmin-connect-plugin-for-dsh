@@ -283,6 +283,46 @@ describe('EmbeddedAuthFlowManager', () => {
     expect(manager.publicStatus(started.flowId)).toEqual({ state: 'succeeded' })
   })
 
+  it('reports fixed confirmation and persistence stages without identity data', async () => {
+    const saveGate = deferred()
+    const diagnostics = jest.fn()
+    const manager = new EmbeddedAuthFlowManager({
+      authenticate: async (input) => {
+        await input.confirmIdentity({
+          displayName: 'runner@example.com SECRET_PROFILE',
+        })
+        await saveGate.promise
+      },
+      diagnostics,
+      randomBytes: deterministicRandom(47, 48),
+    })
+    const started = manager.start(startInput)
+    const { csrf } = manager.bridgeBootstrap(started.flowId)
+
+    manager.submitTicket(
+      started.flowId,
+      csrf,
+      ticket('ST-secret-ticket'),
+    )
+    await settle()
+    manager.confirm(started.flowId, csrf, true)
+    await settle()
+    saveGate.resolve()
+    await settle()
+
+    expect(diagnostics.mock.calls).toEqual([
+      ['ticket_captured', undefined],
+      ['identity_confirmation_started', undefined],
+      ['identity_confirmation_accepted', undefined],
+      ['session_persist_started', undefined],
+      ['session_persist_succeeded', undefined],
+      ['auth_flow_succeeded', undefined],
+    ])
+    expect(JSON.stringify(diagnostics.mock.calls)).not.toMatch(
+      /runner|example|secret_profile|st-secret|private|session\.json/i,
+    )
+  })
+
   it('treats saving as an irrevocable commit point', async () => {
     let now = 40_000
     const saveGate = deferred()

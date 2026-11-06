@@ -20,6 +20,12 @@ function fixture() {
       bridgeUrl: `http://127.0.0.1:43127/garmin-auth/bridge/${'a'.repeat(64)}`,
       expiresAt: 1_900_000_000_000,
     }),
+    beginCdp: jest.fn().mockResolvedValue({
+      success: true,
+      flowId: 'a'.repeat(64),
+      bridgeUrl: `http://127.0.0.1:43127/garmin-auth/bridge/${'a'.repeat(64)}`,
+      expiresAt: 1_900_000_000_000,
+    }),
     status: jest.fn().mockReturnValue({ success: true, status: 'in_progress' }),
     cancel: jest.fn().mockReturnValue({ success: true }),
     close: jest.fn().mockResolvedValue(undefined),
@@ -36,6 +42,7 @@ function fixture() {
     }),
   }
   const ctx = {
+    logger: { info: jest.fn() },
     inject: jest.fn((_services: string[], callback: (nested: typeof child) => void) => {
       callback(child)
       return {}
@@ -65,6 +72,12 @@ function multiAccountFixture(
     region,
     {
       begin: jest.fn().mockResolvedValue({
+        success: true,
+        flowId: flowIds[region],
+        bridgeUrl: `http://127.0.0.1:43127/garmin-auth/bridge/${flowIds[region]}`,
+        expiresAt: 1_900_000_000_000,
+      }),
+      beginCdp: jest.fn().mockResolvedValue({
         success: true,
         flowId: flowIds[region],
         bridgeUrl: `http://127.0.0.1:43127/garmin-auth/bridge/${flowIds[region]}`,
@@ -168,6 +181,74 @@ describe('DSH embedded Garmin authentication RPC', () => {
     )
   })
 
+  it.each(['begin', 'begin-cdp'] as const)(
+    'rejects %s through the legacy single-account API for Personal accounts',
+    async (endpoint) => {
+      const subject = fixture()
+      registerEmbeddedAuthRpc(
+        subject.ctx as unknown as Context,
+        {
+          provider: 'personal',
+          personalApiKey: 'private-key',
+          region: 'cn',
+          username: 'legacy@example.test',
+          sessionTokenFile: '/private/legacy.session.json',
+        } as never,
+        subject.factory,
+      )
+      const handler = subject.handle.mock.calls[0][1]
+
+      await expect(handler(
+        endpoint,
+        { region: 'cn' },
+        new AbortController().signal,
+      )).resolves.toEqual({
+        ok: true,
+        value: { success: false, code: 'configuration' },
+      })
+      expect(subject.controller.begin).not.toHaveBeenCalled()
+      expect(subject.controller.beginCdp).not.toHaveBeenCalled()
+    },
+  )
+
+  it('logs only a redacted fixed event when Host diagnostics are enabled', () => {
+    const subject = fixture()
+
+    registerEmbeddedAuthRpc(
+      subject.ctx as unknown as Context,
+      {
+        username: 'runner@example.test',
+        region: 'cn',
+        sessionTokenFile: 'C:\\Users\\runner\\SECRET.session.json',
+        authVerbose: true,
+      } as never,
+    )
+
+    expect(subject.ctx.logger.info).toHaveBeenCalledTimes(1)
+    const output = String(subject.ctx.logger.info.mock.calls[0][0])
+    expect(output).toContain('[garmin-auth:diagnostic]')
+    expect(output).toContain('"event":"diagnostics_started"')
+    expect(output).toContain('"source":"dsh"')
+    expect(output).toContain('"region":"cn"')
+    expect(output).not.toMatch(/runner|example|users|secret|session\.json/i)
+  })
+
+  it('does not create Host diagnostic logs when the switch is disabled', () => {
+    const subject = fixture()
+
+    registerEmbeddedAuthRpc(
+      subject.ctx as unknown as Context,
+      {
+        username: 'runner@example.test',
+        region: 'cn',
+        sessionTokenFile: 'C:\\Users\\runner\\SECRET.session.json',
+        authVerbose: false,
+      } as never,
+    )
+
+    expect(subject.ctx.logger.info).not.toHaveBeenCalled()
+  })
+
   it('can register authentication routes when the Host no longer supports custom RPC channels', () => {
     const subject = fixture()
     const register = jest.fn().mockReturnValue(jest.fn().mockResolvedValue(undefined))
@@ -184,6 +265,7 @@ describe('DSH embedded Garmin authentication RPC', () => {
     expect(register.mock.calls.map(([route]) => route.path)).toEqual([
       '/api/garmin-auth/account',
       '/api/garmin-auth/begin',
+      '/api/garmin-auth/begin-cdp',
       '/api/garmin-auth/status',
       '/api/garmin-auth/cancel',
       '/api/garmin-auth/verify',
@@ -285,7 +367,7 @@ describe('DSH embedded Garmin authentication RPC', () => {
     expect(subject.controller.begin).toHaveBeenCalledTimes(1)
   })
 
-  it('dispatches only the closed account/begin/status/cancel endpoints', async () => {
+  it('dispatches the explicit CDP begin through the same closed RPC surface', async () => {
     const subject = fixture()
     registerEmbeddedAuthRpc(
       subject.ctx as unknown as Context,
@@ -299,6 +381,10 @@ describe('DSH embedded Garmin authentication RPC', () => {
       ok: true,
       value: expect.objectContaining({ success: true, flowId: 'a'.repeat(64) }),
     })
+    await expect(handler('begin-cdp', { region: 'cn' }, signal)).resolves.toEqual({
+      ok: true,
+      value: expect.objectContaining({ success: true, flowId: 'a'.repeat(64) }),
+    })
     await expect(handler('status', { flowId: 'a'.repeat(64) }, signal))
       .resolves.toEqual({
         ok: true,
@@ -308,6 +394,7 @@ describe('DSH embedded Garmin authentication RPC', () => {
       .resolves.toEqual({ ok: true, value: { success: true } })
 
     expect(subject.controller.begin).toHaveBeenCalledWith(signal, 'cn')
+    expect(subject.controller.beginCdp).toHaveBeenCalledWith(signal, 'cn')
     expect(subject.controller.status).toHaveBeenCalledWith({ flowId: 'a'.repeat(64) })
     expect(subject.controller.cancel).toHaveBeenCalledWith({ flowId: 'a'.repeat(64) })
   })
@@ -770,6 +857,52 @@ describe('DSH embedded authentication for named accounts', () => {
     expect(current.controllers.cn.begin).toHaveBeenCalledWith(current.signal, 'cn')
   })
 
+  it('applies the same saved revision and account boundary to explicit CDP begin', async () => {
+    const revision = 'd'.repeat(32)
+    const subject = multiAccountFixture(true, false, 'cn@example.test', revision)
+    const guarded = {
+      accountId: subject.accountIds.cn,
+      expectedRevision: revision,
+      expectedRegion: 'cn',
+    }
+
+    await expect(subject.handler('begin-cdp', guarded, subject.signal))
+      .resolves.toEqual({ ok: true, value: expect.objectContaining({
+        success: true,
+        flowId: subject.flowIds.cn,
+      }) })
+    expect(subject.controllers.cn.beginCdp).toHaveBeenCalledWith(subject.signal, 'cn')
+    expect(subject.controllers.cn.begin).not.toHaveBeenCalled()
+    expect(subject.controllers.global.beginCdp).not.toHaveBeenCalled()
+
+    await expect(subject.handler('begin-cdp', {
+      ...guarded,
+      extra: true,
+    }, subject.signal)).resolves.toEqual({ ok: true, value: {
+      success: false,
+      code: 'unavailable',
+    } })
+    expect(subject.controllers.cn.beginCdp).toHaveBeenCalledTimes(1)
+
+    await expect(subject.handler('begin-cdp', {
+      ...guarded,
+      accountId: subject.accountIds.global,
+    }, subject.signal)).resolves.toEqual({ ok: true, value: {
+      success: false,
+      code: 'stale_config',
+    } })
+    expect(subject.controllers.global.beginCdp).not.toHaveBeenCalled()
+
+    await expect(subject.handler('status', {
+      flowId: subject.flowIds.cn,
+    }, subject.signal)).resolves.toEqual({
+      ok: true,
+      value: { success: true, status: 'in_progress' },
+    })
+    expect(subject.controllers.cn.status).toHaveBeenCalledTimes(1)
+    expect(subject.controllers.global.status).not.toHaveBeenCalled()
+  })
+
   it('guards every saved revision and rejects malformed begin guards without opening a bridge', async () => {
     const revision = 'c'.repeat(32)
     const subject = multiAccountFixture(false, false, 'cn@example.test', revision)
@@ -944,6 +1077,64 @@ describe('DSH embedded authentication for named accounts', () => {
     })
   })
 
+  it('releases an embedded flow before an explicit CDP retry for the same account', async () => {
+    const subject = multiAccountFixture()
+    const accountId = subject.accountIds.cn
+    const flowId = subject.flowIds.cn
+
+    await expect(subject.handler('begin', { accountId }, subject.signal))
+      .resolves.toEqual({ ok: true, value: expect.objectContaining({
+        success: true,
+        flowId,
+      }) })
+    await expect(subject.handler('cancel', { flowId }, subject.signal))
+      .resolves.toEqual({ ok: true, value: { success: true } })
+    await expect(subject.handler('begin-cdp', { accountId }, subject.signal))
+      .resolves.toEqual({ ok: true, value: expect.objectContaining({
+        success: true,
+        flowId,
+      }) })
+
+    expect(subject.controllers.cn.cancel).toHaveBeenCalledWith({ flowId })
+    expect(subject.controllers.cn.beginCdp).toHaveBeenCalledWith(subject.signal, 'cn')
+    await expect(subject.handler('status', { flowId }, subject.signal))
+      .resolves.toEqual({
+        ok: true,
+        value: { success: true, status: 'in_progress' },
+      })
+    expect(subject.controllers.cn.status).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows CDP retry when a terminal poll wins the race with cancellation', async () => {
+    const subject = multiAccountFixture()
+    const accountId = subject.accountIds.cn
+    const flowId = subject.flowIds.cn
+    subject.controllers.cn.status.mockReturnValue({
+      success: true,
+      status: 'failed',
+    })
+
+    await subject.handler('begin', { accountId }, subject.signal)
+    await expect(subject.handler('status', { flowId }, subject.signal))
+      .resolves.toEqual({
+        ok: true,
+        value: { success: true, status: 'failed' },
+      })
+    await expect(subject.handler('cancel', { flowId }, subject.signal))
+      .resolves.toEqual({ ok: true, value: { success: true } })
+    await expect(subject.handler('begin-cdp', { accountId }, subject.signal))
+      .resolves.toEqual({
+        ok: true,
+        value: expect.objectContaining({ success: true, flowId }),
+      })
+
+    expect(subject.controllers.cn.cancel).not.toHaveBeenCalled()
+    expect(subject.controllers.cn.beginCdp).toHaveBeenCalledWith(
+      subject.signal,
+      'cn',
+    )
+  })
+
   it('does not reassign a duplicate flow ID from one account to the other', async () => {
     const subject = multiAccountFixture()
     subject.controllers.global.begin.mockResolvedValue({
@@ -980,7 +1171,13 @@ describe('DSH embedded authentication for named accounts', () => {
     }, subject.signal)).resolves.toEqual({
       ok: true, value: { success: false, code: 'invalid' },
     })
+    await expect(subject.handler('cancel', {
+      flowId: subject.flowIds.cn,
+    }, subject.signal)).resolves.toEqual({
+      ok: true, value: { success: true },
+    })
     expect(subject.controllers.cn.status).toHaveBeenCalledTimes(1)
+    expect(subject.controllers.cn.cancel).not.toHaveBeenCalled()
 
     await subject.handler('begin', { accountId: subject.accountIds.global }, subject.signal)
     await expect(subject.handler('cancel', {
@@ -1034,6 +1231,9 @@ describe('Personal API settings verification RPC', () => {
     const subject = personalFixture()
     expect(subject.factory).not.toHaveBeenCalled()
     await expect(subject.handler('begin', { accountId: 'personal-cn' }, subject.signal)).resolves.toEqual({
+      ok: true, value: { success: false, code: 'configuration' },
+    })
+    await expect(subject.handler('begin-cdp', { accountId: 'personal-cn' }, subject.signal)).resolves.toEqual({
       ok: true, value: { success: false, code: 'configuration' },
     })
     await expect(subject.handler('verify', { accountId: 'personal-cn', expectedRegion: 'cn', expectedRevision: 'a'.repeat(32) }, subject.signal))

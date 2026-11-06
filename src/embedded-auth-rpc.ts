@@ -8,7 +8,14 @@ import {
   defaultAccountSessionPath,
 } from './account-session'
 import type { Config, GarminRegion } from './config'
+import {
+  createAuthDiagnosticReporter,
+  reportAuthDiagnostic,
+  resolveAuthDiagnosticPathSource,
+  type AuthDiagnosticReporter,
+} from './auth-diagnostics'
 import type { GarminClientLike } from './client'
+import type { AccountSource } from './account-registry'
 import { publicErrorMessage, redactSensitiveText } from './utils/errors'
 import {
   type EmbeddedAuthBeginResult,
@@ -24,11 +31,17 @@ import {
 
 const RPC_CHANNEL = '/garmin-auth'
 const FETCH_RPC_CHANNEL = '/api/garmin-auth'
-const RPC_ENDPOINTS = ['account', 'begin', 'status', 'cancel', 'verify'] as const
+const RPC_ENDPOINTS = [
+  'account',
+  'begin',
+  'begin-cdp',
+  'status',
+  'cancel',
+  'verify',
+] as const
 const RPC_EFFECT_LABEL = 'garmin-connect: embedded auth rpc'
 const ACCOUNT_ID_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/
 const ACCOUNT_REVISION_PATTERN = /^[0-9a-f]{32}$/
-const MAX_CONFIGURED_ACCOUNTS = 5
 
 type Environment = Readonly<Record<string, string | undefined>>
 
@@ -191,6 +204,10 @@ export interface EmbeddedAuthRpcController {
     signal?: AbortSignal,
     requestedRegion?: GarminRegion,
   ): Promise<EmbeddedAuthBeginResult>
+  beginCdp(
+    signal?: AbortSignal,
+    requestedRegion?: GarminRegion,
+  ): Promise<EmbeddedAuthBeginResult>
   status(payload: unknown): EmbeddedAuthStatusResult
   cancel(payload: unknown): EmbeddedAuthCancelResult
   close(): Promise<void>
@@ -240,13 +257,17 @@ export function registerEmbeddedAuthRpc(
     ? { createController: options }
     : options
   const createController = registration.createController
-    ?? ((value: Config) => createEmbeddedAuthController({
-      username: value.username,
-      region: value.region,
-      sessionTokenFile: value.sessionTokenFile ?? '',
-    }, {
-      replaceSession: registration.replaceSession,
-    }))
+    ?? ((value: Config) => {
+      const diagnostics = createDshAuthDiagnosticReporter(ctx, value)
+      return createEmbeddedAuthController({
+        username: value.username,
+        region: value.region,
+        sessionTokenFile: value.sessionTokenFile ?? '',
+      }, {
+        replaceSession: registration.replaceSession,
+        diagnostics,
+      })
+    })
   ctx.inject(['connection'], (connectionCtx) => {
     const controller = createController(config)
     const connection = connectionCtx.connection as unknown as HostConnectionWithFetch
@@ -254,6 +275,7 @@ export function registerEmbeddedAuthRpc(
       controller,
       registration.getAuthenticatedAccount,
       registration.getAuthenticationRequirement,
+      config.provider !== 'personal',
     )
     const fetch = connection.fetch
     if (fetch?.register) registerLoopbackFetchFence(connectionCtx)
@@ -286,24 +308,25 @@ export function registerEmbeddedAuthRpc(
 }
 
 /**
- * Register one embedded sign-in transport for up to five independently named
+ * Register one embedded sign-in transport for independently named
  * accounts. Each configured account owns a distinct controller, bridge, and
  * session writer. Account IDs remain stable when region or alias changes.
  * Flow handles are routed only to the controller that issued them.
  */
 export function registerEmbeddedAuthRpcAccounts(
   ctx: Context,
-  accounts: readonly EmbeddedAuthAccountOption[],
+  accounts: readonly EmbeddedAuthAccountOption[] | AccountSource,
   options: EmbeddedAuthAccountsRegistrationOptions = {},
 ): void {
+  const source = 'list' in accounts ? accounts : undefined
   const accountById = new Map<string, EmbeddedAuthAccountOption>()
-  let configuredCount = 0
-  for (const account of accounts) {
+  const validateAccounts = (values: readonly EmbeddedAuthAccountOption[]) => {
+    accountById.clear()
+    for (const account of values) {
     if (!account.configured && !account.accountId) continue
     if (!ACCOUNT_ID_PATTERN.test(account.accountId)
-      || !Number.isInteger(account.slot)
+      || !Number.isSafeInteger(account.slot)
       || account.slot < 1
-      || account.slot > MAX_CONFIGURED_ACCOUNTS
       || (account.region !== 'cn' && account.region !== 'global')
       || (account.revision !== undefined
         && (typeof account.revision !== 'string'
@@ -311,17 +334,24 @@ export function registerEmbeddedAuthRpcAccounts(
       || accountById.has(account.accountId)) {
       throw new Error('Garmin embedded auth account IDs must be valid and unique')
     }
-    if (account.configured) configuredCount += 1
     accountById.set(account.accountId, account)
+    }
   }
-  if (configuredCount > MAX_CONFIGURED_ACCOUNTS) {
-    throw new Error('Garmin embedded auth supports at most five accounts')
-  }
+  validateAccounts(source ? source.list() : accounts as readonly EmbeddedAuthAccountOption[])
 
   ctx.inject(['connection'], (connectionCtx) => {
     const runtimes = new Map<string, AccountRuntime>()
-    for (const account of accountById.values()) {
-      const controller = account.configured && account.config.provider !== 'personal'
+    const retiring = new Set<Promise<unknown>>()
+    let closed = false
+    const makeController = (account: EmbeddedAuthAccountOption) => {
+      const diagnostics = account.configured && account.config.provider !== 'personal'
+        ? createDshAuthDiagnosticReporter(
+          ctx,
+          account.config,
+          account.slot,
+        )
+        : undefined
+      return account.configured && account.config.provider !== 'personal'
         ? (options.createController?.(account.config, account)
           ?? createEmbeddedAuthController({
             username: account.config.username,
@@ -329,13 +359,50 @@ export function registerEmbeddedAuthRpcAccounts(
             sessionTokenFile: account.config.sessionTokenFile ?? '',
           }, {
             replaceSession: writer => account.client.replacePersistedSession(writer),
+            diagnostics,
           }))
         : undefined
-      runtimes.set(account.accountId, { account, controller })
     }
+    const sync = () => {
+      const changed = new Set<string>()
+      if (closed) return changed
+      if (source) validateAccounts(source.list())
+      for (const [id, runtime] of runtimes) {
+        const next = accountById.get(id)
+        if (!next || next.client !== runtime.account.client || next.revision !== runtime.account.revision) {
+          changed.add(id)
+          runtimes.delete(id)
+          if (runtime.controller) {
+            const pending = Promise.resolve(runtime.controller.close()).catch(() => undefined)
+            retiring.add(pending)
+            void pending.finally(() => retiring.delete(pending))
+          }
+        }
+      }
+      for (const account of accountById.values()) {
+        if (!runtimes.has(account.accountId)) runtimes.set(account.accountId, {
+          account, ...(!source ? { controller: makeController(account) } : {}),
+        })
+      }
+      return changed
+    }
+    sync()
+    const invalidated = new Set<string>()
+    const unsubscribe = source?.subscribe(() => { for (const id of sync()) invalidated.add(id) })
 
     const connection = connectionCtx.connection as unknown as HostConnectionWithFetch
-    const handler = createMultiAccountRpcHandler(runtimes)
+    const handler = createMultiAccountRpcHandler(runtimes, {
+      ready: async () => {
+        if (closed) throw new Error('closed')
+        await source?.ready()
+        if (closed) throw new Error('closed')
+        for (const id of sync()) invalidated.add(id)
+        const changed = [...invalidated]
+        invalidated.clear()
+        return changed
+      },
+      controller: runtime => runtime.controller ??= makeController(runtime.account),
+    })
     const fetch = connection.fetch
     if (fetch?.register) registerLoopbackFetchFence(connectionCtx)
     const disposeRoutes = fetch?.register
@@ -353,19 +420,43 @@ export function registerEmbeddedAuthRpcAccounts(
 
     connectionCtx.effect(
       () => async () => {
+        closed = true
+        unsubscribe?.()
         try {
           for (const disposeRoute of disposeRoutes.reverse()) {
             await disposeRoute()
           }
         } finally {
           await Promise.allSettled(
-            Array.from(runtimes.values(), runtime => runtime.controller?.close()),
+            [...retiring, ...Array.from(runtimes.values(), runtime => runtime.controller?.close())],
           )
         }
       },
       RPC_EFFECT_LABEL,
     )
   })
+}
+
+function createDshAuthDiagnosticReporter(
+  ctx: Context,
+  config: Config,
+  accountSlot?: number,
+): AuthDiagnosticReporter | undefined {
+  if (config.authVerbose !== true) return undefined
+  const diagnostics = createAuthDiagnosticReporter(
+    line => ctx.logger.info(line),
+    {
+      source: 'dsh',
+      region: config.region,
+      ...(accountSlot === undefined ? {} : { accountSlot }),
+      sessionPathSource: resolveAuthDiagnosticPathSource(
+        Boolean(process.env.GARMIN_SESSION_TOKEN_FILE?.trim()),
+        process.env,
+      ),
+    },
+  )
+  reportAuthDiagnostic(diagnostics, 'diagnostics_started')
+  return diagnostics
 }
 
 /** Request.url is rewritten to dsh.internal, so only the physical peer proves locality. */
@@ -402,6 +493,10 @@ function isLoopbackRemoteAddress(remoteAddress: string | undefined): boolean {
 
 function createMultiAccountRpcHandler(
   runtimes: ReadonlyMap<string, AccountRuntime>,
+  lifecycle?: {
+    ready(): Promise<readonly string[]>
+    controller(runtime: AccountRuntime): EmbeddedAuthRpcController | undefined
+  },
 ): GarminRpcHandler {
   const flowOwners = new Map<string, string>()
   const currentFlowByAccount = new Map<string, string>()
@@ -416,6 +511,13 @@ function createMultiAccountRpcHandler(
 
   return async (endpoint, payload, signal) => {
     try {
+      if (signal.aborted) return unavailable()
+      const changed = await lifecycle?.ready()
+      if (changed?.length) {
+        const removed = new Set(changed)
+        for (const [flowId, owner] of flowOwners) if (removed.has(owner)) flowOwners.delete(flowId)
+        for (const owner of removed) currentFlowByAccount.delete(owner)
+      }
       if (signal.aborted) return unavailable()
       if (endpoint === 'account') {
         if (isExactEmptyObject(payload)) {
@@ -573,7 +675,7 @@ function createMultiAccountRpcHandler(
           return { ok: true, value: { success: false, code: 'unavailable', message } }
         }
       }
-      if (endpoint === 'begin') {
+      if (endpoint === 'begin' || endpoint === 'begin-cdp') {
         const request = exactMultiAccountBeginPayload(payload)
         if (!request) return unavailable()
         const { accountId } = request
@@ -587,14 +689,20 @@ function createMultiAccountRpcHandler(
             value: { success: false, code: 'stale_config' },
           }
         }
-        const controller = runtime?.controller
+        const controller = runtime && (lifecycle?.controller(runtime) ?? runtime.controller)
         if (!controller) {
           return {
             ok: true,
             value: { success: false, code: 'configuration' },
           }
         }
-        const result = await controller.begin(signal, runtime.account.region)
+        const result = endpoint === 'begin-cdp'
+          ? await controller.beginCdp(signal, runtime.account.region)
+          : await controller.begin(signal, runtime.account.region)
+        if (runtimes.get(accountId) !== runtime) {
+          if (result.success) cancelBestEffort(controller, result.flowId)
+          return { ok: true, value: { success: false, code: 'stale_config' } }
+        }
         if (signal.aborted) {
           if (result.success) cancelBestEffort(controller, result.flowId)
           return unavailable()
@@ -617,7 +725,13 @@ function createMultiAccountRpcHandler(
         if (!flowId) return invalid()
         const accountId = flowOwners.get(flowId)
         const controller = accountId && runtimes.get(accountId)?.controller
-        if (!controller) return invalid()
+        if (!controller) {
+          // Cancellation is idempotent. A terminal status poll may have
+          // released ownership immediately before the user's CDP retry.
+          return endpoint === 'cancel'
+            ? { ok: true, value: { success: true } }
+            : invalid()
+        }
         const releaseFlow = () => {
           flowOwners.delete(flowId)
           if (currentFlowByAccount.get(accountId) === flowId) {
@@ -746,6 +860,7 @@ function createRpcHandler(
   controller: EmbeddedAuthRpcController,
   getAuthenticatedAccount?: EmbeddedAuthAuthenticatedAccountProvider,
   getAuthenticationRequirement?: EmbeddedAuthAuthenticationRequirementProvider,
+  browserAuthEnabled = true,
 ): GarminRpcHandler {
   return async (endpoint, payload, signal) => {
     const unavailable = (): { ok: true; value: EmbeddedAuthRpcResult } => ({
@@ -790,10 +905,18 @@ function createRpcHandler(
           },
         }
       }
-      if (endpoint === 'begin') {
+      if (endpoint === 'begin' || endpoint === 'begin-cdp') {
+        if (!browserAuthEnabled) {
+          return {
+            ok: true,
+            value: { success: false, code: 'configuration' },
+          }
+        }
         const requestedRegion = exactBeginRegion(payload)
         if (!requestedRegion) return unavailable()
-        const result = await controller.begin(signal, requestedRegion)
+        const result = endpoint === 'begin-cdp'
+          ? await controller.beginCdp(signal, requestedRegion)
+          : await controller.begin(signal, requestedRegion)
         if (signal.aborted) {
           if (result.success) {
             try {

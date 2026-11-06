@@ -1,5 +1,6 @@
 import {
   beginGarminAuthAfterConfigSave,
+  canOfferCdpFallback,
   verifyGarminPersonalConnection,
   callGarminAuthRpc,
   releaseGarminAuthFlow,
@@ -12,6 +13,7 @@ describe('DSH Garmin authentication transport', () => {
   it.each([
     ['account', {}],
     ['begin', { region: 'global' }],
+    ['begin-cdp', { region: 'global' }],
     ['status', { flowId }],
     ['cancel', { flowId }],
   ] as const)('uses the current Host route for %s', async (endpoint, payload) => {
@@ -82,6 +84,38 @@ describe('DSH Garmin authentication transport', () => {
 })
 
 describe('DSH Garmin authentication flow control', () => {
+  it('offers CDP only while an embedded flow needs an explicit recovery action', () => {
+    expect(canOfferCdpFallback(undefined)).toBe(false)
+    expect(canOfferCdpFallback('in_progress')).toBe(true)
+    expect(canOfferCdpFallback('succeeded')).toBe(false)
+    expect(canOfferCdpFallback('cancelled')).toBe(false)
+    expect(canOfferCdpFallback('failed')).toBe(true)
+    expect(canOfferCdpFallback('expired')).toBe(true)
+  })
+
+  it('reuses the exact saved account guard when CDP is explicitly selected', async () => {
+    const payload = {
+      accountId: 'legacy-cn', expectedRegion: 'cn' as const,
+      expectedRevision: 'a'.repeat(32),
+    }
+    const call = jest.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        success: true, flowId,
+        bridgeUrl: `http://127.0.0.1:4567/garmin-auth/bridge/${flowId}`,
+        expiresAt: 123456789,
+      },
+    })
+    const signal = new AbortController().signal
+
+    await expect(beginGarminAuthAfterConfigSave(
+      { call }, payload, signal, 'begin-cdp',
+    )).resolves.toMatchObject({ success: true, flowId })
+    expect(call).toHaveBeenCalledWith(
+      '/api', 'garmin-auth/begin-cdp', payload, signal,
+    )
+  })
+
   it('waits for the saved account to reach the Host before beginning one login flow', async () => {
     jest.useFakeTimers()
     try {

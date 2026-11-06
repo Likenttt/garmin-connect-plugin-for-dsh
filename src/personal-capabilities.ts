@@ -14,5 +14,5 @@ export const PERSONAL_PROVIDER_INSTRUCTIONS =
   'Respiration and daily stress may contain summaries, ' +
   'not full-day time series. Preserve that distinction. get_garmin_profile includes local connection metadata ' +
   'with the account alias, stable ID, provider and region. The alias is a display label. API Key or access errors require checking ' +
-  'the key in local settings; do not start browser SSO or switch to another account/provider. ' +
-  'International reads were verified on 2026-10-22; the corresponding mainland token endpoint returned HTTP 526 and was temporarily inaccessible. An empty result is not zero.'
+  'the key and matching region in local settings; do not start browser SSO or switch to another account/provider. ' +
+  'China-region keys use the .cn endpoint and international keys use .com; never retry a key against the other region. An empty result is not zero.'

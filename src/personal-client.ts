@@ -14,6 +14,7 @@ export class GarminPersonalClient implements GarminClientLike {
   private active = true
   private connected = false
   private connecting?: Promise<void>
+  private lastVerifiedSettings?: unknown
   private sdk?: PersonalSdk
   private readonly cache: MemoryCache
 
@@ -30,6 +31,7 @@ export class GarminPersonalClient implements GarminClientLike {
   deactivate(): void {
     this.active = false
     this.connected = false
+    this.lastVerifiedSettings = undefined
     this.cache.clear()
     this.sdk?.clearToken()
     this.sdk = undefined
@@ -49,6 +51,7 @@ export class GarminPersonalClient implements GarminClientLike {
         }
         this.assertActive()
         this.connected = true
+        this.lastVerifiedSettings = profile
         this.cache.invalidate('profile')
       })
       let tracked: Promise<void>
@@ -58,6 +61,13 @@ export class GarminPersonalClient implements GarminClientLike {
       this.connecting = tracked
     }
     return this.connecting
+  }
+
+  /** connect() always reads settings from the server, bypassing the data cache. */
+  async verifyConnection(): Promise<unknown> {
+    await this.connect()
+    this.assertActive()
+    return this.lastVerifiedSettings
   }
 
   private assertActive(): void {

@@ -13,14 +13,17 @@ import {
 import {
   callGarminAuthRpc,
   beginGarminAuthAfterConfigSave,
+  canOfferCdpFallback,
   releaseGarminAuthFlow,
   retainUnreleasedGarminAuthFlowId,
 } from './flow-control'
 import {
   GarminAuthView,
   type GarminLoginRegion,
+  type GarminAuthTransport,
 } from './view'
 import { GarminSettingsForm, type GarminLoginRequest } from './settings-form'
+import { registerGarminCoachPanel } from './coach-panel'
 
 const STATUS_POLL_MS = 750
 
@@ -82,6 +85,22 @@ export const inject = ['slots', 'connection']
 
 export function apply(ctx: GarminClientContext): void {
   const loginRequests = createLoginRequests()
+  let openWorkspace: (() => boolean) | undefined
+  let revealWorkspace: (() => void) | undefined
+  const coachInjector = ctx as unknown as {
+    inject(dependencies: string[], callback: (value: Parameters<typeof registerGarminCoachPanel>[0] & {
+      layout: { selectPanel(id: string | null): void }
+    }) => void): unknown
+  }
+  if (typeof coachInjector.inject === 'function') {
+    coachInjector.inject(['sidebarRight', 'sidebarRightTabs', 'layout'], panelCtx => {
+      openWorkspace = registerGarminCoachPanel(panelCtx, { onLogin: request => loginRequests.request(request) })
+      revealWorkspace = () => {
+        panelCtx.layout.selectPanel(null)
+        requestAnimationFrame(() => { openWorkspace?.() })
+      }
+    })
+  }
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'garmin-connect-auth',
@@ -106,6 +125,7 @@ export function apply(ctx: GarminClientContext): void {
         form={settingsCtx.configForms.get('garmin-connect')}
         onLogin={request => loginRequests.request(request)}
         refresh={refreshSettings}
+        onOpenAccounts={() => { revealWorkspace?.() }}
       />))
     })
   }
@@ -123,8 +143,10 @@ function GarminAuthOverlay({
   const [status, setStatus] = useState<GarminAuthPublicStatus>()
   const [busy, setBusy] = useState(false)
   const [selectedRegion, setSelectedRegion] = useState<GarminLoginRegion>()
+  const [transport, setTransport] = useState<GarminAuthTransport>('embedded')
   const generation = useRef(0)
   const activeFlowId = useRef<string>()
+  const activeLoginRequest = useRef<GarminLoginRequest>()
   const beginRequest = useRef<AbortController>()
 
   const cancelFlow = useCallback((
@@ -136,15 +158,21 @@ function GarminAuthOverlay({
     signal,
   ), [ctx])
 
-  const beginAuthentication = useCallback(async (request: GarminLoginRequest) => {
+  const beginAuthentication = useCallback(async (
+    request: GarminLoginRequest,
+    nextTransport: GarminAuthTransport = 'embedded',
+    notifySettled = true,
+  ) => {
     if (!ctx.connection.isLoopback || busy || beginRequest.current) {
-      request.onSettled?.(false)
+      if (notifySettled) request.onSettled?.(false)
       return
     }
     let ready = false
     const current = ++generation.current
     const previousFlowId = activeFlowId.current
+    activeLoginRequest.current = request
     setSelectedRegion(request.region)
+    setTransport(nextTransport)
     setOpen(true)
     setBusy(true)
     setBegin(undefined)
@@ -168,6 +196,7 @@ function GarminAuthOverlay({
         setBegin({ success: false, code: 'unavailable' })
         return
       }
+      const endpoint = nextTransport === 'cdp' ? 'begin-cdp' : 'begin'
       const result = request.expectedRegion && request.expectedRevision
         ? await beginGarminAuthAfterConfigSave(
           ctx.connection.rpc,
@@ -177,11 +206,12 @@ function GarminAuthOverlay({
             expectedRevision: request.expectedRevision,
           },
           controller.signal,
+          endpoint,
         )
         : parseGarminAuthBeginRpcResult(
           await callGarminAuthRpc(
             ctx.connection.rpc,
-            'begin',
+            endpoint,
             { accountId: request.accountId },
             controller.signal,
           ),
@@ -210,9 +240,16 @@ function GarminAuthOverlay({
     } finally {
       if (beginRequest.current === controller) beginRequest.current = undefined
       if (generation.current === current) setBusy(false)
-      request.onSettled?.(ready)
+      if (notifySettled) request.onSettled?.(ready)
     }
   }, [busy, cancelFlow, ctx])
+
+  const retryWithCdp = useCallback(() => {
+    if (transport !== 'embedded' || !canOfferCdpFallback(status)) return
+    const request = activeLoginRequest.current
+    if (!request) return
+    void beginAuthentication(request, 'cdp', false)
+  }, [beginAuthentication, status, transport])
 
   const closeAuthentication = useCallback(() => {
     generation.current += 1
@@ -223,7 +260,9 @@ function GarminAuthOverlay({
     setBegin(undefined)
     setStatus(undefined)
     setSelectedRegion(undefined)
+    setTransport('embedded')
     setBusy(false)
+    activeLoginRequest.current = undefined
     if (active) {
       void cancelFlow(active).then(released => {
         if (released && activeFlowId.current === active) {
@@ -300,11 +339,15 @@ function GarminAuthOverlay({
       begin={begin}
       busy={busy}
       isLoopback={ctx.connection.isLoopback}
+      onCdpRetry={transport === 'embedded' && canOfferCdpFallback(status)
+        ? retryWithCdp
+        : undefined}
       onClose={closeAuthentication}
       open={open}
       selectedRegion={selectedRegion}
-      showFrame={begin?.success === true && !isTerminal(status)}
+      showFrame={transport === 'embedded' && begin?.success === true && !isTerminal(status)}
       status={status}
+      transport={transport}
     />
   )
 }

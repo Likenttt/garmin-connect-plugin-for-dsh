@@ -16,6 +16,10 @@ import {
 } from './utils/errors'
 import { verifyNoGrantingDarwinAcl } from './darwin-private-acl'
 import {
+  authDiagnosticCodeFromError,
+  type AuthDiagnosticCode,
+} from './auth-diagnostics'
+import {
   createWindowsPrivateAcl,
   type WindowsPrivateAcl,
 } from './windows-private-acl'
@@ -66,6 +70,12 @@ export class GarminSessionTokenFileMissingError extends PublicToolError {
 
   constructor() {
     super('Garmin session token file does not exist')
+  }
+}
+
+class GarminSessionDestinationPreparationError extends PublicToolError {
+  constructor(readonly authDiagnosticCode: AuthDiagnosticCode) {
+    super('Garmin session token destination could not be prepared')
   }
 }
 
@@ -298,9 +308,9 @@ export async function prepareSessionTokenWriteDestination(path: string): Promise
     }
 
     await preparePosixSessionWriteDestination(path)
-  } catch {
-    throw new PublicToolError(
-      'Garmin session token destination could not be prepared',
+  } catch (error) {
+    throw new GarminSessionDestinationPreparationError(
+      authDiagnosticCodeFromError(error, 'destination_prepare_failed'),
     )
   }
 }

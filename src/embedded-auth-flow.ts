@@ -5,6 +5,10 @@ import {
 } from 'node:crypto'
 import type { GarminRegion } from './config'
 import {
+  reportAuthDiagnostic,
+  type AuthDiagnosticReporter,
+} from './auth-diagnostics'
+import {
   createGarminEmbeddedAuthFrameConfig,
   type GarminEmbeddedAuthFrameConfig,
 } from './embedded-auth-url'
@@ -96,6 +100,7 @@ export interface EmbeddedAuthPublicStatus {
 
 export interface EmbeddedAuthFlowManagerOptions {
   authenticate: EmbeddedAuthAuthenticate
+  diagnostics?: AuthDiagnosticReporter
   now?: () => number
   randomBytes?: (size: number) => Buffer
   ttlMs?: number
@@ -130,6 +135,7 @@ interface EmbeddedAuthFlowRecord extends EmbeddedAuthStartInput {
  */
 export class EmbeddedAuthFlowManager {
   private readonly authenticate: EmbeddedAuthAuthenticate
+  private readonly diagnostics?: AuthDiagnosticReporter
   private readonly now: () => number
   private readonly randomBytes: (size: number) => Buffer
   private readonly ttlMs: number
@@ -148,6 +154,7 @@ export class EmbeddedAuthFlowManager {
       throw rejection()
     }
     this.authenticate = options.authenticate
+    this.diagnostics = options.diagnostics
     this.now = options.now ?? Date.now
     this.randomBytes = options.randomBytes ?? secureRandomBytes
     this.ttlMs = ttlMs
@@ -218,6 +225,7 @@ export class EmbeddedAuthFlowManager {
     // This transition happens before the callback is entered, so re-entrant and
     // concurrent submissions cannot deliver a second ticket.
     flow.state = 'exchanging'
+    reportAuthDiagnostic(this.diagnostics, 'ticket_captured')
     const input: EmbeddedAuthAuthenticateInput = {
       region: flow.region,
       username: flow.username,
@@ -289,10 +297,13 @@ export class EmbeddedAuthFlowManager {
 
     if (accepted) {
       flow.state = 'saving'
+      reportAuthDiagnostic(this.diagnostics, 'identity_confirmation_accepted')
+      reportAuthDiagnostic(this.diagnostics, 'session_persist_started')
       clearFlowTimer(flow)
       settleConfirmation(flow, true)
       return
     }
+    reportAuthDiagnostic(this.diagnostics, 'identity_confirmation_declined')
     this.cancelFlow(flow)
   }
 
@@ -372,6 +383,7 @@ export class EmbeddedAuthFlowManager {
     flow.identityRequested = true
     flow.identity = identity
     flow.state = 'waiting_confirmation'
+    reportAuthDiagnostic(this.diagnostics, 'identity_confirmation_started')
     const confirmation = createConfirmationDeferred()
     flow.confirmation = confirmation
     return confirmation.promise
@@ -384,12 +396,18 @@ export class EmbeddedAuthFlowManager {
       return
     }
     flow.state = 'succeeded'
+    reportAuthDiagnostic(this.diagnostics, 'session_persist_succeeded')
+    reportAuthDiagnostic(this.diagnostics, 'auth_flow_succeeded')
     scrubFlow(flow)
   }
 
   private failFlow(flow: EmbeddedAuthFlowRecord): void {
     if (isTerminal(flow.state)) return
+    if (flow.state === 'saving') {
+      reportAuthDiagnostic(this.diagnostics, 'session_persist_failed')
+    }
     flow.state = 'failed'
+    reportAuthDiagnostic(this.diagnostics, 'auth_flow_failed', 'authentication_failed')
     flow.controller.abort()
     settleConfirmation(flow, false)
     scrubFlow(flow)
@@ -397,6 +415,7 @@ export class EmbeddedAuthFlowManager {
 
   private cancelFlow(flow: EmbeddedAuthFlowRecord): void {
     flow.state = 'cancelled'
+    reportAuthDiagnostic(this.diagnostics, 'auth_flow_cancelled', 'cancelled')
     flow.controller.abort()
     settleConfirmation(flow, false)
     scrubFlow(flow)
@@ -413,6 +432,7 @@ export class EmbeddedAuthFlowManager {
       }
     }
     flow.state = 'expired'
+    reportAuthDiagnostic(this.diagnostics, 'auth_flow_expired')
     flow.controller.abort()
     settleConfirmation(flow, false)
     scrubFlow(flow)

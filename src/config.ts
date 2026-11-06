@@ -17,7 +17,8 @@ dotenv.config()
 
 export type GarminRegion = 'global' | 'cn'
 export type GarminProvider = 'connect-web' | 'personal'
-export const MAX_GARMIN_ACCOUNTS = 5
+/** Fixed fields retained solely as input for the one-time legacy migration. */
+export const LEGACY_ACCOUNT_SLOT_COUNT = 5
 export const ACCOUNT_REVISION_PATTERN = /^[0-9a-f]{32}$/
 
 export interface AccountMetadata {
@@ -89,6 +90,8 @@ export interface Config {
   requestTimeoutMs?: number
   /** Logging verbosity */
   logLevel: 'debug' | 'info' | 'warn' | 'error'
+  /** Emit only redacted, fixed-stage authentication diagnostics. */
+  authVerbose?: boolean
   /** Default activity detail: full data with private fields filtered, or compact */
   activityDetail: 'compact' | 'full'
   /** User-selected FIT parent; output is separated by Garmin region and account */
@@ -104,6 +107,7 @@ export type PluginConfig = Omit<Config,
   'username' | 'region' | 'provider' | 'accountAlias' | 'personalApiKey' | 'personalApiKeyFile' | 'cnUsername' | 'cnAlias' | 'cnConfigured'
   | 'globalUsername' | 'globalAlias' | 'globalConfigured'
   | 'accounts' | 'accountsConfigured'
+  | 'authVerbose'
   | 'account1Username' | 'account2Username' | 'account3Username'
   | 'account4Username' | 'account5Username'
   | 'account1UsernameId' | 'account2UsernameId' | 'account3UsernameId'
@@ -128,6 +132,7 @@ export type PluginConfig = Omit<Config,
   globalConfigured?: boolean | ConfigReference<boolean>
   accounts?: AccountMetadata[] | ConfigReference<unknown>
   accountsConfigured?: boolean | ConfigReference<boolean>
+  authVerbose?: boolean | ConfigReference<boolean>
   account1Username?: string | ConfigReference<string>
   account2Username?: string | ConfigReference<string>
   account3Username?: string | ConfigReference<string>
@@ -243,12 +248,12 @@ export const Config = z.object({
     region: z.union(['global', 'cn'] as const),
     provider: z.union(['connect-web', 'personal'] as const),
     alias: z.string(),
-    slot: z.number().min(1).max(MAX_GARMIN_ACCOUNTS),
+    slot: z.number().min(1).max(LEGACY_ACCOUNT_SLOT_COUNT),
     revision: z.string().pattern(ACCOUNT_REVISION_PATTERN),
   }))
-    .max(MAX_GARMIN_ACCOUNTS)
+    .max(LEGACY_ACCOUNT_SLOT_COUNT)
     .default([])
-    .description('Public metadata for up to five Garmin accounts; credentials are stored separately.')
+    .description('Legacy account slots imported once into the dynamic workspace. Manage accounts in Garmin workspace.')
     .volatile(),
 
   accountsConfigured: z.boolean()
@@ -295,6 +300,11 @@ export const Config = z.object({
       'info',
     ))
     .description('Log verbosity. Env: GARMIN_LOG_LEVEL'),
+
+  authVerbose: z.boolean()
+    .default(false)
+    .description('Emit redacted Host-side Garmin authentication diagnostics.')
+    .volatile(),
 
   activityDetail: z.union(['compact', 'full'] as const)
     .default(envChoice(
@@ -354,6 +364,7 @@ export function resolveConfig(input: Config | PluginConfig): Config {
       input.sessionTokenFile,
       process.env.GARMIN_SESSION_TOKEN_FILE,
     ),
+    authVerbose: readVolatile(input.authVerbose) === true,
     fitDownloadDir: resolveFitDownloadDir(preferNonEmpty(
       input.fitDownloadDir,
       process.env.GARMIN_FIT_DOWNLOAD_DIR,
@@ -368,7 +379,7 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
   const legacyPath = base.sessionTokenFile?.trim()
     || (ACCOUNT_ALIAS_PATTERN.test(legacyAlias) ? defaultAccountSessionPath(legacyAlias) : '')
 
-  // A global Personal configuration needs no email and never inherits web credentials.
+  // A standalone Personal configuration needs no email and never inherits web credentials.
   if (!base.accountsConfigured && (base.accounts?.length ?? 0) === 0 && base.provider === 'personal') {
     const alias = base.accountAlias || 'Personal API'
     return [{
@@ -418,7 +429,7 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
   if (!base.accountsConfigured && metadata.length === 0) {
     return [...legacyAccounts.values()]
   }
-  if (!Array.isArray(metadata) || metadata.length > MAX_GARMIN_ACCOUNTS) {
+  if (!Array.isArray(metadata) || metadata.length > LEGACY_ACCOUNT_SLOT_COUNT) {
     throw new Error('Garmin account list exceeds five entries')
   }
   const seenIds = new Set<string>()
@@ -429,7 +440,7 @@ export function resolveAccountConfigs(input: Config | PluginConfig): ResolvedAcc
       || !ACCOUNT_ALIAS_PATTERN.test(entry.id)
       || (entry.region !== 'cn' && entry.region !== 'global')
       || !Number.isInteger(entry.slot)
-      || entry.slot < 1 || entry.slot > MAX_GARMIN_ACCOUNTS
+      || entry.slot < 1 || entry.slot > LEGACY_ACCOUNT_SLOT_COUNT
       || (entry.provider !== undefined && entry.provider !== 'connect-web' && entry.provider !== 'personal')
       || typeof entry.alias !== 'string'
       || (entry.revision !== undefined
