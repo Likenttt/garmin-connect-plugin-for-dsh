@@ -352,7 +352,7 @@ For standalone MCP, use the released package:
   "mcpServers": {
     "garmin-personal": {
       "command": "npx",
-      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.21", "garmin-connect-mcp"],
+      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.22", "garmin-connect-mcp"],
       "env": {
         "GARMIN_PROVIDER": "personal",
         "GARMIN_ACCOUNT": "my-garmin",
@@ -888,7 +888,7 @@ Open the account, timeline and notes page when needed:
 
 ```bash
 # Run directly from the released package, without a global installation:
-npx -y --package dsh-plugin-garmin-connect@0.1.21 garmin-connect-workspace open
+npx -y --package dsh-plugin-garmin-connect@0.1.22 garmin-connect-workspace open
 # Or, if the package is already installed globally:
 garmin-connect-workspace open
 # Select explicitly when multiple local workspaces exist:

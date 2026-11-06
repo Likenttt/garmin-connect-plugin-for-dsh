@@ -1,16 +1,16 @@
 # 本机验证 dsh-plugin-garmin-connect 的 Personal API 模式
 
-本指南按正式版 `0.1.21` 的账号工作台整理。账号不设固定数量上限，使用自由备注识别；Harness 与共享工作区 MCP 共用账号、时间线和备注。SQLite 工作台需要 Node 22.13+，旧版单账号 MCP 支持 Node 20.19+。历史 `0.1.19` 候选验收与正式版复核见[实测报告](../testing/personal-api-harness-desktop-2026-10-22.md)。以下使用桌面自带 CLI，避免另行下载 DSH 或装错 profile；用户无需另外安装底层 SDK。
+本指南按正式版 `0.1.22` 的账号工作台整理。账号不设固定数量上限，使用自由备注识别；Harness 与共享工作区 MCP 共用账号、时间线和备注。SQLite 工作台需要 Node 22.13+，旧版单账号 MCP 支持 Node 20.19+。历史 `0.1.19` 候选验收与正式版复核见[实测报告](../testing/personal-api-harness-desktop-2026-10-22.md)。以下使用桌面自带 CLI，避免另行下载 DSH 或装错 profile；用户无需另外安装底层 SDK。
 
 ## 1. 安装官方 npm 正式版
 
 **完全退出 DeepSeek Harness**，再执行：
 
 ```bash
-"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add dsh-plugin-garmin-connect@0.1.21 --ignore-scripts --registry=https://registry.npmjs.org/
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add dsh-plugin-garmin-connect@0.1.22 --ignore-scripts --registry=https://registry.npmjs.org/
 ```
 
-只读核验安装结果，应输出 `0.1.21`：
+只读核验安装结果，应输出 `0.1.22`：
 
 ```bash
 node -p "require(require('node:path').join(require('node:os').homedir(), '.dsh/profiles/desktop/node_modules/dsh-plugin-garmin-connect/package.json')).version"
@@ -30,7 +30,7 @@ Connect 网页会话账号的列表和时间线可显示 Garmin 头像；没有�
 
 > 使用“我的佳明国际版”账号，先读取 profile 确认连接，再查询昨天的 HRV、血氧、呼吸摘要和活动。请说明实际查询日期；此次只读取数据。
 
-以下勾选项对应 2026-10-22 的历史验证，0.1.21 可按同样的只读步骤复核：
+以下勾选项对应 2026-10-22 的历史验证，0.1.22 可按同样的只读步骤复核：
 
 - [x] 验证连接成功，账号备注及稳定账号 ID 对应正确。
 - [x] 对话能找到 Personal 工具，profile 读取成功。
@@ -43,10 +43,10 @@ Connect 网页会话账号的列表和时间线可显示 Garmin 头像；没有�
 
 ## 4. 单独验证 MCP
 
-0.1.21 可使用共享工作区模式，直接复用 Harness 里的 Personal 账号和备注：
+0.1.22 可使用共享工作区模式，直接复用 Harness 里的 Personal 账号和备注：
 
 ```bash
-npx -y --package dsh-plugin-garmin-connect@0.1.21 garmin-connect-mcp --workspace
+npx -y --package dsh-plugin-garmin-connect@0.1.22 garmin-connect-mcp --workspace
 ```
 
 先启动一次升级后的 Harness；连接后使用 `list_garmin_accounts` 选择账号，用 `open_garmin_workspace` 获取管理页入口。

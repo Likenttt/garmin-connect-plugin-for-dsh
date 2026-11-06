@@ -324,7 +324,7 @@ SDK 负责 Personal API Key 换取令牌及其支持的数据读取。
   "mcpServers": {
     "garmin-personal": {
       "command": "npx",
-      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.21", "garmin-connect-mcp"],
+      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.22", "garmin-connect-mcp"],
       "env": {
         "GARMIN_PROVIDER": "personal",
         "GARMIN_ACCOUNT": "my-garmin",
@@ -766,7 +766,7 @@ SQLite 工作区需使用 **Node 22.13 或更新版本**；Node 20.19+ 可使用
 
 ```bash
 # 无需全局安装，直接运行已发布版本：
-npx -y --package dsh-plugin-garmin-connect@0.1.21 garmin-connect-workspace open
+npx -y --package dsh-plugin-garmin-connect@0.1.22 garmin-connect-workspace open
 # 或已全局安装插件时：
 garmin-connect-workspace open
 # 本机有多个工作区时，显式选择：

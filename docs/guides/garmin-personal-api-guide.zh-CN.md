@@ -68,11 +68,11 @@ Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET �
 
 ## 五、在 DeepSeek Harness 里接入
 
-**以下步骤对应 dsh-plugin-garmin-connect 0.1.21。** 新版通过 Garmin 工作台管理账号，不设固定账号数量上限。macOS 用户先退出 DeepSeek Harness，再使用应用内置 CLI 从官方 npm 安装：
+**以下步骤对应 dsh-plugin-garmin-connect 0.1.22。** 新版通过 Garmin 工作台管理账号，不设固定账号数量上限。macOS 用户先退出 DeepSeek Harness，再使用应用内置 CLI 从官方 npm 安装：
 
 ```bash
 "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add dsh-plugin-garmin-connect@0.1.21 \
+  plugin --profile desktop add dsh-plugin-garmin-connect@0.1.22 \
   --ignore-scripts --registry=https://registry.npmjs.org/
 ```
 
@@ -123,7 +123,7 @@ macOS 桌面版先**退出 DeepSeek Harness**，再使用应用内置 CLI 安装
 
 ```bash
 "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add /absolute/path/dsh-plugin-garmin-connect-0.1.21.tgz \
+  plugin --profile desktop add /absolute/path/dsh-plugin-garmin-connect-0.1.22.tgz \
   --ignore-scripts --registry=https://registry.npmjs.org/
 ```
 
@@ -132,10 +132,10 @@ macOS 桌面版先**退出 DeepSeek Harness**，再使用应用内置 CLI 安装
 
 ## 六、其他 Agent：用 MCP 接入
 
-Codex、Claude Code 等支持 stdio MCP 的客户端，运行的是**同一插件包 `dsh-plugin-garmin-connect` 的 `lib/mcp.js`**。0.1.21 推荐使用共享工作区模式，与 Harness 共用账号、时间线和备注：
+Codex、Claude Code 等支持 stdio MCP 的客户端，运行的是**同一插件包 `dsh-plugin-garmin-connect` 的 `lib/mcp.js`**。0.1.22 推荐使用共享工作区模式，与 Harness 共用账号、时间线和备注：
 
 ```bash
-npx -y --package dsh-plugin-garmin-connect@0.1.21 garmin-connect-mcp --workspace
+npx -y --package dsh-plugin-garmin-connect@0.1.22 garmin-connect-mcp --workspace
 ```
 
 先启动一次升级后的 Harness 登记既有工作区，再通过 `open_garmin_workspace` 获取管理页入口。SQLite 工作台需要 Node 22.13+；完整配置见[共享本机工作区](../../README.zh-CN.md#共享本机工作区0121)。

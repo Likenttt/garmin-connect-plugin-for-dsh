@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.22] - 2026-11-06
+
 ### Fixed
 - Initialize caller-created Windows workspace lock and recovery directories with an exact private ACL while preserving exclusive ownership and read-only checks for existing directories.
 - Retry workspace registration after a transient startup failure instead of retaining a rejected promise. Concurrent retries share one initialization, and disposed plugins cannot start another workspace owner.
