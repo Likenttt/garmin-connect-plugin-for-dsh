@@ -32,11 +32,28 @@ export function registerHarnessWorkspace(ctx: Context, options: {
   const descriptor = { scopeId: options.scopeId, dataDirectory: defaultWorkspaceDirectory() }
   // Publish discovery metadata on plugin load, so standalone MCP finds the exact
   // Host namespace even before its first data request. This does not start a process.
-  const registered = registerWorkspace(descriptor)
-  void registered.catch(() => ctx.logger.error('[garmin] Could not register the local workspace'))
+  let registration: ReturnType<typeof registerWorkspace> | undefined
+  const register = (): ReturnType<typeof registerWorkspace> => {
+    if (!registration) {
+      const attempt = registerWorkspace(descriptor).catch(error => {
+        // A transient storage failure must not poison every later UI retry.
+        // Keep one in-flight registration; retain only a successful result.
+        if (registration === attempt) registration = undefined
+        throw error
+      })
+      registration = attempt
+    }
+    return registration
+  }
+  void register().catch(() => ctx.logger.error('[garmin] Could not register the local workspace'))
   async function initialize(): Promise<Adapter> {
-    await registered
+    await register()
+    if (disposed) throw new Error('Garmin workspace is closed')
     const lease = await acquireWorkspaceLease(descriptor)
+    if (disposed) {
+      await lease?.close()
+      throw new Error('Garmin workspace is closed')
+    }
     if (!lease) {
       const remote = await connectWorkspace(descriptor)
       const applied = await remote.configure({

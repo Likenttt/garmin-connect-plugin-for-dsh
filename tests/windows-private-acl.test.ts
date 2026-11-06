@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -24,10 +24,11 @@ describe('Windows exact owner-only session ACLs', () => {
     const acl = await createWindowsPrivateAcl({ run, systemRoot })
 
     await acl.prepareDirectory('C:\\private\\account')
+    await acl.secureDirectory('C:\\private\\account\\runtime.lock')
     await acl.secureFile('C:\\private\\account\\session.tmp')
     await acl.verifyFile('C:\\private\\account\\session.json')
 
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(4)
     for (const call of calls) {
       expect(call.file).toBe(
         'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
@@ -70,16 +71,31 @@ describe('Windows exact owner-only session ACLs', () => {
     expect(script).toContain('$components.Count -lt 1')
     expect(script).toContain('[IO.Directory]::CreateDirectory($current')
     expect(script).toContain('GetDirectoryName($fullPath)')
+    const secureDirectoryScript = script.slice(script.indexOf("  'secure-directory' {"), script.indexOf("  'secure-file' {"))
+    expect(secureDirectoryScript).toContain('Assert-ExactPrivateDirectoryChain ([IO.Path]::GetDirectoryName($fullPath)) $false')
+    expect(secureDirectoryScript).toContain('Assert-NoReparseChain $fullPath')
+    expect(secureDirectoryScript).toContain('$owner.Value -cne $script:currentSid.Value')
+    expect(secureDirectoryScript).toContain('$tokenOwner = [System.Security.Principal.WindowsIdentity]::GetCurrent().Owner')
+    expect(secureDirectoryScript).toContain('($null -eq $tokenOwner -or $owner.Value -cne $tokenOwner.Value)')
+    expect(secureDirectoryScript).toContain('$rule.IdentityReference.Value -cne $script:currentSid.Value')
+    expect(secureDirectoryScript).toContain('GetFileSystemEntries($fullPath).Length -ne 0')
+    expect(secureDirectoryScript.indexOf('GetFileSystemEntries($fullPath)')).toBeLessThan(secureDirectoryScript.indexOf('SetAccessControl($fullPath'))
+    expect(secureDirectoryScript).toContain('Assert-ExactSecurity $fullPath $true')
+    const exactSecurityScript = script.slice(script.indexOf('function Assert-ExactSecurity'), script.indexOf('function Assert-ExactPrivateDirectoryChain'))
+    expect(exactSecurityScript).toContain('if ($owner.Value -cne $script:currentSid.Value) { Fail-Acl }')
+    expect(exactSecurityScript).not.toContain('$tokenOwner')
     expect(script).not.toContain('[IO.Directory]::CreateDirectory($fullPath')
     expect(script).not.toContain('C:\\private\\account')
 
     expect(calls.map(call => call.options.env.GARMIN_ACL_OPERATION)).toEqual([
       'prepare-directory',
+      'secure-directory',
       'secure-file',
       'verify-file',
     ])
     expect(calls.map(call => call.options.env.GARMIN_ACL_TARGET)).toEqual([
       'C:\\private\\account',
+      'C:\\private\\account\\runtime.lock',
       'C:\\private\\account\\session.tmp',
       'C:\\private\\account\\session.json',
     ])
@@ -87,6 +103,7 @@ describe('Windows exact owner-only session ACLs', () => {
 
   it.each([
     ['prepare-directory'],
+    ['secure-directory'],
     ['secure-file'],
     ['verify-file'],
   ] as const)('normalizes %s failures without exposing paths or output', async (operation) => {
@@ -99,6 +116,8 @@ describe('Windows exact owner-only session ACLs', () => {
     try {
       if (operation === 'prepare-directory') {
         await acl.prepareDirectory('C:\\private\\SECRET_ACCOUNT')
+      } else if (operation === 'secure-directory') {
+        await acl.secureDirectory('C:\\private\\SECRET_ACCOUNT')
       } else if (operation === 'secure-file') {
         await acl.secureFile('C:\\private\\SECRET_ACCOUNT')
       } else {
@@ -370,6 +389,89 @@ describe('Windows exact-private session write ordering', () => {
 })
 
 describe('Windows exact-private session host integration', () => {
+  const itOnWindows = process.platform === 'win32' ? it : it.skip
+
+  itOnWindows('creates a real private workspace lease without replacing its active owner', async () => {
+    jest.resetModules()
+    jest.unmock('../src/windows-private-acl')
+    const { createWindowsPrivateAcl } = await import('../src/windows-private-acl')
+    const { acquireWorkspaceLease, readWorkspaceEndpoint, workspaceDigest } = await import('../src/workspace-runtime')
+    const localAppData = process.env.LOCALAPPDATA?.trim()
+    if (!localAppData) throw new Error('LOCALAPPDATA is required for Windows lease smoke')
+    const scopeId = `windows-lease-${randomUUID()}`
+    const parent = join(localAppData, `garmin-connect-lease-acl-${process.pid}-${randomUUID()}`)
+    const descriptor = { scopeId, dataDirectory: join(parent, 'workspace') }
+    let owner: Awaited<ReturnType<typeof acquireWorkspaceLease>>
+    try {
+      const acl = await createWindowsPrivateAcl()
+      await acl.prepareDirectory(parent)
+      owner = await acquireWorkspaceLease(descriptor)
+      if (!owner) throw new Error('Expected to acquire the new Windows workspace lease')
+      const instanceId = owner.instanceId
+      const lock = join(descriptor.dataDirectory, `runtime-${workspaceDigest(scopeId)}.lock`)
+      // This read-only assertion checks protected inheritance, the current
+      // user's ownership and its sole explicit FullControl ACE on the chain.
+      await acl.prepareDirectory(lock)
+      await owner.publish({ origin: 'http://127.0.0.1:8811', accessToken: 'a'.repeat(48) })
+      const published = await readWorkspaceEndpoint(descriptor)
+      expect(published).toMatchObject({ scopeId, instanceId, pid: process.pid,
+        origin: 'http://127.0.0.1:8811', accessToken: 'a'.repeat(48) })
+
+      await expect(acquireWorkspaceLease(descriptor)).resolves.toBeUndefined()
+      expect(await readWorkspaceEndpoint(descriptor)).toEqual(published)
+      expect((await readdir(descriptor.dataDirectory)).some(name => name.includes('.reclaim'))).toBe(false)
+      await acl.prepareDirectory(lock)
+
+      await owner.close()
+      owner = undefined
+      expect(await readWorkspaceEndpoint(descriptor)).toBeUndefined()
+    } finally {
+      await owner?.close()
+      await rm(parent, { recursive: true, force: true })
+    }
+  }, 180_000)
+
+  itOnWindows('protects only a new empty owner-only child and rejects nonempty, shared-parent and reparse directories', async () => {
+    jest.resetModules()
+    jest.unmock('../src/windows-private-acl')
+    const { createWindowsPrivateAcl } = await import('../src/windows-private-acl')
+    const localAppData = process.env.LOCALAPPDATA?.trim()
+    if (!localAppData) throw new Error('LOCALAPPDATA is required for Windows ACL smoke')
+    const suffix = `garmin-connect-directory-acl-${process.pid}-${randomUUID()}`
+    const parent = join(localAppData, suffix)
+    const sharedParent = join(localAppData, `${suffix}-shared`)
+    const acl = await createWindowsPrivateAcl()
+    try {
+      await acl.prepareDirectory(parent)
+      const lock = join(parent, 'runtime.lock')
+      await mkdir(lock)
+      // Node mkdir inherits the parent's private ACE without protecting it.
+      await expect(acl.prepareDirectory(lock)).rejects.toThrow()
+      await acl.secureDirectory(lock)
+      await acl.prepareDirectory(lock)
+
+      const occupied = join(parent, 'occupied.lock')
+      await mkdir(occupied)
+      await writeFile(join(occupied, 'owner.json'), '{}')
+      await expect(acl.secureDirectory(occupied)).rejects.toThrow()
+      await expect(acl.prepareDirectory(occupied)).rejects.toThrow()
+
+      await mkdir(sharedParent)
+      const sharedChild = join(sharedParent, 'runtime.lock')
+      await mkdir(sharedChild)
+      await expect(acl.secureDirectory(sharedChild)).rejects.toThrow()
+      await expect(acl.prepareDirectory(sharedParent)).rejects.toThrow()
+
+      const link = join(parent, 'linked.lock')
+      await symlink(lock, link, 'junction')
+      await expect(acl.secureDirectory(link)).rejects.toThrow()
+      await acl.prepareDirectory(lock)
+    } finally {
+      await rm(parent, { recursive: true, force: true })
+      await rm(sharedParent, { recursive: true, force: true })
+    }
+  }, 120_000)
+
   it('uses the real Windows ACL API and verifies the published session', async () => {
     if (process.platform !== 'win32') return
     jest.resetModules()

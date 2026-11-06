@@ -12,6 +12,7 @@ const WINDOWS_ACL_ERROR = 'Garmin session token file could not be written'
 
 type WindowsAclOperation =
   | 'prepare-directory'
+  | 'secure-directory'
   | 'secure-file'
   | 'verify-file'
 
@@ -57,6 +58,8 @@ export interface WindowsPrivateAclDependencies {
 export interface WindowsPrivateAcl {
   /** Create atomically with an exact DACL, or read-only verify if it exists. */
   prepareDirectory(path: string): Promise<void>
+  /** Secure a caller-owned, just-created empty directory below a private parent. */
+  secureDirectory(path: string): Promise<void>
   /** Replace the DACL of an existing empty file, then verify it exactly. */
   secureFile(path: string): Promise<void>
   /** Read-only verification of an existing regular file's exact DACL. */
@@ -233,6 +236,41 @@ switch ($operation) {
   'prepare-directory' {
     Assert-ExactPrivateDirectoryChain $fullPath $true
   }
+  'secure-directory' {
+    # mkdir's exclusive winner owns this empty child. Windows inherits the
+    # parent's current-user-only ACE but leaves inheritance enabled; turn that
+    # same private access into the protected explicit DACL our readers require.
+    # Never use this operation to repair an unrelated/shared existing folder.
+    Assert-ExactPrivateDirectoryChain ([IO.Path]::GetDirectoryName($fullPath)) $false
+    Assert-NoReparseChain $fullPath
+    if (-not [IO.Directory]::Exists($fullPath)) { Fail-Acl }
+    $security = [IO.Directory]::GetAccessControl(
+      $fullPath,
+      ([System.Security.AccessControl.AccessControlSections]::Owner -bor [System.Security.AccessControl.AccessControlSections]::Access)
+    )
+    $owner = $security.GetOwner([System.Security.Principal.SecurityIdentifier])
+    # Windows gives a new object the creator token's default owner, which can
+    # differ from User for administrators. Accept only that token owner or User
+    # on this new empty leaf; the final owner is always normalized to User.
+    $tokenOwner = [System.Security.Principal.WindowsIdentity]::GetCurrent().Owner
+    if (
+      $owner.Value -cne $script:currentSid.Value -and
+      ($null -eq $tokenOwner -or $owner.Value -cne $tokenOwner.Value)
+    ) { Fail-Acl }
+    $rules = @($security.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+    if ($rules.Count -ne 1) { Fail-Acl }
+    $rule = $rules[0]
+    if ($rule.IdentityReference.Value -cne $script:currentSid.Value) { Fail-Acl }
+    if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) { Fail-Acl }
+    if ([int] $rule.FileSystemRights -ne [int] [System.Security.AccessControl.FileSystemRights]::FullControl) { Fail-Acl }
+    $inheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+    if ([int] $rule.InheritanceFlags -ne [int] $inheritance) { Fail-Acl }
+    if ($rule.PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None) { Fail-Acl }
+    if ($security.AreAccessRulesProtected -eq $rule.IsInherited) { Fail-Acl }
+    if ([IO.Directory]::GetFileSystemEntries($fullPath).Length -ne 0) { Fail-Acl }
+    [IO.Directory]::SetAccessControl($fullPath, (New-ExactDirectorySecurity))
+    Assert-ExactSecurity $fullPath $true
+  }
   'secure-file' {
     Assert-ExactPrivateDirectoryChain ([IO.Path]::GetDirectoryName($fullPath)) $false
     Assert-NoReparseChain $fullPath
@@ -293,6 +331,7 @@ export async function createWindowsPrivateAcl(
 
     return {
       prepareDirectory: path => invoke('prepare-directory', path),
+      secureDirectory: path => invoke('secure-directory', path),
       secureFile: path => invoke('secure-file', path),
       verifyFile: path => invoke('verify-file', path),
     }
