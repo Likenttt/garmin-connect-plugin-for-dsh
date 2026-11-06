@@ -6,7 +6,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/dsh-plugin-garmin-connect.svg?logo=npm)](https://www.npmjs.com/package/dsh-plugin-garmin-connect)
 [![CI](https://github.com/Likenttt/garmin-connect-plugin-for-dsh/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Likenttt/garmin-connect-plugin-for-dsh/actions/workflows/ci.yml)
 [![Test Report](https://img.shields.io/badge/test_report-view-blue.svg)](TEST_REPORT.md)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%5E20.19%20%7C%20%3E%3D22.13-brightgreen.svg)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 English | **[简体中文](README.zh-CN.md)** | **[Test Report](TEST_REPORT.md)** | **[Changelog](CHANGELOG.md)**
@@ -880,8 +880,9 @@ This plugin also ships as a standalone **MCP (Model Context Protocol) server**, 
 
 ### Shared local workspace (0.1.21)
 
-Use Node **22.13 or later** for the SQLite workspace. Node 20 continues to
-support the existing environment-based, single-account MCP mode.
+This release supports **Node 20.19+ within the 20.x line, or Node 22.13 and later**.
+Use **Node 22.13 or later** for the SQLite workspace; Node 20.19+ supports the
+existing environment-based, single-account MCP mode.
 
 Open the account, timeline and notes page when needed:
 

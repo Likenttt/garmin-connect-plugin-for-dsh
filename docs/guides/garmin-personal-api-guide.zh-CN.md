@@ -140,7 +140,7 @@ npx -y --package dsh-plugin-garmin-connect@0.1.21 garmin-connect-mcp --workspace
 
 先启动一次升级后的 Harness 登记既有工作区，再通过 `open_garmin_workspace` 获取管理页入口。SQLite 工作台需要 Node 22.13+；完整配置见[共享本机工作区](../../README.zh-CN.md#共享本机工作区0121)。
 
-下方为继续兼容的**旧版单账号环境变量模式**（仍支持 Node 20）。该模式需分别配置 Harness 与独立 MCP 账号，在 Harness 保存的备注和 Key 不会自动同步过去。
+下方为继续兼容的**旧版单账号环境变量模式**（支持 Node 20.19+）。该模式需分别配置 Harness 与独立 MCP 账号，在 Harness 保存的备注和 Key 不会自动同步过去。
 
 先创建一个仅自己可读的 UTF-8 纯文本文件，**内容只放 API Key，不加引号或 JSON 包装**。macOS／Linux 文件权限设为 `600`，父目录设为 `700`；Windows 使用仅当前用户可访问的权限。这属于文件权限保护，不等于加密。
 
