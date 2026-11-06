@@ -1,12 +1,12 @@
 # 佳明官方个人数据接入API保姆级指南
 
-作者：李二牛 · 更新于 2026 年 10 月 22 日
+作者：李二牛 · 更新于 2026 年 11 月 6 日
 
 佳明终于推出了官方 **Personal API 模式**，还提供了 [Python 版 SDK](https://github.com/garmin/connect-personal-api-python)。我很快参考官方实现移植了 [TypeScript 版本](https://github.com/Likenttt/connect-personal-api-ts)，并接入 [dsh-plugin-garmin-connect](https://github.com/Likenttt/garmin-connect-plugin-for-dsh)，让 DeepSeek Harness 和 MCP 都能使用。**TS 版代码已经开源，欢迎点个 Star。** [SDK 0.1.0 已发布到官方 npm](https://www.npmjs.com/package/@likenttt/connect-personal-api-ts)。
 
 我是李二牛，TypeScript SDK 和插件由我在社区维护，**TS 版并非 Garmin 官方 SDK**。这次是在已有插件中增加官方 Personal API 接入：官网生成 Key，插件换取令牌、读取数据，佳明密码不用交给 AI。插件同时提供 DSH 和 MCP 形态，用户无需另装底层 SDK；项目介绍见 [gc.li2niu.com](https://gc.li2niu.com/)。
 
-**这次国际版已经实测跑通：令牌交换、8 项 SDK 读取、5 项真实 MCP 工具读取全部通过。** 下面以国际版为主，带你申请 Key，再连接 DeepSeek Harness 或其他 Agent。大陆入口与当前情况放在文末。[完整测试报告](../research/personal-api-endpoint-test-report-2026-10-22.md)
+**国际版已完成真实读取验证；大陆 Personal API 现也已开放，插件可直接选择中国区接入。** 下面以国际版截图为主，带你申请 Key，再连接 DeepSeek Harness 或其他 Agent。大陆入口与配置方式放在文末；2026-10-22 的历史测试结果见[完整测试报告](../research/personal-api-endpoint-test-report-2026-10-22.md)。
 
 ## 一、先弄清它能做什么
 
@@ -17,13 +17,13 @@ Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET �
 | 比较维度 | 账号密码／Connect 网页会话 | Personal API Key |
 |---|---|---|
 | 登录输入 | 在 Garmin 官方表单输入账号、密码，按需完成验证码 | 在 Garmin 官网申领 Key，后续由 Key 换取 token |
-| 插件配置 | 邮箱、区域、可选别名，再完成网页登录 | 仅别名 + Key，新建账号默认国际版 |
+| 插件配置 | 账号备注、邮箱、区域，再完成网页登录 | 账号备注、地区 + 对应区域生成的 Key |
 | 密码处理 | 密码只填 Garmin 官方表单；当前插件设置保存邮箱和会话，不保存密码 | 插件不需要密码；Key 是敏感凭据，保存在本机 |
 | 读取范围 | 活动、健康与训练相关数据，以工具和设备实际记录为准 | 官方开放的读取，包括 HRV、血氧、呼吸摘要等 |
 | 训练库／日历写操作 | 按已提供工具创建、删除课表或取消排期，需预览确认 | <span style="color: #b42318; font-weight: 600;">暂不支持（Personal API 当前只读）</span> |
 | 有效期与撤销 | 会话有效期和刷新由 Garmin 控制；可停用本机账号并清理会话，远端撤销规则以 Garmin 为准 | Key 可选 30／90／180 天或一年；token 最长 24 小时；官网 Delete 撤销 Key 和关联 token |
 | MFA | 登录时在 Garmin 官方页完成 | 申领 Key 时按账号要求验证，后续用 Key 获取 token |
-| 账号地区 | 原有方式支持中国区和国际区 | 国际实测通过；<span style="color: #b42318; font-weight: 600;">大陆令牌交换返回 HTTP 526，暂时无法读取数据</span> |
+| 账号地区 | 原有方式支持中国区和国际区 | 支持中国区 `.cn` 与国际区 `.com`，Key 不跨区使用 |
 | 适用场景 | 已有账号继续使用，需要训练库和排期管理 | 希望通过官方个人 API 做数据读取与分析 |
 
 **插件的课表与日历管理能力继续由 Connect 网页会话提供**，写操作仍需预览和确认。Personal 模式当前只读，<span style="color: #b42318; font-weight: 600;">其公开范围也未包含 Webhook</span>。
@@ -68,39 +68,41 @@ Personal API 用于个人读取自己的数据。官方当前公开 26 个 GET �
 
 ## 五、在 DeepSeek Harness 里接入
 
-**本文对应 dsh-plugin-garmin-connect 0.1.19 正式版，包含官方 Personal API 接入。** macOS 用户先退出 DeepSeek Harness，再使用应用内置 CLI 从官方 npm 安装：
+**以下步骤对应 dsh-plugin-garmin-connect 0.1.21。** 新版通过 Garmin 工作台管理账号，不设固定账号数量上限。macOS 用户先退出 DeepSeek Harness，再使用应用内置 CLI 从官方 npm 安装：
 
 ```bash
 "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add dsh-plugin-garmin-connect@0.1.19 \
+  plugin --profile desktop add dsh-plugin-garmin-connect@0.1.21 \
   --ignore-scripts --registry=https://registry.npmjs.org/
 ```
 
 安装后重新打开 Harness。原用户可以保留已有网页会话账号，再新增 Personal 账号。按顺序操作：
 
-1. 打开 Harness 的**插件**页面，找到 **dsh-plugin-garmin-connect**，进入账号设置。
-2. 点击 **+ 添加账号**，接入方式选择 **官方 Personal API（国际版，只读）**。
-3. 填写**别名**，例如“我的佳明国际版”；再填写官网刚生成的 **API Key**。
-4. 点击**保存账号**，随后点击**验证连接**；验证成功后即可开始查询。
+1. 打开一个 Harness 会话，点击右下角 **Garmin 工作台**，进入**账号**页。
+2. 点击**添加账号**，接入方式选择 **Personal API**，再选择中国区或国际区。
+3. 填写**账号备注**，例如“我的佳明中国区”；再填写该区域官网刚生成的 **API Key**。
+4. 点击**保存账号**，随后点击**检查连接**；验证成功后即可开始查询。也可使用**检查全部连接**查看所有账号的进度与结果，并随时取消。
 
-**新建 Personal 账号只需要别名和 API Key 两项，默认连接国际版。** 不填邮箱、密码或地区，也不需要再次打开佳明登录页。Key 只在插件设置中输入，保存后不回填完整内容。
+**新建 Personal 账号需要地区、账号备注和 API Key。** 不填邮箱或密码，也不需要再次打开佳明登录页。Key 只在本机账号表单中输入，保存后不回填完整内容。切换已有 Personal 账号的地区时，需要同时填写新地区生成的 Key。
+
+账号备注可按自己、家人或其他用途自由填写。Connect 网页会话账号可显示佳明头像；Personal API 未返回头像时显示备注首字。时间线、备注和导出功能可在同一工作台访问。
 
 建议用 **+ 添加账号**保留两种方式。若修改已有账号的接入方式，需要提供新方式的凭据：Personal 填 API Key，网页会话重新完成对应登录。
 
 ![真实 Harness 桌面 Personal 账号连接成功](../assets/personal-api-guide/global-06-harness-connected.png)
 
-*图 6：真实 Harness 桌面验收：保存别名和 Key 后连接成功，重启后仍可验证；完整 Key 不回填。*
+*图 6：0.1.19 的历史桌面验收截图：保存别名和 Key 后连接成功，重启后仍可验证；0.1.21 的账号入口已迁至 Garmin 工作台。*
 
 ### 本机 DSH 怎么验收？
 
 安装并重新加载插件后，依次检查：
 
-1. Personal 账号点击**验证连接**成功，目标别名正确。
-2. 在对话中指定该别名，先查询 profile，再读取有记录日期的单日 HRV；多账号时由 Agent 映射到设置页显示的稳定账号 ID。
-3. 返回设置页，确认 Key 显示“已设置”，完整密钥没有回填。
+1. Personal 账号点击**检查连接**成功，目标账号备注正确。
+2. 在对话中指定该账号备注，先查询 profile，再读取有记录日期的单日 HRV；多账号时由 Agent 使用 `list_garmin_accounts` 查找稳定账号 ID。
+3. 返回账号编辑表单，确认完整 Key 没有回填。
 4. 再明确选择原有网页会话账号查询 profile，核对账号隔离，避免混用数据。
 
-本机已从官方 npm 安装 **0.1.19**，Personal 连接验证成功。发布前的 **0.1.19-dev.0** 已在真实 Harness 桌面完成：5 次 Personal 工具读取与 1 次原大陆网页会话读取均成功，重启后的连接验证也通过。HRV 时序与血氧测量值有空缺，呼吸为每日摘要。见[桌面验收报告](../testing/personal-api-harness-desktop-2026-10-22.md)。
+历史验证中，本机从官方 npm 安装 **0.1.19** 后 Personal 连接复核成功。其发布前的 **0.1.19-dev.0** 已在真实 Harness 桌面完成：5 次 Personal 工具读取与 1 次原大陆网页会话读取均成功，重启后的连接验证也通过。HRV 时序与血氧测量值有空缺，呼吸为每日摘要。见[桌面验收报告](../testing/personal-api-harness-desktop-2026-10-22.md)。
 具体操作见[本机 DSH／MCP 验证指南](personal-api-local-validation.zh-CN.md)。
 
 ### 开发者：安装当前源码版
@@ -121,7 +123,7 @@ macOS 桌面版先**退出 DeepSeek Harness**，再使用应用内置 CLI 安装
 
 ```bash
 "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add /absolute/path/dsh-plugin-garmin-connect-0.1.19.tgz \
+  plugin --profile desktop add /absolute/path/dsh-plugin-garmin-connect-0.1.21.tgz \
   --ignore-scripts --registry=https://registry.npmjs.org/
 ```
 
@@ -130,7 +132,15 @@ macOS 桌面版先**退出 DeepSeek Harness**，再使用应用内置 CLI 安装
 
 ## 六、其他 Agent：用 MCP 接入
 
-Codex、Claude Code 等支持 stdio MCP 的客户端，运行的是**同一插件包 `dsh-plugin-garmin-connect` 的 `lib/mcp.js`**。Harness 设置与独立 MCP 进程分别配置账号；在 DSH 保存的别名和 Key 不会自动同步到 MCP。
+Codex、Claude Code 等支持 stdio MCP 的客户端，运行的是**同一插件包 `dsh-plugin-garmin-connect` 的 `lib/mcp.js`**。0.1.21 推荐使用共享工作区模式，与 Harness 共用账号、时间线和备注：
+
+```bash
+npx -y --package dsh-plugin-garmin-connect@0.1.21 garmin-connect-mcp --workspace
+```
+
+先启动一次升级后的 Harness 登记既有工作区，再通过 `open_garmin_workspace` 获取管理页入口。SQLite 工作台需要 Node 22.13+；完整配置见[共享本机工作区](../../README.zh-CN.md#共享本机工作区0121)。
+
+下方为继续兼容的**旧版单账号环境变量模式**（仍支持 Node 20）。该模式需分别配置 Harness 与独立 MCP 账号，在 Harness 保存的备注和 Key 不会自动同步过去。
 
 先创建一个仅自己可读的 UTF-8 纯文本文件，**内容只放 API Key，不加引号或 JSON 包装**。macOS／Linux 文件权限设为 `600`，父目录设为 `700`；Windows 使用仅当前用户可访问的权限。这属于文件权限保护，不等于加密。
 
@@ -174,9 +184,9 @@ npm install @likenttt/connect-personal-api-ts@0.1.0
 
 **插件用户不必单独安装 SDK。** dsh-plugin-garmin-connect 0.1.19 已集成 Personal API；Harness 和 MCP 均通过同一个插件包使用。
 
-## 七、中国大陆站与端点现状：功能尚未完善
+## 七、中国大陆站与端点现状：现已开放
 
-以下是 **2026 年 10 月 22 日的大陆站实测情况**。大陆账号登录后可以直达 [Personal API Key 页面](https://connect.garmin.cn/app/settings/personalApiToken)，也能创建 Key 并保留记录；<span style="color: #b42318; font-weight: 600;">页面文案尚未完善，令牌交换返回 HTTP 526，暂时无法读取数据</span>。
+截至 **2026 年 11 月 2 日**，大陆 Personal API 已开放。大陆账号可从 [Personal API Key 页面](https://connect.garmin.cn/app/settings/personalApiToken)创建 Key；在插件中选择“中国区”，会固定请求 `personal.connectapi.garmin.cn`，不会回退到国际端点。以下截图和 HTTP 526 结果记录的是 **2026 年 10 月 22 日的旧状态**。
 
 ### 1. 密钥页面能打开，部分文案仍是键名
 
@@ -194,17 +204,17 @@ npm install @likenttt/connect-personal-api-ts@0.1.0
 
 *图 8：大陆申请条款的标题和正文仍是占位符，页面文案尚未完善。*
 
-### 3. Key 创建记录保留，数据接口仍未跑通
+### 3. 旧测试记录与当前使用方式
 
-本次创建了 **30 天有效期的大陆 Key**，刷新后仍能看到记录，但日期标签未正常呈现。<span style="color: #b42318; font-weight: 600;">密钥记录已保留，数据读取仍未跑通。</span>
+2026 年 10 月 22 日创建的 **30 天有效期大陆 Key** 在刷新后仍能看到记录，但当时日期标签未正常呈现。
 
 ![大陆 Key 创建后刷新仍显示记录](../assets/personal-api-guide/06-key-list.png)
 
 *图 9：大陆 Key 创建后刷新仍有记录，日期标签未正常显示；对应令牌交换返回 HTTP 526。*
 
-随后使用**大陆 Key 请求对应 `personal.connectapi.garmin.cn`**，换取令牌返回 <span style="color: #b42318; font-weight: 600;">HTTP 526／<code>TOKEN_EXCHANGE_FAILED</code></span>，<span style="color: #b42318; font-weight: 600;">大陆 Personal API 暂时无法读取健康数据</span>。完整过程见 [端点实测报告](../research/personal-api-endpoint-test-report-2026-10-22.md)。
+当时使用**大陆 Key 请求对应 `personal.connectapi.garmin.cn`**，换取令牌返回 HTTP 526／`TOKEN_EXCHANGE_FAILED`。这是旧状态，完整过程仍保留在[端点实测报告](../research/personal-api-endpoint-test-report-2026-10-22.md)中。
 
-国际用国际 Key，大陆用大陆 Key，分开保存、不跨区回退。MCP 保留 `GARMIN_REGION=cn` 配置；已经保存的大陆 Personal 账号会保留区域并显示暂不可访问提示。新建 Harness Personal 账号默认国际版，不能把大陆 Key 当国际 Key 填入。
+现在新建 Harness Personal 账号时可直接选择中国区；独立 MCP 使用 `GARMIN_REGION=cn`。国际用国际 Key，大陆用大陆 Key，分开保存、不跨区回退。已有 Personal 账号切换地区时必须填写新地区生成的 Key。
 
 ## 八、连接后，用这个插件问两句
 

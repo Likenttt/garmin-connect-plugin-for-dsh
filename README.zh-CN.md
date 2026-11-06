@@ -72,17 +72,19 @@
 
 ### 注册的工具
 
-**0.1.20 为 Connect 网页会话账号提供 29 个工具**，其中 24 个用于读取数据或本地知识查询；
+**0.1.21 在 Harness 中注册 30 个工具**（包括 `list_garmin_accounts`），**共享工作区 MCP 注册 31 个工具**（另含 `open_garmin_workspace`）；实际可用操作由所选账号的接入方式决定。
+旧版单账号 Connect MCP 保留 **29 个工具**，其中 24 个用于读取数据或本地知识查询；
 `download_garmin_activity_fit` 会在 MCP/dsh 所在主机写入一个本地文件。
 创建课表、安排日期、删除课表和取消日历排期会在用户显式确认后修改 Garmin 数据。
-仅配置 Personal 的 DSH 连接和 Personal MCP 服务提供 **15 个兼容工具**，覆盖
-Garmin 数据读取、FIT 本地下载和本地训练知识查询。DSH 混合配置两种账号时保留
-工具合集，并按所选账号的能力执行调用。
+旧版单账号 Personal MCP 提供 **15 个兼容工具**，覆盖 Garmin 数据读取、FIT 本地下载
+和本地训练知识查询。Harness 与共享工作区 MCP 保留稳定工具目录，并按所选账号的能力执行调用。
 0.1.14 引入的下方 13 个恢复与训练工具通过精确 npm 别名依赖已发布的维护版
 SDK，详见[自行维护的 SDK 依赖](#自行维护的-sdk-依赖)。
 
 | 工具名 | 用途 | 参数示例 |
 |---|---|---|
+| `list_garmin_accounts` | 按账号备注查找稳定账号 ID；Harness 与共享工作区 MCP 可用 | `{"limit": 20}` |
+| `open_garmin_workspace` | 获取本机管理页的一次性链接；仅共享工作区 MCP 提供 | `{}` |
 | `get_garmin_activities` | 获取近期运动记录，默认返回完整详情；可选 `compact` 精简模式 | `{"limit": 5}` |
 | `get_garmin_sleep` | 获取指定日期或日期范围的睡眠评分、时长与阶段分布 | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
 | `get_garmin_steps` | 获取指定日期或日期范围的步数；仅当 Garmin 上游提供时才包含目标与步行距离 | `{"startDate": "2023-10-01"}` |
@@ -141,11 +143,12 @@ Harness 桌面对话中完成本地候选版的 4 次新工具调用。国际账
 真实的 `YYYY-MM-DD` 日历日期。输出保留服务端原始响应字段、设备映射、未知字段与完整
 时序；`null` 或空数组属于正常的无数据结果，不会被当作认证失败。
 
-Harness 配置多个账号时，访问账号数据的工具调用需添加 `account` 参数，值为设置页
-显示的稳定账号 ID；只有一个账号时可省略。显示别名帮助识别账号，区域决定 Garmin
+Harness 配置多个账号时，先用 `list_garmin_accounts` 查找稳定账号 ID，再将其作为
+访问账号数据时的 `account` 参数；只有一个账号时可省略。账号备注帮助识别账号，区域决定 Garmin
 服务，两者都不会替代账号 ID；同一区域可以配置多个账号。上述恢复工具也遵循此规则，
-例如 `{"account":"personal","date":"2026-10-15"}`。独立 MCP 使用该进程配置的账号，
-通过选择对应的 MCP 服务器区分账号，不接收工具级 `account` 参数。
+例如 `{"account":"personal","date":"2026-10-15"}`。共享工作区 MCP 模式使用
+`list_garmin_accounts` 返回的 `accountId` 选择账号。旧版独立 MCP 使用该进程配置的
+账号，通过选择对应的 MCP 服务器区分账号，不接收工具级账号选择参数。
 
 创建训练采用两次调用流程。首次调用只返回预览和一次性
 `confirmationId`；用户确认未更改的预览后，再使用相同训练定义、
@@ -237,6 +240,25 @@ Garmin 活动；它只建议先取得医疗专业人员许可，不自行诊断�
 
 ## 快速开始
 
+**0.1.21** 已对接 DSH `0.2.2-rc.1`，保留旧版范围，并允许未来 `0.x`
+客户端 SDK（包括 RC）通过 Host 的版本检查。旧插件声明的 `<0.2.2-0`
+会使新版 DSH 拒绝加载，需要安装包含本次修复的插件构建。
+SDK 升级不要求旧版 DSH 同步升级。未来版本按尽力兼容处理：接口发生破坏性
+变更时仍需适配；DSH `1.x`、Cordis `5.x` 和 React `19.x` 暂不放行。验证与边界见
+[兼容性记录](docs/testing/harness-compatibility-2026-11-05.md)。
+
+**0.1.21** 还提供原生 **Garmin 工作台**：打开一个会话，点击右下角入口，
+即可使用“账号、时间线、备注、我的训练”四个 Tab。动态账号目录不设固定数量上限，
+首次导入旧账号 ID 与会话；在账号页可新增、编辑、登录及归档，连接按需加载。
+备注及本人选择保存在本机 SQLite，可将备注导出 Markdown／JSON。
+**检查全部连接**可一键检查所有已配置账号，显示进度与结果，支持取消。账号列表和时间线
+可显示 Garmin 头像，缺失时保留账号备注首字；工作台采用蓝色三角形图标。
+本机验证与当前边界见[工作台记录](docs/testing/coach-panel-harness-2026-11-05.md)。
+
+同一份账号、时间线和备注也可通过按需启动的本机网页与共享工作区 MCP 访问。
+账号使用自由填写的备注来识别，不预设用途或人员关系。用法见
+[共享本机工作区](#共享本机工作区0121)。
+
 ### 1. 安装本插件 — 从 npm registry(推荐)
 
 ```bash
@@ -286,10 +308,10 @@ SDK 已以 [@likenttt/connect-personal-api-ts@0.1.0](https://www.npmjs.com/packa
 发布到官方 npm。所需 SDK 随插件提供，使用者无需额外安装。
 SDK 负责 Personal API Key 换取令牌及其支持的数据读取。
 
-在 Harness 插件设置中，点击 **+**，选择**官方 Personal API（国际版，只读）**
-接入方式，填写别名和 API Key，保存后点击**验证连接**。不要求邮箱或 Garmin 密码；
-**新建 Personal 账号只需别名和 API Key 两项，默认连接国际版 `.com`**，不要求填写
-邮箱、密码或地区。已有大陆 Personal 账号保留 `cn` 配置，并显示当前不可访问提示。
+在 **Garmin 工作台 → 账号 → 添加账号** 中，选择 **Personal API**
+接入方式，选择中国区或国际区，填写账号备注和对应区域生成的 API Key，保存后点击**检查连接**。
+不要求邮箱或 Garmin 密码。请明确选择国际区 `.com` 或中国区 `.cn`；已有 Personal
+账号切换区域时必须同时填写新区域生成的 Key，原 Key 不会跨区使用。
 保存后的 Key 不会回填到设置表单，也不返回给 AI 工具。
 [真实 Harness 桌面截图](docs/assets/personal-api-guide/global-06-harness-connected.png)和
 [桌面验收报告](docs/testing/personal-api-harness-desktop-2026-10-22.md)记录了候选版的
@@ -302,7 +324,7 @@ SDK 负责 Personal API Key 换取令牌及其支持的数据读取。
   "mcpServers": {
     "garmin-personal": {
       "command": "npx",
-      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.20", "garmin-connect-mcp"],
+      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.21", "garmin-connect-mcp"],
       "env": {
         "GARMIN_PROVIDER": "personal",
         "GARMIN_ACCOUNT": "my-garmin",
@@ -331,16 +353,24 @@ Personal 支持其公开范围内的**读取**，包括 HRV、血氧；呼吸读
 [图文申请指南与实测结果](docs/guides/garmin-personal-api-guide.zh-CN.md)及
 [官方申请说明](https://developer.garmin.com/gc-developer-program/personal/personal-api/)。
 
-**2026-10-22 区域验证：**国际账号新建的独立 Key 请求 `.com`，令牌交换、8 项 SDK
-读取和 5 项真实 MCP 工具读取通过；大陆 Key 请求 `.cn` 返回 HTTP 526，
-**大陆 Personal 端点当前不可用**。两区凭据分开保存与使用，没有跨区回退。详见
-[端点测试报告](docs/research/personal-api-endpoint-test-report-2026-10-22.md)。
+**2026-11-02 状态更新：**大陆 Personal API 已开放，插件设置页现已允许新建和验证中国区
+Personal 账号，固定请求 `personal.connectapi.garmin.cn`。2026-10-22 的 HTTP 526 结果仅是
+当时的历史实测记录，仍保留在[端点测试报告](docs/research/personal-api-endpoint-test-report-2026-10-22.md)
+中。两区凭据始终分开保存和使用，不跨区回退。
 
 维护 SDK 时，先提交独立仓库，再运行
 `npm run sync:personal-sdk -- /absolute/path/to/connect-personal-api-ts`。
 插件内的源码快照会记录来源提交、文件哈希与版权声明。
 
 #### 浏览器 Connect 配置
+
+**0.1.21** 请使用 **Garmin 工作台 → 账号 → 添加账号**，可选择**保存账号**或
+**保存并登录**。动态目录取代固定槽位并保留导入的会话，旧设置页会引导到工作台管理。
+账号使用自由填写的备注识别，邮箱框提示“请输入这个账号的邮箱”，不设固定数量上限。
+
+##### 旧版设置（0.1.20 及更早版本）
+
+下面的五槽位操作说明仅对应 `0.1.20` 及更早版本。
 
 Harness 插件安装和启动时可以不填 Garmin 邮箱。在本机 Harness 的**插件**页面打开
 **dsh-plugin-garmin-connect**，找到**Garmin 账号配置**，点击 **+** 逐个添加账号，
@@ -352,7 +382,9 @@ Harness 插件安装和启动时可以不填 Garmin 邮箱。在本机 Harness �
 稳定账号 ID；配置多个账号时，
 工具调用需指定该 ID 作为 `account` 参数，以免读取或写入错误的账号。
 
-CLI、MCP 或无界面运行时可以通过环境变量（或启动器提供的密钥存储）配置账号，
+##### 旧版环境变量配置
+
+旧版单账号 CLI、MCP 或无界面模式可以通过环境变量（或启动器提供的密钥存储）配置账号，
 请确保 `.env` 不进入版本控制。本机 Web MFA 流程会在用户确认 profile 后，由
 Host 原子保存仅所有者可访问的 DI session 文件，但绝不会保存密码、MFA 验证码或
 CAPTCHA 答案。
@@ -400,6 +432,10 @@ cp .env.example .env
 
 #### 两步验证——浏览器 MFA
 
+![浏览器 MFA 登录流程：密码与验证码直接交给 Garmin](docs/assets/garmin-login-flow-no-password.svg)
+
+此图展示浏览器 MFA 流程：密码与验证码只输入 Garmin 官方页面，插件仅在用户确认账号后将会话保存到本机。
+
 当 dsh 与它的 Web UI 运行在同一台本机时，先在插件的**Garmin 账号配置**中保存
 对应区域和邮箱，再在设置页点击该账号的**登录**。每个账号分别使用自己的登录流程和
 会话。Harness 内嵌页面会打开随机 `127.0.0.1` 端口上的自定义桥页；Garmin 官方
@@ -432,6 +468,15 @@ MFA 验证码或 CAPTCHA 答案。
 已登录；状态接口也不会返回 ticket 或 token。登录对话框只在用户点击该账号的设置页
 登录操作时打开。缺失或过期的 session 不会自动弹窗。
 
+如果本机 WebView 中的 Garmin 页面空白或被策略拦截，可在登录对话框中明确点击
+**兼容浏览器（CDP）**。插件会先取消当前嵌入式 flow，再用临时隔离 profile 启动一个
+由插件独占的 Chromium 兼容浏览器进程（优先 Chrome 或 Edge），并在其中打开同一张
+一次性 loopback 桥页。它不会
+连接用户日常浏览器的 profile、复制浏览器 Cookie，也不会绕过既有的 ticket → DI 换票、
+profile 确认和安全落盘检查。该后备路径绝不会自动触发；关闭兼容浏览器会取消本次 flow，
+检测到终态时会清理自己启动的浏览器与临时 profile；即使 DSH 页面消失，也会最迟在该
+一次性 flow 过期时兜底回收。
+
 打开对话框前需在对应账号卡片中保存邮箱。该 Web 流程可不设置
 `GARMIN_SESSION_TOKEN_FILE`：Host 会为每个账号使用各自独立、仅所有者可访问的
 session 文件，迁移后的旧账号沿用原路径。用户确认并成功落盘后，当前插件会清除之前
@@ -444,6 +489,10 @@ session 文件，迁移后的旧账号沿用原路径。用户确认并成功落
 owner-only session 落盘。这并不把同机
 流程扩展成远程或无限期 session 恢复保证。登录、MFA 与 profile 确认必须在桥页的
 10 分钟有效期内完成。
+
+排查 dsh 内的登录问题时，可在 Garmin 设置页底部开启“认证诊断日志（脱敏）”。Host
+日志会按顺序记录固定阶段和错误码；默认关闭，并且不会记录邮箱、密码、验证码、ticket、
+token、Cookie、完整路径或底层异常文本。
 
 完整的信任边界与数据流见[两步验证登录目标架构](#两步验证登录目标架构)。
 
@@ -462,6 +511,10 @@ garmin-connect-auth serve --account personal-cn --region cn --open
 npm run auth:serve -- --account personal --region global
 npm run auth:serve -- --account personal-cn --region cn
 ```
+
+本机登录失败时可追加 `--verbose`。它只输出结构化、脱敏的生命周期事件，例如目标目录
+预检、loopback 启动、DI 换票、profile 探测和 session 保存；不会输出账号、密码、MFA
+验证码、service ticket、token 或完整 session 路径。
 
 `serve` 会在随机 `127.0.0.1` 端口启动一次性桥页，并用系统默认浏览器打开。它不会创建
 或管理隔离的 Chrome/Playwright profile；操作系统可能复用已经运行的默认浏览器，也可能
@@ -537,9 +590,10 @@ DACL 原子创建；已有但不精确的层级和任何重解析点都会被拒
 会在写入凭据字节前应用同样严格的文件 DACL，读取 session 时还会重新验证整条目录链和
 文件 ACL。早期实现中仅靠标记的目录不再可信；请迁移到全新的专用子目录树。
 
-#### 多账号：每个账号使用独立进程
+#### 旧模式：每个账号使用独立进程
 
-当前支持的运行时模型是“每账号每进程隔离”：每个 dsh、Codex、Claude Code 或其他
+**0.1.21** 可使用[共享本机工作区](#共享本机工作区0121)，由一个本机运行时处理账号切换。
+以下是保留兼容的“每账号每进程隔离”模式：每个 dsh、Codex、Claude Code 或其他
 MCP 进程分别设置自己的 `GARMIN_USERNAME`、`GARMIN_REGION` 与 `GARMIN_ACCOUNT`（或
 显式的 `GARMIN_SESSION_TOKEN_FILE`）。每个进程都可延迟读取自己的隐式账号 session
 路径并使用正式支持的浏览器 MFA 初始化；真实中国区账号链路已完成端到端验证。
@@ -555,9 +609,8 @@ refresh token 可能轮换，否则并发写入可能互相覆盖或使凭据失
 条目时，普通 Garmin 查询默认使用该条目；有两个条目时命名为 `garmin-cn` 和
 `garmin-global`，仅在目标账号有歧义时才需要在提问中指出服务器名。
 
-这是进程隔离，不是单进程账号选择器，也不是多租户授权系统。不要把同一个 MCP
-进程共享给互不信任的用户；当前尚未实现按用户访问控制。在同一对话中切换账号和
-自动跨账号同步仍属于路线图能力。
+以上要求适用于旧模式的进程隔离。共享工作区模式会把账号选择转发给同一个本机运行时。
+两种模式都面向当前电脑用户，尚未提供给互不信任用户使用的独立访问权限。
 
 #### 下载 FIT
 
@@ -674,6 +727,7 @@ npm run test:integration
 | `.env` 已加入 `.gitignore`，不会被提交到 Git | ✅ |
 | 账号标识与凭据字段均标记为 `role('secret')` | ✅ |
 | dsh 本机 Web MFA 桥页 | ✅ 已支持；仅 loopback；真实中国区 MFA 链路已在本机通过 |
+| dsh 显式 CDP 兼容后备 | ✅ 自有 Chromium 进程、临时 profile、随机 loopback 端口；不连接日常浏览器 profile |
 | CLI `serve` 与 MCP URL elicitation | ✅ 已支持；同机共享 runtime 与 owner-only session 落盘 |
 | 旧 CLI `login --browser` / `canary` | ⚠️ 仅 Playwright 诊断，不作为认证后备 |
 | DI v2 session 绑定 username、region 与 `profileIdHash`；旧两字段 session 保持兼容 | ✅ |
@@ -701,6 +755,65 @@ username、region 和 `profileIdHash`；为兼容旧版本，无绑定的 `oauth
 本插件同时提供了一个独立的 **MCP (Model Context Protocol) 服务器**，让你可以在 OpenAI Codex、Claude Code、Claude Desktop、Cursor、Windsurf、WorkBuddy、ZCode 等任何支持 MCP 的客户端中使用相同的 Garmin 工具 — **无需安装 DeepSeek Harness**。
 
 > **当前可用性：** npm `0.1.5` 及之后版本已包含独立 MCP 入口；本地源码方式仍适合开发。
+
+### 共享本机工作区（0.1.21）
+
+SQLite 工作区需使用 **Node 22.13 或更新版本**。Node 20 仍可使用原有的环境变量
+单账号 MCP 模式。
+
+需要时打开账号、时间线和备注页面：
+
+```bash
+# 无需全局安装，直接运行已发布版本：
+npx -y --package dsh-plugin-garmin-connect@0.1.21 garmin-connect-workspace open
+# 或已全局安装插件时：
+garmin-connect-workspace open
+# 本机有多个工作区时，显式选择：
+garmin-connect-workspace open --scope <scopeId> --data-directory <path>
+# 只输出本机链接，不打开系统浏览器：
+garmin-connect-workspace open --no-open
+```
+
+命令默认打开系统浏览器。所选工作区与 Harness 共用账号 ID、Garmin 会话、时间线数据
+和 SQLite 备注。添加账号时填写自由形式的账号备注，邮箱提示为“请输入这个账号的邮箱”，
+再使用对应的登录或检查连接按钮。密码与验证码在 Garmin 页面输入。备注支持导出
+Markdown／JSON，归档账号连接后仍保留本地记录。
+点击**检查全部连接**可查看所有已配置账号的检查进度与结果，并随时取消。
+检查连接时会读取可用的 Garmin 头像；没有头像时显示账号备注首字。账号备注不预设用途或人员关系。
+
+Harness 正在管理该工作区时，网页与 MCP 直接复用它的运行时。未运行 Harness 时，首次
+请求按需启动该工作区的一个本机服务进程，连续五分钟无活动后退出；不会为每个账号启动
+一个进程。打开账号列表不会同时登录全部账号或拉取全部时间线。只发现一个工作区时
+自动选择；存在多个时需明确指定 scope，不同 scope 的账号和备注相互隔离。
+如需复用已有 Harness 账号，请先启动一次升级后的 Harness，完成工作区登记。
+
+MCP 可使用以下启动配置：
+
+```json
+{
+  "mcpServers": {
+    "garmin": {
+      "command": "garmin-connect-mcp",
+      "args": ["--workspace"]
+    }
+  }
+}
+```
+
+使用源码时，将 command 改成 `node`，args 改为
+`["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js", "--workspace"]`。
+需要指定工作区时，在 `--workspace` 后追加 scope ID；可选的
+`--data-directory <path>` 用于选择存储目录。该模式不需要旧的 `GARMIN_USERNAME`
+或密码环境变量。
+
+共享连接提供 31 个工具：原有 29 个 Garmin 工具，以及 `list_garmin_accounts` 和
+`open_garmin_workspace`。先列出账号，再将稳定的 `accountId` 传给数据工具，例如
+`{"accountId":"legacy-cn","limit":5}`。多个账号时省略该参数会提示选择，不会默认
+读取某一个账号。账号列表工具不返回邮箱或凭据。`open_garmin_workspace` 只返回一条
+短期有效、仅可使用一次的本机访问链接，由用户点击打开，不会自动启动浏览器；链接
+过期后重新获取即可。MCP 初始化与发现工具不会启动本机运行时。
+
+### 旧版单账号 MCP 配置
 
 **0.1.17 新增：连接时的 Agent 执行说明。** MCP 初始化会下发 `instructions`，指导
 Agent 检查实际工具 schema、在首次读取账号数据或账号变化时确认资料、使用明确日期，
@@ -1009,12 +1122,13 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-使用 Connect 网页会话账号时，MCP 服务器通过标准协议暴露与 dsh 插件
-**相同的 29 个工具及日期语义**（0.1.20）：
+使用 Connect 网页会话账号时，旧版单账号 MCP 保留
+**29 个工具及相同的数据和日期语义**：
 原有 10 个工具、4 个课表管理工具、前述 13 个恢复与训练工具，以及
 2 个血氧与呼吸单日读取工具。Personal MCP 提供前述 **15 个兼容工具**，配置方式见
-[官方 Personal API](#官方-personal-api0119-新增)。独立 MCP 每个进程使用配置的账号，
-DSH 则支持工具级 `account` 选择。任何 AI 可调用工具都不接收密码/MFA，也不导出 Session Token；浏览器认证
+[官方 Personal API](#官方-personal-api0119-新增)。旧版独立 MCP 每个进程使用配置的账号，
+Harness 注册 30 个工具并支持工具级 `account` 选择，共享工作区 MCP 注册 31 个工具并使用
+`accountId`。任何 AI 可调用工具都不接收密码/MFA，也不导出 Session Token；浏览器认证
 通过对话之外的本机 URL elicitation 完成，完成后由用户重试原工具。
 
 ---
@@ -1251,6 +1365,7 @@ src/
 ├── auth.ts           # 私有 SSO 认证流程与本地 MFA 回调
 ├── auth-cli.ts       # 可信本地 CLI：serve 与旧版诊断命令
 ├── browser-auth-canary.ts # 隔离 Chrome DI 初始化/canary 核心
+├── cdp-browser.ts    # DSH 显式后备使用的自有隔离 Chromium 生命周期
 ├── embedded-auth-runtime.ts # Web/CLI/MCP 共用 ticket-to-session runtime
 ├── local-auth-broker.ts # 一次性 loopback/系统浏览器 broker
 ├── di-session.ts     # DI 运行时校验、刷新与安全 GET 重放
@@ -1267,7 +1382,7 @@ src/
 │   ├── running-skills.ts  # 8 种课型 + 4 套精简训练理念
 │   └── workout-schema.ts  # 训练定义 → Garmin JSON 构建器
 ├── tools/
-│   └── index.ts      # 工具定义与注册（29 个工具）
+│   └── index.ts      # 工具定义与注册（动态 Harness 注册 30 个）
 └── utils/
     ├── errors.ts      # 安全错误输出与上游日志脱敏
     ├── cache.ts       # 内存 TTL/LRU 缓存与 single-flight 刷新
@@ -1330,7 +1445,7 @@ npx @deepseek-ai/dsh plugin --profile web add dsh-plugin-garmin-connect
   - [ ] 增加显式开启的单向轮询同步；dsh 运行时定期检查，重启后补查
   - [ ] 首版不做双向同步、自动删除或 Garmin 全量元数据镜像
 - [ ] **Webhook 推送** — 活动上传实时通知
-- [x] **官方 Personal API（0.1.19）** — DSH 与 MCP 支持 API Key／token 接入、别名与 Key 两项设置，以及 15 个兼容的读取／本地工具
+- [x] **官方 Personal API（0.1.19）** — DSH 与 MCP 支持 API Key／token 接入、地区／别名／Key 设置，以及 15 个兼容的读取／本地工具
 
 ---
 

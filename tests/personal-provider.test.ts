@@ -25,6 +25,44 @@ function fixture() {
 }
 
 describe('Personal API provider integration', () => {
+  it('checks the live connection even when profile data has been cached', async () => {
+    const { sdk, client } = fixture()
+    await client.getUserProfile()
+    const before = sdk.getUserProfileSettings.mock.calls.length
+    await expect(client.verifyConnection()).resolves.toEqual({ displayName: 'test' })
+    expect(sdk.getUserProfileSettings).toHaveBeenCalledTimes(before + 1)
+  })
+
+  it.each([
+    ['cn', 'https://personal.connectapi.garmin.cn'],
+    ['global', 'https://personal.connectapi.garmin.com'],
+  ] as const)('routes %s token and data requests only to its regional host', async (region, origin) => {
+    const token = `e30.${Buffer.from(JSON.stringify({ exp: 4_102_444_800 })).toString('base64url')}.signature`
+    const fetch = jest.fn<Promise<Response>, Parameters<typeof globalThis.fetch>>()
+      .mockResolvedValueOnce(new Response(token, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ displayName: 'test' }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      }))
+    const client = new GarminPersonalApiClient({ apiKey: 'region-key', region, fetch })
+
+    await expect(client.getUserProfileSettings()).resolves.toEqual({ displayName: 'test' })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch.mock.calls.map(([url]) => new URL(String(url)).origin)).toEqual([origin, origin])
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(`${origin}/personalapitoken-service/personal-api/personal-api-key/token`)
+    expect(String(fetch.mock.calls[1]?.[0])).toBe(`${origin}/userprofile-service/userprofile/settings`)
+  })
+
+  it('does not retry a failed China token exchange against the global endpoint', async () => {
+    const fetch = jest.fn<Promise<Response>, Parameters<typeof globalThis.fetch>>()
+      .mockResolvedValue(new Response('', { status: 526 }))
+    const client = new GarminPersonalApiClient({ apiKey: 'cn-key', region: 'cn', fetch })
+
+    await expect(client.getUserProfileSettings()).rejects.toMatchObject({ status: 526 })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(String(fetch.mock.calls[0]?.[0])).toMatch(/^https:\/\/personal\.connectapi\.garmin\.cn\//)
+    expect(String(fetch.mock.calls[0]?.[0])).not.toContain('garmin.com')
+  })
+
   it('connects without an email and keeps the browser identity unset', async () => {
     const { client } = fixture()
     await client.connect()
@@ -96,9 +134,11 @@ describe('Personal API provider integration', () => {
     await Promise.all([server.connect(serverTransport), peer.connect(clientTransport)])
     try {
       const result = await peer.listTools()
+      expect(PERSONAL_TOOL_NAMES.size).toBe(15)
       expect(result.tools.map(tool => tool.name).sort()).toEqual([...PERSONAL_TOOL_NAMES].sort())
-      expect(result.tools.map(tool => tool.name)).not.toContain('create_garmin_workout')
-      expect(result.tools.map(tool => tool.name)).not.toContain('schedule_garmin_workout')
+      for (const name of ['create_garmin_workout', 'schedule_garmin_workout', 'delete_garmin_workout', 'unschedule_garmin_workout']) {
+        expect(result.tools.map(tool => tool.name)).not.toContain(name)
+      }
       const schedule = await peer.callTool({
         name: 'schedule_garmin_workout', arguments: { workoutId: '42', date: '2026-10-23' },
       })
@@ -112,9 +152,11 @@ describe('Personal API provider integration', () => {
     registerTools({ logger: { info: jest.fn() }, tools: { register: (value: { name: string }) => definitions.push(value.name) } } as any, [{
       accountId: 'personal-test', slot: 1, region: 'cn', configured: true, config, client: fixture().client,
     }])
+    expect(definitions).toHaveLength(15)
     expect(definitions.sort()).toEqual([...PERSONAL_TOOL_NAMES].sort())
-    expect(definitions).not.toContain('create_garmin_workout')
-    expect(definitions).not.toContain('schedule_garmin_workout')
+    for (const name of ['create_garmin_workout', 'schedule_garmin_workout', 'delete_garmin_workout', 'unschedule_garmin_workout']) {
+      expect(definitions).not.toContain(name)
+    }
   })
 
   it('uses the DSH account alias with its stable ID in Personal profile output', async () => {

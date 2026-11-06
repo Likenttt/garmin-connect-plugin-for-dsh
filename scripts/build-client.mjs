@@ -31,3 +31,16 @@ await build({
     js: 'return module.exports; } });',
   },
 })
+
+await build({
+  entryPoints: ['src/client/workspace.tsx'],
+  outfile: 'lib/workspace.js',
+  bundle: true,
+  format: 'iife',
+  platform: 'browser',
+  target: ['es2022'],
+  jsx: 'automatic',
+  minify: true,
+  legalComments: 'none',
+  define: { 'process.env.NODE_ENV': JSON.stringify('production') },
+})

@@ -132,6 +132,39 @@ function createDiSession(
 }
 
 describe('GarminClient', () => {
+  it('returns the already verified live profile without requesting it again', async () => {
+    const client = new GarminClient(createContext(), { ...baseConfig, cacheTtl: 300 })
+    const sdk = latestGarmin()
+    const profile = { profileId: 123456789, profileImageUrlMedium: 'https://s3.amazonaws.com/garmin-connect-prod/profile_images/test.png' }
+    sdk.getUserProfile.mockResolvedValue(profile)
+    await expect(client.verifyConnection()).resolves.toBe(profile)
+    expect(sdk.getUserProfile).toHaveBeenCalledTimes(1)
+    expect(client.getAuthenticatedAccount()).toEqual({ email: baseConfig.username, region: baseConfig.region })
+  })
+
+  it('verifies a live connection rather than reusing the cached profile', async () => {
+    const client = new GarminClient(createContext(), { ...baseConfig, cacheTtl: 300 })
+    const sdk = latestGarmin()
+    sdk.getUserProfile.mockResolvedValue({ profileId: 123456789 })
+    await client.getUserProfile()
+    sdk.getUserProfile.mockRejectedValue(Object.assign(new Error('offline'), { status: 503 }))
+    await expect(client.verifyConnection()).rejects.toThrow('offline')
+    expect(sdk.getUserProfile).toHaveBeenCalledTimes(2)
+    await expect(client.getUserProfile()).resolves.toEqual({ profileId: 123456789 })
+  })
+
+  it('rejects a live profile that does not match the DI session binding', async () => {
+    const sessionTokenFile = await createSessionFile(JSON.stringify(createDiSession()))
+    const client = new GarminClient(createContext(), {
+      ...baseConfig, password: '', sessionTokenFile,
+    })
+    latestGarmin().getUserProfile
+      .mockResolvedValueOnce({ profileId: 123456789 })
+      .mockResolvedValueOnce({ profileId: 987654321 })
+    await client.connect()
+    await expect(client.verifyConnection()).rejects.toThrow('does not match')
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
   })

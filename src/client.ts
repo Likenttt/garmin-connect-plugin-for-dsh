@@ -1162,6 +1162,22 @@ export class GarminClient implements GarminRecoveryDataClient, GarminWorkoutMana
     return this.getCachedForCurrentAuth('profile', () => this.gc.getUserProfile())
   }
 
+  /** Check the live account without accepting a cached profile as new evidence. */
+  async verifyConnection(): Promise<unknown> {
+    const profile = await this.withRetry(() => this.withRequestTimeout(async () => {
+      const profile = await this.gc.getUserProfile()
+      if (!isRecord(profile) || typeof profile.profileId !== 'number'
+        || !Number.isSafeInteger(profile.profileId) || profile.profileId <= 0) {
+        throw new PublicToolError('Garmin did not return a valid account profile')
+      }
+      this.diRuntime?.validateProfile(profile)
+      return profile
+    }))
+    this.assertActive()
+    this.markAuthenticatedAccount()
+    return profile
+  }
+
   /** Export a session token so it can be stored securely for future logins. */
   async exportSession(): Promise<string> {
     await this.ensureConnected()

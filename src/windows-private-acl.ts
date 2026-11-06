@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { win32 } from 'node:path'
+import type { AuthDiagnosticCode } from './auth-diagnostics'
 import { PublicToolError } from './utils/errors'
 
 // Windows PowerShell 5.1 can spend tens of seconds on its first launch on a
@@ -13,6 +14,20 @@ type WindowsAclOperation =
   | 'prepare-directory'
   | 'secure-file'
   | 'verify-file'
+
+type WindowsAclDiagnosticCode = Extract<AuthDiagnosticCode,
+  | 'windows_system_root_invalid'
+  | 'windows_target_invalid'
+  | 'windows_powershell_unavailable'
+  | 'windows_acl_timeout'
+  | 'windows_acl_rejected'
+>
+
+class WindowsPrivateAclError extends PublicToolError {
+  constructor(readonly authDiagnosticCode: WindowsAclDiagnosticCode) {
+    super(WINDOWS_ACL_ERROR)
+  }
+}
 
 export interface WindowsAclCommandOptions {
   encoding: 'utf8'
@@ -268,10 +283,11 @@ export async function createWindowsPrivateAcl(
           Buffer.byteLength(result.stdout, 'utf8') > WINDOWS_COMMAND_MAX_BUFFER_BYTES
           || Buffer.byteLength(result.stderr, 'utf8') > WINDOWS_COMMAND_MAX_BUFFER_BYTES
         ) {
-          throw windowsAclError()
+          throw windowsAclError('windows_acl_rejected')
         }
-      } catch {
-        throw windowsAclError()
+      } catch (error) {
+        if (error instanceof WindowsPrivateAclError) throw error
+        throw windowsAclError(windowsCommandFailureCode(error))
       }
     }
 
@@ -280,8 +296,9 @@ export async function createWindowsPrivateAcl(
       secureFile: path => invoke('secure-file', path),
       verifyFile: path => invoke('verify-file', path),
     }
-  } catch {
-    throw windowsAclError()
+  } catch (error) {
+    if (error instanceof WindowsPrivateAclError) throw error
+    throw windowsAclError('windows_acl_rejected')
   }
 }
 
@@ -314,7 +331,7 @@ function validatedSystemRoot(value: string | undefined): string {
     || /[\0\r\n]/.test(value)
     || value.split(/[\\/]/).some(part => part === '.' || part === '..')
   ) {
-    throw windowsAclError()
+    throw windowsAclError('windows_system_root_invalid')
   }
   return win32.normalize(value)
 }
@@ -325,10 +342,10 @@ function validatedWindowsTarget(value: string): string {
     || /[\0\r\n]/.test(value)
     || Buffer.byteLength(value, 'utf16le') > 32_000
   ) {
-    throw windowsAclError()
+    throw windowsAclError('windows_target_invalid')
   }
   const normalized = win32.normalize(value)
-  if (normalized !== value) throw windowsAclError()
+  if (normalized !== value) throw windowsAclError('windows_target_invalid')
   return normalized
 }
 
@@ -346,6 +363,28 @@ const runWindowsCommand: WindowsAclCommandRunner = (
   })
 })
 
-function windowsAclError(): PublicToolError {
-  return new PublicToolError(WINDOWS_ACL_ERROR)
+function windowsAclError(code: WindowsAclDiagnosticCode): PublicToolError {
+  return new WindowsPrivateAclError(code)
+}
+
+function windowsCommandFailureCode(error: unknown): WindowsAclDiagnosticCode {
+  try {
+    if (typeof error !== 'object' || error === null) return 'windows_acl_rejected'
+    const candidate = error as {
+      code?: unknown
+      killed?: unknown
+      signal?: unknown
+    }
+    if (candidate.code === 'ENOENT') return 'windows_powershell_unavailable'
+    if (
+      candidate.code === 'ETIMEDOUT'
+      || candidate.killed === true
+      || candidate.signal === 'SIGTERM'
+    ) {
+      return 'windows_acl_timeout'
+    }
+  } catch {
+    // Only fixed codes cross this boundary.
+  }
+  return 'windows_acl_rejected'
 }

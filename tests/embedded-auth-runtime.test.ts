@@ -73,6 +73,38 @@ async function waitForBridgeState(
 }
 
 describe('embedded authentication runtime', () => {
+  it('wires an explicit CDP launch to the same trusted loopback bridge', async () => {
+    const closeBrowser = jest.fn().mockResolvedValue(undefined)
+    const cdpBrowser = {
+      open: jest.fn().mockResolvedValue({
+        closed: new Promise<void>(() => undefined),
+        close: closeBrowser,
+      }),
+    }
+    const controller = createEmbeddedAuthController({
+      username: 'runner@example.test',
+      region: 'cn',
+      sessionTokenFile: '/private/account/session.json',
+    }, {
+      cdpBrowser,
+      prepareDestination: jest.fn().mockResolvedValue(undefined),
+    })
+
+    try {
+      const begun = await controller.beginCdp(undefined, 'cn')
+      expect(begun).toEqual(expect.objectContaining({ success: true }))
+      if (!begun.success) throw new Error('expected authentication flow')
+      expect(cdpBrowser.open).toHaveBeenCalledWith(begun.bridgeUrl, undefined)
+      expect(new URL(begun.bridgeUrl).hostname).toBe('127.0.0.1')
+
+      expect(controller.cancel({ flowId: begun.flowId })).toEqual({ success: true })
+      await Promise.resolve()
+      expect(closeBrowser).toHaveBeenCalledTimes(1)
+    } finally {
+      await controller.close()
+    }
+  })
+
   it('builds the shared loopback controller and commits through replaceSession', async () => {
     const httpRequest = jest.fn()
       .mockResolvedValueOnce({
@@ -102,6 +134,7 @@ describe('embedded authentication runtime', () => {
       await commit()
     })
     const prepareDestination = jest.fn().mockResolvedValue(undefined)
+    const diagnostics = jest.fn()
     const controller = createEmbeddedAuthController({
       username: 'runner@example.test',
       region: 'cn',
@@ -111,6 +144,7 @@ describe('embedded authentication runtime', () => {
       writeSession,
       replaceSession,
       prepareDestination,
+      diagnostics,
     })
 
     try {
@@ -158,6 +192,28 @@ describe('embedded authentication runtime', () => {
       expect(httpPort.request).toHaveBeenCalledTimes(2)
       const exchangeBody = new URLSearchParams(httpRequest.mock.calls[0][0].body)
       expect(exchangeBody.get('service_url')).toBe(origin)
+      expect(diagnostics.mock.calls.map(([event]) => event)).toEqual([
+        'begin_started',
+        'session_destination_prepare_started',
+        'session_destination_prepare_succeeded',
+        'loopback_server_start_started',
+        'loopback_server_start_succeeded',
+        'auth_flow_start_started',
+        'auth_flow_start_succeeded',
+        'ticket_captured',
+        'di_exchange_started',
+        'di_exchange_succeeded',
+        'profile_probe_started',
+        'profile_probe_succeeded',
+        'identity_confirmation_started',
+        'identity_confirmation_accepted',
+        'session_persist_started',
+        'session_persist_succeeded',
+        'auth_flow_succeeded',
+      ])
+      expect(JSON.stringify(diagnostics.mock.calls)).not.toMatch(
+        /runner@example|private\/account|di-access|di-refresh|st-runtime/i,
+      )
     } finally {
       await controller.close()
     }

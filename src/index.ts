@@ -3,6 +3,10 @@ import { Config, type PluginConfig, resolveAccountConfigs, resolveConfig } from 
 import { createGarminClient } from './client-factory'
 import { registerEmbeddedAuthRpcAccounts } from './embedded-auth-rpc'
 import { registerTools } from './tools'
+import { createHash } from 'node:crypto'
+import { registerCoachPanel } from './coach-panel'
+import { createAccountRegistry } from './account-registry'
+import { registerHarnessWorkspace } from './workspace-harness'
 
 export const name = 'garmin-connect'
 export { Config, resolveConfig }
@@ -15,10 +19,8 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export function apply(ctx: Context, config: Config | PluginConfig) {
-  const accounts = resolveAccountConfigs(config).map(account => {
-    const client = createGarminClient(ctx, account.config, { allowUnconfigured: true })
-    return { ...account, client }
-  })
+  const legacySeeds = resolveAccountConfigs(config)
+  const baseConfig = resolveConfig(config)
 
   // Loader commits volatile fields without remounting the plugin. Rebuild the
   // client, tools, and auth controller together from the newly committed refs.
@@ -31,6 +33,7 @@ export function apply(ctx: Context, config: Config | PluginConfig) {
         'cnUsername', 'cnAlias', 'cnConfigured',
         'globalUsername', 'globalAlias', 'globalConfigured',
         'accounts', 'accountsConfigured',
+        'authVerbose',
         'account1Username', 'account2Username', 'account3Username',
         'account4Username', 'account5Username',
         'account1UsernameId', 'account2UsernameId', 'account3UsernameId',
@@ -52,24 +55,32 @@ export function apply(ctx: Context, config: Config | PluginConfig) {
     })
   })
 
-  // Kick off the Garmin login in the background. Tool calls auto-connect on
-  // first use, so a slow or temporarily failing login never blocks plugin
-  // activation (dsh's Cordis fork has no 'ready' lifecycle event).
-  const activeAccounts = accounts.map(account => ({
-    ...account,
-    initialConnection: account.configured
-      ? account.client.connect().catch(() => undefined)
-      : Promise.resolve(),
-  }))
-
-  // Register all AI-callable tools
-  registerTools(ctx, activeAccounts)
-
-  // Compatible DSH hosts gain an optional loopback-only browser sign-in UI.
-  // The Garmin ticket and resulting session never cross into the web client.
-  registerEmbeddedAuthRpcAccounts(ctx, activeAccounts)
-
-  ctx.effect(() => () => {
-    for (const { client } of accounts) client.deactivate()
-  }, 'garmin-connect: client lifecycle')
+  // Scope local coaching records to the Host configuration, independently of
+  // account additions/removals or the transient plugin fiber instance.
+  ctx.inject(['loader'], scopeCtx => {
+    const loader = (scopeCtx as unknown as {
+      loader?: { config?: { baseUrl?: string | URL } }
+    }).loader
+    // Desktop may set baseUrl on the loading context before constructing the
+    // Loader, leaving its optional config.baseUrl unset.
+    const baseUrl = loader?.config?.baseUrl
+      ?? (scopeCtx as unknown as { baseUrl?: string | URL }).baseUrl
+    const scopeId = baseUrl
+      ? createHash('sha256').update(String(baseUrl)).digest('hex')
+      : undefined
+    if (scopeId) {
+      registerHarnessWorkspace(scopeCtx, { scopeId, legacySeeds, baseConfig })
+      return
+    }
+    const accounts = createAccountRegistry({
+      legacySeeds, baseConfig, scopeId,
+      createClient: accountConfig => createGarminClient(scopeCtx, accountConfig, { allowUnconfigured: true }),
+    })
+    // Every consumer waits for catalog readiness and selects a current account.
+    // Neither registration nor a local member list constructs/logs in SDK clients.
+    registerTools(scopeCtx, accounts)
+    registerEmbeddedAuthRpcAccounts(scopeCtx, accounts)
+    registerCoachPanel(scopeCtx, accounts, { scopeId })
+    scopeCtx.effect(() => () => accounts.close(), 'garmin-connect: account registry')
+  })
 }

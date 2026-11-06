@@ -154,6 +154,24 @@ describe('Config environment defaults', () => {
     expect(Config({ activityDetail: 'compact' }).activityDetail).toBe('compact')
   })
 
+  it('keeps redacted authentication diagnostics opt-in and editable by Harness', () => {
+    const { Config, resolveConfig } = require('../src/config') as typeof import('../src/config')
+
+    const defaults = Config({})
+    const enabled = Config({ authVerbose: true })
+    expect(defaults.authVerbose).toEqual({ get: expect.any(Function) })
+    expect(resolveConfig(defaults).authVerbose).toBe(false)
+    expect(resolveConfig(enabled).authVerbose).toBe(true)
+
+    let current = true
+    const editable = { ...defaults, authVerbose: { get: () => current } }
+    expect(resolveConfig(editable).authVerbose).toBe(true)
+    current = false
+    expect(resolveConfig(editable).authVerbose).toBe(false)
+
+    expect(resolveConfig({ ...defaults, authVerbose: true }).authVerbose).toBe(true)
+  })
+
   it('accepts GARMIN_ACTIVITY_DETAIL=compact as an environment default', () => {
     process.env.GARMIN_ACTIVITY_DETAIL = 'compact'
     const { Config } = require('../src/config') as typeof import('../src/config')
@@ -473,11 +491,13 @@ describe('Config environment defaults', () => {
       account2PersonalApiKey: 'stale-key', account2PersonalApiKeyId: 'removed-account',
       account3Username: 'different@example.test', account3UsernameId: 'web-a',
     }))
-    expect(accounts[0]).toMatchObject({ configured: true, config: {
-      provider: 'personal', accountAlias: '大陆个人账号', personalApiKey: 'personal-key-a', personalApiKeyFile: '',
+    expect(accounts[0]).toMatchObject({ configured: true, region: 'cn', config: {
+      provider: 'personal', region: 'cn', accountAlias: '大陆个人账号', personalApiKey: 'personal-key-a', personalApiKeyFile: '',
       username: '', password: '', sessionToken: '', sessionTokenFile: '',
     } })
-    expect(accounts[1]).toMatchObject({ configured: false, config: { personalApiKey: '', personalApiKeyFile: '' } })
+    expect(accounts[1]).toMatchObject({ configured: false, region: 'global', config: {
+      region: 'global', personalApiKey: '', personalApiKeyFile: '',
+    } })
     expect(accounts[2]).toMatchObject({ configured: true, config: {
       provider: 'connect-web', personalApiKey: '', personalApiKeyFile: '', username: 'different@example.test',
     } })

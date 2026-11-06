@@ -5,6 +5,7 @@ import {
   parseGarminAuthVerifyRpcResult,
   type GarminAuthVerifyResult,
   type GarminAuthBeginResult,
+  type GarminAuthPublicStatus,
   type GarminAuthRegion,
 } from './protocol'
 
@@ -13,7 +14,8 @@ const LEGACY_CHANNEL = '/garmin-auth'
 const CONFIG_RETRY_MS = 500
 const CONFIG_WAIT_MS = 10_000
 
-type GarminAuthEndpoint = 'account' | 'begin' | 'status' | 'cancel' | 'verify'
+type GarminAuthBeginEndpoint = 'begin' | 'begin-cdp'
+type GarminAuthEndpoint = 'account' | GarminAuthBeginEndpoint | 'status' | 'cancel' | 'verify'
 type GarminAuthChannel = typeof API_CHANNEL | typeof LEGACY_CHANNEL
 
 interface RpcCaller {
@@ -78,18 +80,19 @@ export async function beginGarminAuthAfterConfigSave(
   rpc: RpcCaller,
   payload: { accountId: string; expectedRegion: GarminAuthRegion; expectedRevision: string },
   signal: AbortSignal,
+  endpoint: GarminAuthBeginEndpoint = 'begin',
 ): Promise<GarminAuthBeginResult> {
   const deadline = Date.now() + CONFIG_WAIT_MS
   for (;;) {
     let result: GarminAuthBeginResult
     try {
       result = parseGarminAuthBeginRpcResult(
-        await callGarminAuthRpc(rpc, 'begin', payload, signal),
+        await callGarminAuthRpc(rpc, endpoint, payload, signal),
       )
     } catch (error) {
       // During a volatile restart both Host routes can briefly be absent.
       // Never retry another transport failure: the begin may have reached Host.
-      if (signal.aborted || !isMissingBeginRoute(error)) throw error
+      if (signal.aborted || !isMissingBeginRoute(error, endpoint)) throw error
       if (Date.now() >= deadline || !await waitForConfigRetry(signal)) {
         return { success: false, code: 'stale_config' }
       }
@@ -126,9 +129,19 @@ export async function verifyGarminPersonalConnection(
   }
 }
 
-function isMissingBeginRoute(error: unknown): boolean {
-  return isMissingRoute(error, API_CHANNEL, 'begin')
-    || isMissingRoute(error, LEGACY_CHANNEL, 'begin')
+function isMissingBeginRoute(
+  error: unknown,
+  endpoint: GarminAuthBeginEndpoint,
+): boolean {
+  return isMissingRoute(error, API_CHANNEL, endpoint)
+    || isMissingRoute(error, LEGACY_CHANNEL, endpoint)
+}
+
+/** CDP is an explicit recovery action, never the default authentication path. */
+export function canOfferCdpFallback(
+  status: GarminAuthPublicStatus | undefined,
+): status is 'in_progress' | 'failed' | 'expired' {
+  return status === 'in_progress' || status === 'failed' || status === 'expired'
 }
 
 function waitForConfigRetry(signal: AbortSignal): Promise<boolean> {

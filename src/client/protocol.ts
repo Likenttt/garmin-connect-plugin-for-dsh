@@ -172,8 +172,7 @@ export function parseGarminAuthAccountsRpcResult(value: unknown): GarminAuthAcco
   if (isBusinessFailure(business)) return business
   if (!isExactRecord(business, ['success', 'accounts'])
     || business.success !== true
-    || !Array.isArray(business.accounts)
-    || business.accounts.length > 5) return unavailable()
+    || !Array.isArray(business.accounts)) return unavailable()
 
   const seenIds = new Set<string>()
   const seenSlots = new Set<number>()
@@ -507,7 +506,7 @@ function isAccountId(value: unknown): value is string {
 }
 
 function isSlot(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= 5
+  return Number.isSafeInteger(value) && (value as number) >= 1
 }
 
 function isSafeAlias(value: unknown): value is string {

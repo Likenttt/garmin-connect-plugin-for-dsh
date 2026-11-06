@@ -2,6 +2,10 @@ import { spawn as spawnChildProcess, type ChildProcess } from 'node:child_proces
 import { win32 } from 'node:path'
 import type { GarminRegion } from './config'
 import {
+  reportAuthDiagnostic,
+  type AuthDiagnosticReporter,
+} from './auth-diagnostics'
+import {
   BrowserCanaryControlError,
 } from './browser-auth-canary'
 import type {
@@ -32,6 +36,7 @@ export interface LocalAuthBrokerController {
 
 export interface LocalAuthBrokerOptions {
   controller: LocalAuthBrokerController
+  diagnostics?: AuthDiagnosticReporter
   openBrowser?: (url: string) => Promise<void>
   sleep?: (milliseconds: number, signal?: AbortSignal) => Promise<void>
   pollIntervalMs?: number
@@ -63,6 +68,7 @@ interface ActiveFlow extends LocalAuthBeginResult {
  */
 export class LocalAuthBroker {
   private readonly controller: LocalAuthBrokerController
+  private readonly diagnostics?: AuthDiagnosticReporter
   private readonly openBrowser: (url: string) => Promise<void>
   private readonly sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>
   private readonly pollIntervalMs: number
@@ -81,6 +87,7 @@ export class LocalAuthBroker {
       throw unavailableError()
     }
     this.controller = options.controller
+    this.diagnostics = options.diagnostics
     this.openBrowser = options.openBrowser ?? openLoopbackAuthInSystemBrowser
     this.sleep = options.sleep ?? abortableSleep
     this.pollIntervalMs = boundedDelay(
@@ -216,8 +223,15 @@ export class LocalAuthBroker {
     try {
       const started = await this.begin(region, signal)
       try {
+        reportAuthDiagnostic(this.diagnostics, 'system_browser_open_started')
         await this.openBrowser(started.url)
+        reportAuthDiagnostic(this.diagnostics, 'system_browser_open_succeeded')
       } catch {
+        reportAuthDiagnostic(
+          this.diagnostics,
+          'system_browser_open_failed',
+          'browser_launch_failed',
+        )
         this.cancelActive()
         throw new PublicToolError('The system browser could not be opened')
       }

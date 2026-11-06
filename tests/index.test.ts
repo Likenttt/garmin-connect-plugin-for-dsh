@@ -1,5 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Config } from '../src/config'
+import { createHash } from 'node:crypto'
 
 const mockConnect = jest.fn().mockRejectedValue(new Error('not authenticated yet'))
 const mockReplacePersistedSession = jest.fn().mockImplementation(
@@ -24,6 +25,8 @@ const mockClient = {
 }
 const mockRegisterTools = jest.fn()
 const mockRegisterEmbeddedAuthRpcAccounts = jest.fn()
+const mockRegisterCoachPanel = jest.fn()
+const mockRegisterHarnessWorkspace = jest.fn()
 const mockResolveAccountConfigs = jest.fn((config: Config) => ([
   {
     accountId: 'legacy-cn', slot: 1,
@@ -52,6 +55,8 @@ jest.mock('../src/tools', () => ({ registerTools: mockRegisterTools }))
 jest.mock('../src/embedded-auth-rpc', () => ({
   registerEmbeddedAuthRpcAccounts: mockRegisterEmbeddedAuthRpcAccounts,
 }))
+jest.mock('../src/coach-panel', () => ({ registerCoachPanel: mockRegisterCoachPanel }))
+jest.mock('../src/workspace-harness', () => ({ registerHarnessWorkspace: mockRegisterHarnessWorkspace }))
 
 import { GarminClient } from '../src/client'
 import { apply } from '../src/index'
@@ -70,11 +75,14 @@ const config: Config = {
 }
 
 describe('plugin activation', () => {
-  function createContext() {
+  function createContext(baseUrl: string | null = 'file:///synthetic-dsh-profile/config.yml') {
     let onVolatileUpdate: (paths: readonly (readonly string[])[]) => void = () => undefined
     let disposeClient: () => void = () => undefined
     const restart = jest.fn().mockResolvedValue(undefined)
     const ctx = {
+      inject: jest.fn((_dependencies: string[], callback: (child: Context) => void) => callback(Object.assign(Object.create(ctx), {
+        loader: { config: baseUrl ? { baseUrl } : {} },
+      }) as Context)),
       on: jest.fn((_name: string, listener: typeof onVolatileUpdate) => {
         onVolatileUpdate = listener
       }),
@@ -95,28 +103,29 @@ describe('plugin activation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
+  afterEach(() => {
+    for (const [, source] of mockRegisterEmbeddedAuthRpcAccounts.mock.calls) source.close()
+  })
 
-  it('registers embedded auth even when eager Garmin connection is unavailable', async () => {
+  it('delegates the scoped Host to the shared owner without constructing SDK clients at activation', async () => {
     const { ctx } = createContext()
     apply(ctx, config)
     await Promise.resolve()
 
-    expect(GarminClient).toHaveBeenCalledTimes(2)
-    expect(GarminClient).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        sessionTokenFile: '/private/config/accounts/default.session.json',
-      }),
-      { allowUnconfigured: true },
-    )
-    expect(mockRegisterTools).toHaveBeenCalledTimes(1)
-    expect(mockRegisterEmbeddedAuthRpcAccounts).toHaveBeenCalledTimes(1)
-    const [, accounts] = mockRegisterEmbeddedAuthRpcAccounts.mock.calls[0]
-    expect(accounts).toEqual([
-      expect.objectContaining({ accountId: 'legacy-cn', slot: 1, region: 'cn', configured: false, client: mockClient }),
-      expect.objectContaining({ accountId: 'legacy-global', slot: 2, region: 'global', configured: true, client: mockClient }),
+    expect(GarminClient).not.toHaveBeenCalled()
+    expect(mockRegisterHarnessWorkspace).toHaveBeenCalledTimes(1)
+    const [, options] = mockRegisterHarnessWorkspace.mock.calls[0]
+    expect(options.scopeId).toBe(createHash('sha256').update('file:///synthetic-dsh-profile/config.yml').digest('hex'))
+    expect(options.baseConfig).toBe(config)
+    expect(options.legacySeeds).toEqual([
+      expect.objectContaining({ accountId: 'legacy-cn', slot: 1, region: 'cn', configured: false }),
+      expect.objectContaining({ accountId: 'legacy-global', slot: 2, region: 'global', configured: true }),
     ])
-    expect(mockConnect).toHaveBeenCalledTimes(1)
+    expect(options.legacySeeds[1].config.sessionTokenFile).toBe('/private/config/accounts/default.session.json')
+    expect(mockRegisterTools).not.toHaveBeenCalled()
+    expect(mockRegisterEmbeddedAuthRpcAccounts).not.toHaveBeenCalled()
+    expect(mockRegisterCoachPanel).not.toHaveBeenCalled()
+    expect(mockConnect).not.toHaveBeenCalled()
   })
 
   it('coalesces account changes into one whole-plugin restart', async () => {
@@ -132,10 +141,41 @@ describe('plugin activation', () => {
     expect(restart).toHaveBeenCalledTimes(1)
   })
 
-  it('deactivates the old client when its fiber is unloaded', () => {
-    const { ctx, disposeClient } = createContext()
+  it('uses the inherited workspace URL when desktop omits Loader config.baseUrl', () => {
+    const { ctx } = createContext()
+    ;(ctx.inject as jest.Mock).mockImplementation((_dependencies, callback) => callback(Object.assign(Object.create(ctx), {
+      loader: { config: {} }, baseUrl: 'file:///synthetic-dsh-desktop/config.yml',
+    })))
     apply(ctx, config)
+    const options = mockRegisterHarnessWorkspace.mock.calls[0]?.[1]
+    expect(options.scopeId).toBe(createHash('sha256').update('file:///synthetic-dsh-desktop/config.yml').digest('hex'))
+    expect(options.scopeId).not.toContain('synthetic')
+  })
+
+  it('retains the unscoped legacy source and disposes it without disk, network or SDK initialization', async () => {
+    const { ctx, disposeClient } = createContext(null)
+    apply(ctx, config)
+    expect(mockRegisterHarnessWorkspace).not.toHaveBeenCalled()
+    expect(mockRegisterTools).toHaveBeenCalledTimes(1)
+    expect(mockRegisterEmbeddedAuthRpcAccounts).toHaveBeenCalledTimes(1)
+    const source = mockRegisterTools.mock.calls[0][1]
+    expect(mockRegisterEmbeddedAuthRpcAccounts.mock.calls[0][1]).toBe(source)
+    expect(mockRegisterCoachPanel.mock.calls[0][1]).toBe(source)
+    await source.ready()
+    expect(source.managed).toBe(false)
+    expect(source.list()).toHaveLength(2)
     disposeClient()
-    expect(mockDeactivate).toHaveBeenCalledTimes(2)
+    await expect(source.ready()).rejects.toMatchObject({ code: 'closed' })
+    expect(GarminClient).not.toHaveBeenCalled()
+  })
+
+  it('restarts auth controllers after the diagnostic switch changes', async () => {
+    const { ctx, emitVolatileUpdate, restart } = createContext()
+    apply(ctx, config)
+
+    emitVolatileUpdate([['authVerbose']])
+    await Promise.resolve()
+
+    expect(restart).toHaveBeenCalledTimes(1)
   })
 })

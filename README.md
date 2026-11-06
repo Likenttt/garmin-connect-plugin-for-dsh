@@ -68,18 +68,21 @@ This plugin connects [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-
 
 ### Registered Tools
 
-Version **0.1.20 provides 29 tools** for Connect web-session accounts. Twenty-four provide queries or local advice without writing;
+Version **0.1.21 registers 30 tools in Harness** (including `list_garmin_accounts`) and **31 tools in shared-workspace MCP** (also including `open_garmin_workspace`). The selected account's provider determines which operations are available.
+Legacy single-account Connect MCP retains **29 tools**. Of those base tools, twenty-four provide queries or local advice without writing;
 `download_garmin_activity_fit` writes one local file on the MCP/dsh host. Creating, scheduling or deleting
 a workout and cancelling a calendar entry change Garmin data after explicit confirmation.
-Personal-only DSH connections and Personal MCP servers expose **15 compatible tools** for
-Garmin reads, local FIT downloads and local coaching knowledge. Mixed DSH accounts keep
-the combined tool set and route each call by the selected account’s capabilities.
+Legacy Personal MCP servers expose **15 compatible tools** for Garmin reads,
+local FIT downloads and local coaching knowledge. Harness and shared-workspace MCP
+keep stable tool catalogs and route each call by the selected account’s capabilities.
 The 13 recovery and training tools introduced in 0.1.14 depend on
 the published maintained SDK through an exact npm alias; see
 [Maintained SDK dependency](#maintained-sdk-dependency).
 
 | Tool | Description | Example Args |
 |---|---|---|
+| `list_garmin_accounts` | Find stable account IDs by account note; available in Harness and shared-workspace MCP | `{"limit": 20}` |
+| `open_garmin_workspace` | Get a one-use link to the local management page; shared-workspace MCP only | `{}` |
 | `get_garmin_activities` | Fetch recent activities (runs, rides, swims…) with full detail by default; `compact` is optional | `{"limit": 5}` |
 | `get_garmin_sleep` | Sleep score, duration, and stage breakdown for a date or range | `{"startDate": "2023-10-01", "endDate": "2023-10-02"}` |
 | `get_garmin_steps` | Step totals for a date or range; goal/distance appear only when Garmin supplies them | `{"startDate": "2023-10-01"}` |
@@ -144,13 +147,14 @@ be real calendar dates in `YYYY-MM-DD` format. The service response fields, devi
 maps, unknown fields and complete time series are retained. `null` and empty
 arrays are valid no-data results, not authentication failures.
 
-When multiple Harness accounts are configured, add the stable account ID shown
-in settings as the tool's `account` argument. With only one configured account,
+When multiple Harness accounts are configured, find the stable account ID with
+`list_garmin_accounts` and use it as the tool's `account` argument. With only one configured account,
 the parameter can be omitted. Display aliases and regions help identify
 accounts but do not change their IDs. This also applies to all recovery tools,
-for example `{"account":"personal","date":"2026-10-15"}`. Standalone MCP uses
-the account configured for its process; select the corresponding MCP server
-instead of adding an `account` argument.
+for example `{"account":"personal","date":"2026-10-15"}`. The
+shared-workspace MCP mode uses `accountId` from `list_garmin_accounts` instead.
+Legacy standalone MCP uses the account configured for its process; select the
+corresponding MCP server instead of adding an account-selection argument.
 
 Workout creation is a two-call flow. The preview response includes a one-time
 `confirmationId`; after the user approves the unchanged preview, call the tool
@@ -255,6 +259,30 @@ definition or coaching inference is not misrepresented as comparative proof.
 
 ## Quick Start
 
+Version **0.1.21** targets DSH `0.2.2-rc.1`, retains older version
+ranges, and allows future `0.x` client SDK versions (including RCs) through the
+Host's version check. Older plugin builds declare `<0.2.2-0` and require this
+update to load in newer DSH. SDK upgrades do not require older Host
+users to upgrade. Future releases are accepted on a best-effort basis: breaking
+API changes still require adaptation, and DSH `1.x`, Cordis `5.x`, and React
+`19.x` remain outside the declared ranges. See the
+[compatibility record](docs/testing/harness-compatibility-2026-11-05.md) for validation and limits.
+
+Version **0.1.21** also adds a native **Garmin workspace**.
+Open a conversation and use the bottom-right launcher for Accounts, Timeline,
+Notes and My Training tabs. Its dynamic account catalog has no fixed account
+count limit and imports existing IDs and sessions once. Add, edit, sign in and
+archive connections from Accounts; SDK connections are loaded on demand. Notes and the
+pinned personal-account preference persist in local SQLite, with Markdown/JSON
+note exports. **Check all connections** shows progress and per-account results and can be cancelled.
+Garmin profile photos appear in Accounts and Timeline, with account-note initials as a fallback;
+the workspace uses a blue triangle icon. See the [desktop verification record](docs/testing/coach-panel-harness-2026-11-05.md).
+
+The same account catalog, timelines and notes are available in an on-demand
+local browser page and shared-workspace MCP mode. Account labels are free-form
+notes; no particular relationship or role is assumed. See
+[Shared local workspace](#shared-local-workspace-0121).
+
 ### 1. Install this plugin — from the npm registry (recommended)
 
 ```bash
@@ -306,13 +334,11 @@ official npm as [@likenttt/connect-personal-api-ts@0.1.0](https://www.npmjs.com/
 It is bundled with the plugin, so plugin users do not need to install another package.
 The SDK exchanges a Personal API key for a token and reads supported resources.
 
-In Harness plugin settings, add an account with **+**, choose **Official
-Personal API (International, read-only)** (`官方 Personal API（国际版，只读）`), enter its alias and
-API key, save, then select **Verify connection** (`验证连接`). No email or Garmin
-password is required. A new Personal account has only two required inputs:
-**display alias and API key**. It defaults to the international `.com` endpoint;
-the form does not ask for an email, password or region. Existing mainland Personal
-accounts retain their `cn` configuration and show the current availability note.
+In **Garmin 工作台 → 账号 → 添加账号**, choose **Personal API**, select China or International,
+enter an account note and a Key created in that region, save, then select **Check connection**
+(`检查连接`). No email or Garmin password is required. Choose mainland `.cn` or
+international `.com` explicitly. Changing an existing
+Personal account's region requires a replacement Key from the new region.
 Saved keys are not returned to the settings form or AI tools.
 The [real Harness desktop screenshot](docs/assets/personal-api-guide/global-06-harness-connected.png)
 and [desktop acceptance report](docs/testing/personal-api-harness-desktop-2026-10-22.md) record
@@ -326,7 +352,7 @@ For standalone MCP, use the released package:
   "mcpServers": {
     "garmin-personal": {
       "command": "npx",
-      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.20", "garmin-connect-mcp"],
+      "args": ["-y", "--registry=https://registry.npmjs.org/", "--package", "dsh-plugin-garmin-connect@0.1.21", "garmin-connect-mcp"],
       "env": {
         "GARMIN_PROVIDER": "personal",
         "GARMIN_ACCOUNT": "my-garmin",
@@ -359,17 +385,27 @@ Personal API authorization. See the
 [illustrated guide and results (Chinese)](docs/guides/garmin-personal-api-guide.zh-CN.md)
 and [Garmin's official instructions](https://developer.garmin.com/gc-developer-program/personal/personal-api/).
 
-**Regional validation (2026-10-22):** a separately created international Key on
-`.com` passed token exchange, eight SDK reads and five real MCP tool reads.
-The mainland Key on `.cn` returned HTTP 526; the mainland Personal endpoint is
-currently unavailable. Credentials were kept separate; no cross-region fallback was used. See the
-[endpoint test report (Chinese)](docs/research/personal-api-endpoint-test-report-2026-10-22.md).
+**Status update (2026-11-02):** mainland Personal API is available, and DSH settings
+now allow creating and verifying China-region Personal accounts against
+`personal.connectapi.garmin.cn`. The HTTP 526 observation from 2026-10-22 remains a
+historical result in the [endpoint test report (Chinese)](docs/research/personal-api-endpoint-test-report-2026-10-22.md).
+Regional credentials remain separate and never fall back across regions.
 
 For SDK maintenance, update the independently committed source with
 `npm run sync:personal-sdk -- /absolute/path/to/connect-personal-api-ts`.
 The bundled snapshot records its source commit, file hashes and attribution.
 
 #### Browser Connect configuration
+
+In **0.1.21**, use **Garmin 工作台 → 账号 → 添加账号**.
+The dynamic catalog replaces the fixed slots, preserves imported sessions, and
+supports **保存账号** or **保存并登录**. The old settings page redirects account
+management to the workspace. Use a free-form account note and enter this account's email;
+there is no fixed account-count limit.
+
+##### Legacy settings (0.1.20 and earlier)
+
+The five-slot instructions below apply only to `0.1.20` and earlier.
 
 The Harness plugin can be installed and started without a Garmin email. In the
 local Harness **Plugins** page, open **dsh-plugin-garmin-connect** and use
@@ -385,7 +421,9 @@ there. Every account has an independent session and a stable account ID shown
 in settings. With multiple accounts configured, pass that ID as the tool's
 `account` argument so the plugin reads or writes the intended account.
 
-For CLI, MCP, or headless use, configure the account through environment
+##### Legacy environment configuration
+
+For the legacy single-account CLI, MCP, or headless mode, configure the account through environment
 variables (or your launcher's secret store). Keep `.env` out of version control.
 The local Web MFA flow saves an owner-only DI session file after explicit
 profile confirmation. It never saves the password, MFA code, or CAPTCHA
@@ -440,6 +478,10 @@ dependency rather than your current directory. The plugin loads the workspace
 
 #### Two-step verification — browser-based MFA
 
+![Browser MFA login flow: passwords and verification codes go directly to Garmin](docs/assets/garmin-login-flow-no-password.svg)
+
+This diagram covers browser MFA: passwords and verification codes go to Garmin's official page, and the plugin saves the session locally only after the user confirms the account.
+
 When dsh and its Web UI are running together on the same local machine, use the
 matching **Log in** action in the plugin's **Garmin 账号配置** page after saving that
 account's email. Each account has its own login and session. Harness embeds a
@@ -485,6 +527,22 @@ does not show this state, and the status endpoint never returns a ticket or toke
 The login dialog opens only when the user clicks that account's action in
 settings. A missing or expired session does not automatically open it.
 
+If the embedded Garmin frame is blank or blocked by the local WebView, choose
+the dialog's explicit **compatible browser (CDP)** action. The plugin cancels
+the current embedded flow and opens the same one-time loopback bridge in an
+owned compatible Chromium process (preferring Chrome or Edge) with a temporary
+isolated profile. It does not
+attach to the user's everyday browser profile, copy browser cookies, or change
+the ticket-to-DI exchange and profile-confirmation checks. The fallback is
+never selected automatically; closing its browser cancels that flow, and the
+owned browser/profile are cleaned up on terminal status or, even if the DSH
+page disappears, no later than the one-time flow's expiry.
+
+For a failed login inside dsh, enable **Redacted authentication diagnostics** at
+the bottom of the Garmin settings page. The Host log then records only fixed
+stages and error codes. It is off by default and never includes an email,
+password, verification code, ticket, token, Cookie, full path, or raw exception.
+
 Save the Garmin email in the matching account card before opening its dialog.
 `GARMIN_SESSION_TOKEN_FILE` is optional for this Web flow. The Host keeps each
 account in a separate owner-only session file, preserving the existing session
@@ -521,6 +579,11 @@ garmin-connect-auth serve --account personal-cn --region cn --open
 npm run auth:serve -- --account personal --region global
 npm run auth:serve -- --account personal-cn --region cn
 ```
+
+Add `--verbose` when diagnosing a failed local login. It emits structured,
+redacted lifecycle events such as destination preparation, loopback startup,
+DI exchange, profile probing, and session persistence. It never includes the
+account, password, MFA code, service ticket, token, or full session path.
 
 `serve` starts a one-shot bridge on a random `127.0.0.1` port and opens it in
 the system's default browser. It does not create or manage an isolated
@@ -620,11 +683,14 @@ credential bytes are written, and the entire directory chain plus file ACL is
 verified again when a session is read. Marker-only directories from earlier
 implementations are not trusted; migrate to a fresh dedicated subtree.
 
-#### Multiple accounts in other coding agents
+#### Legacy mode: one account per process
 
-Harness supports up to five accounts in the same plugin, including multiple
-accounts in one region, with separate sessions. Standalone CLI/MCP integrations
-use one account and one independently initialized session per process. Give
+The **0.1.21 Harness workspace** has no fixed account-count limit. Version
+`0.1.20` and earlier support up to five accounts in the same plugin, including multiple
+accounts in one region, with separate sessions. For current shared account
+management, use [the shared local workspace](#shared-local-workspace-0121).
+The legacy environment-based CLI/MCP mode uses one account and one independently
+initialized session per process. Give
 each Codex, Claude Code, or other MCP process its own `GARMIN_USERNAME`, `GARMIN_REGION`, and
 `GARMIN_ACCOUNT` (or an explicit `GARMIN_SESSION_TOKEN_FILE`). These integrations
 complete Garmin login in the system default browser. The real China-region
@@ -644,11 +710,10 @@ entry, ordinary Garmin questions use that entry as the default. For two entries,
 name them `garmin-cn` and `garmin-global`; mention the server name only when the
 intended account is ambiguous.
 
-This is process isolation, not an in-process account selector or a multi-tenant
-authorization system. Do not expose one shared MCP process to mutually
-untrusted users; per-user access control has not been implemented. Switching
-accounts inside one conversation and automatic cross-account sync remain on the
-roadmap.
+These instructions apply to legacy process isolation. The shared-workspace
+mode instead routes account selection to one local runtime owner. Both modes
+are intended for the current computer user; per-user access control for mutually
+untrusted users has not been implemented.
 
 #### FIT downloads
 
@@ -779,6 +844,7 @@ can have other causes; also check the named package and installation state.
 | `.env` is in `.gitignore` | ✅ |
 | Account identifier and credentials marked with `role('secret')` in Cordis schema | ✅ |
 | Local dsh Web MFA bridge | ✅ Supported; loopback only; real China-region MFA chain passed locally |
+| Explicit dsh CDP compatibility fallback | ✅ Owned Chromium process, temporary profile, random loopback port; never attaches to the everyday browser profile |
 | CLI `serve` and MCP URL elicitation | ✅ Supported; same-machine shared runtime and owner-only session persistence |
 | Legacy CLI `login --browser` / `canary` | ⚠️ Playwright diagnostics only; not an authentication fallback |
 | DI v2 sessions bind username, region, and `profileIdHash`; legacy two-field sessions remain compatible | ✅ |
@@ -811,6 +877,72 @@ This plugin also ships as a standalone **MCP (Model Context Protocol) server**, 
 
 > **Current availability:** the standalone MCP entry point is included in npm
 > `0.1.5` and later. A local checkout remains useful for development.
+
+### Shared local workspace (0.1.21)
+
+Use Node **22.13 or later** for the SQLite workspace. Node 20 continues to
+support the existing environment-based, single-account MCP mode.
+
+Open the account, timeline and notes page when needed:
+
+```bash
+# Run directly from the released package, without a global installation:
+npx -y --package dsh-plugin-garmin-connect@0.1.21 garmin-connect-workspace open
+# Or, if the package is already installed globally:
+garmin-connect-workspace open
+# Select explicitly when multiple local workspaces exist:
+garmin-connect-workspace open --scope <scopeId> --data-directory <path>
+# Print the local link without opening the system browser:
+garmin-connect-workspace open --no-open
+```
+
+The command opens the system browser by default. The page uses the same account
+IDs, Garmin sessions, timeline data and SQLite notes as Harness for the selected
+workspace. Add an account with a free-form account note and **“请输入这个账号的邮箱”**
+(enter this account's email), then use its login or connection-check action.
+Passwords and verification codes are entered on Garmin's page. Notes can be
+exported as Markdown or JSON; archived account connections retain local records.
+**Check all connections** checks configured accounts with progress and cancellation.
+Connection checks load available Garmin profile photos; unavailable photos use account-note initials.
+The account note is free-form and does not assume any particular role or relationship.
+
+When Harness owns the workspace, the page and MCP reuse its runtime. Without
+Harness, the first request starts one local daemon for the workspace; it exits
+after five minutes without activity. Accounts do not each create a process.
+Opening the list does not log in every account or fetch every timeline. With
+one discovered workspace, selection is automatic; with several, specify its
+scope explicitly. Different scopes keep separate account and note data.
+Start the upgraded Harness once before using standalone MCP with an existing Harness workspace.
+
+For a shared MCP connection, use this launcher configuration:
+
+```json
+{
+  "mcpServers": {
+    "garmin": {
+      "command": "garmin-connect-mcp",
+      "args": ["--workspace"]
+    }
+  }
+}
+```
+
+For a source checkout, use `node` with
+`["/absolute/path/to/garmin-connect-plugin-for-dsh/lib/mcp.js", "--workspace"]`
+as its arguments. Append the scope ID after `--workspace` when needed; an
+optional `--data-directory <path>` selects the workspace storage directory.
+No legacy `GARMIN_USERNAME` or password variables are needed for this mode.
+
+The connection advertises 31 tools: the existing 29 Garmin tools plus
+`list_garmin_accounts` and `open_garmin_workspace`. First find a stable
+`accountId`, then pass it to account-data tools, for example
+`{"accountId":"legacy-cn","limit":5}`. With multiple accounts, omission
+returns a selection error. The account-list tool returns no email or credentials.
+`open_garmin_workspace` returns a short-lived, one-use local access link for the
+user to click; it does not automatically launch a browser. If the link expires,
+request a fresh one. Initialization and tool discovery do not start the runtime.
+
+### Legacy single-account MCP setup
 
 **New in 0.1.17: agent workflow instructions on connection.** MCP initialization
 sends `instructions` covering actual tool schemas, account verification before the
@@ -1164,13 +1296,14 @@ GARMIN_FIT_DOWNLOAD_DIR=/absolute/path/to/garmin-fit-parent \
 node lib/mcp.js
 ```
 
-With Connect web-session authentication, the MCP server exposes the same
-**29 tools and date semantics** as the 0.1.20 dsh plugin: the original ten tools, four workout management tools, and the
+With Connect web-session authentication, legacy single-account MCP exposes
+**29 tools with the same data and date semantics**: the original ten tools, four workout management tools, and the
 13 recovery and training tools plus two daily blood oxygen/respiration tools listed above.
 Personal MCP servers expose the **15 compatible tools** described in the
 [Personal API configuration](#official-personal-api-introduced-in-0119).
-Account selection differs: each standalone MCP process uses its
-configured account, while DSH accepts an explicit `account` selector.
+Account selection differs: each legacy MCP process uses its configured account,
+Harness has 30 tools and accepts an explicit `account` selector, and shared-workspace
+MCP has 31 tools and accepts `accountId`.
 No AI-callable tool accepts a password/MFA code or exports a session token.
 Browser authentication is an out-of-band local URL elicitation, and the user
 must retry the original tool after completion.
@@ -1441,6 +1574,7 @@ src/
 ├── auth.ts           # Private-SSO authentication flow with local MFA callback
 ├── auth-cli.ts       # Trusted local serve and legacy diagnostic commands
 ├── browser-auth-canary.ts # Isolated Chrome DI setup/canary core
+├── cdp-browser.ts    # Owned isolated Chromium lifecycle for explicit DSH fallback
 ├── embedded-auth-runtime.ts # Shared Web/CLI/MCP ticket-to-session runtime
 ├── local-auth-broker.ts # One-shot loopback/system-browser broker
 ├── di-session.ts     # DI runtime validation, refresh, and safe GET replay
@@ -1457,7 +1591,7 @@ src/
 │   ├── running-skills.ts  # 8 workout types + 4 compact training philosophies
 │   └── workout-schema.ts  # Workout definition → Garmin JSON builder
 ├── tools/
-│   └── index.ts      # Tool definitions & registration (29 tools)
+│   └── index.ts      # Tool definitions & registration (30 dynamic Harness tools)
 └── utils/
     ├── errors.ts      # Safe public errors and upstream-log redaction
     ├── cache.ts       # In-memory TTL/LRU cache with single-flight refresh
@@ -1520,7 +1654,7 @@ Distribution notes:
   - [ ] Add opt-in polling schedules for one-way automatic sync while dsh is running, with catch-up after restart
   - [ ] Keep bidirectional sync, automatic deletion, and full Garmin metadata mirroring out of the first release
 - [ ] **Webhook / Push** — real-time activity upload notifications
-- [x] **Official Personal API (0.1.19)** — API-key/token access in DSH and MCP, alias-and-Key settings, and 15 compatible read/local tools
+- [x] **Official Personal API (0.1.19)** — API-key/token access in DSH and MCP, region/alias/Key settings, and 15 compatible read/local tools
 
 ---
 

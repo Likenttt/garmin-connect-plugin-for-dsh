@@ -22,6 +22,7 @@ import {
   officialBadgeStyle,
   officialDotStyle,
   regionBadgeStyle,
+  retryButtonStyle,
   securityBadgeStyle,
   spinnerStyle,
   statusHintStyle,
@@ -34,6 +35,7 @@ import {
 } from './styles'
 
 export type GarminLoginRegion = 'cn' | 'global'
+export type GarminAuthTransport = 'embedded' | 'cdp'
 
 const REGION_DETAILS: Record<GarminLoginRegion, {
   domain: string
@@ -53,22 +55,26 @@ export interface GarminAuthViewProps {
   begin?: GarminAuthBeginResult
   busy: boolean
   isLoopback: boolean
+  onCdpRetry?(): void
   onClose(): void
   open: boolean
   selectedRegion?: GarminLoginRegion
   showFrame: boolean
   status?: GarminAuthPublicStatus
+  transport: GarminAuthTransport
 }
 
 export function GarminAuthView({
   begin,
   busy,
   isLoopback,
+  onCdpRetry,
   onClose,
   open,
   selectedRegion,
   showFrame,
   status,
+  transport,
 }: GarminAuthViewProps): ReactElement {
   const selected = selectedRegion ? REGION_DETAILS[selectedRegion] : undefined
 
@@ -119,7 +125,9 @@ export function GarminAuthView({
             <div style={bodyStyle}>
               {busy && (
                 <Status
-                  text={`正在连接 Garmin ${selected?.label ?? ''}…`}
+                  text={transport === 'cdp'
+                    ? '正在启动独立的兼容浏览器登录窗口…'
+                    : `正在连接 Garmin ${selected?.label ?? ''}…`}
                   variant="busy"
                 />
               )}
@@ -135,6 +143,16 @@ export function GarminAuthView({
                     <span style={officialDotStyle} />
                     <span style={frameDomainStyle}>{selected?.domain}</span>
                     <span style={officialBadgeStyle}>Garmin 官方页面</span>
+                    {onCdpRetry && (
+                      <button
+                        className="gca-retry"
+                        onClick={onCdpRetry}
+                        style={{ ...retryButtonStyle, padding: '5px 9px' }}
+                        type="button"
+                      >
+                        窗口打不开？改用兼容浏览器（CDP）
+                      </button>
+                    )}
                   </div>
                   <iframe
                     referrerPolicy="no-referrer"
@@ -148,12 +166,49 @@ export function GarminAuthView({
               {status === 'succeeded' && (
                 <Status text="登录成功，会话已安全保存到本机。" variant="success" />
               )}
+              {transport === 'cdp' && status === 'in_progress' && (
+                <Status
+                  hint="该窗口使用临时隔离配置，不会读取你的日常浏览器资料。"
+                  text="已打开独立的兼容浏览器窗口，请在那里完成登录和两步验证。"
+                  variant="busy"
+                />
+              )}
               {status === 'failed' && (
-                <Status text="Garmin 登录失败，请在账号卡片中重试。" variant="error" />
+                <Status
+                  action={onCdpRetry && (
+                    <button
+                      className="gca-retry"
+                      onClick={onCdpRetry}
+                      style={retryButtonStyle}
+                      type="button"
+                    >
+                      改用兼容浏览器登录（CDP）
+                    </button>
+                  )}
+                  text={onCdpRetry
+                    ? '嵌入式 Garmin 登录失败，可以改用独立浏览器完成验证。'
+                    : 'Garmin 登录失败，请在账号卡片中重试。'}
+                  variant="error"
+                />
               )}
               {status === 'cancelled' && <Status text="登录已取消。" />}
               {status === 'expired' && (
-                <Status text="登录页面已过期，请在账号卡片中重试。" variant="error" />
+                <Status
+                  action={onCdpRetry && (
+                    <button
+                      className="gca-retry"
+                      onClick={onCdpRetry}
+                      style={retryButtonStyle}
+                      type="button"
+                    >
+                      改用兼容浏览器登录（CDP）
+                    </button>
+                  )}
+                  text={onCdpRetry
+                    ? '嵌入式登录页面已过期，可以改用独立浏览器继续。'
+                    : '登录页面已过期，请在账号卡片中重试。'}
+                  variant="error"
+                />
               )}
             </div>
           </section>
@@ -194,9 +249,13 @@ function ErrorStatus({
 }
 
 function Status({
+  action,
+  hint = '你可以随时关闭此窗口，凭据不会保存到 DSH 页面。',
   text,
   variant = 'info',
 }: {
+  action?: ReactElement | false
+  hint?: string
   text: string
   variant?: 'busy' | 'error' | 'info' | 'success'
 }): ReactElement {
@@ -226,7 +285,8 @@ function Status({
           </div>
         )}
       <strong style={statusTextStyle}>{text}</strong>
-      <span style={statusHintStyle}>你可以随时关闭此窗口，凭据不会保存到 DSH 页面。</span>
+      {action}
+      <span style={statusHintStyle}>{hint}</span>
     </div>
   )
 }

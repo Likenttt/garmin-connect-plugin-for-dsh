@@ -53,10 +53,12 @@ describe('local Garmin authentication broker', () => {
     const controller = controllerFixture()
     const openBrowser = jest.fn().mockResolvedValue(undefined)
     const sleep = jest.fn().mockResolvedValue(undefined)
+    const diagnostics = jest.fn()
     const broker = new LocalAuthBroker({
       controller,
       openBrowser,
       sleep,
+      diagnostics,
       pollIntervalMs: 250,
       successGraceMs: 1_500,
     })
@@ -74,6 +76,10 @@ describe('local Garmin authentication broker', () => {
     expect(sleep.mock.calls[1]).toEqual([1_500, undefined])
     expect(controller.close).toHaveBeenCalledTimes(1)
     expect(controller.cancel).not.toHaveBeenCalled()
+    expect(diagnostics.mock.calls).toEqual([
+      ['system_browser_open_started', undefined],
+      ['system_browser_open_succeeded', undefined],
+    ])
   })
 
   it.each([
@@ -95,10 +101,12 @@ describe('local Garmin authentication broker', () => {
   it('cancels and closes when the browser cannot be opened without exposing the URL', async () => {
     const controller = controllerFixture()
     const marker = `${BRIDGE_URL}?token=ST-secret`
+    const diagnostics = jest.fn()
     const broker = new LocalAuthBroker({
       controller,
       openBrowser: jest.fn().mockRejectedValue(new Error(marker)),
       sleep: jest.fn().mockResolvedValue(undefined),
+      diagnostics,
     })
 
     const operation = broker.authenticateInSystemBrowser('cn')
@@ -106,6 +114,11 @@ describe('local Garmin authentication broker', () => {
     await expect(operation).rejects.not.toThrow(marker)
     expect(controller.cancel).toHaveBeenCalledWith({ flowId: FLOW_ID })
     expect(controller.close).toHaveBeenCalledTimes(1)
+    expect(diagnostics.mock.calls).toEqual([
+      ['system_browser_open_started', undefined],
+      ['system_browser_open_failed', 'browser_launch_failed'],
+    ])
+    expect(JSON.stringify(diagnostics.mock.calls)).not.toMatch(/st-secret|bridge\//i)
   })
 
   it('cancels an active flow when the caller aborts', async () => {

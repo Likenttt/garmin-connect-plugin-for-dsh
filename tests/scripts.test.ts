@@ -198,11 +198,18 @@ describe('maintenance scripts', () => {
       get: () => form,
       describe: () => ({ load: async () => undefined }),
     }
-    client.apply({
+    const context = {
       connection,
       slots,
+      configForms,
+      effect: jest.fn((install: () => unknown) => install()),
+    }
+    client.apply({
+      ...context,
       inject: (_dependencies: string[], callback: (ctx: unknown) => void) => {
-        callback({ connection, slots, configForms })
+        // Cordis runs optional children only when every requested service is
+        // available. This auth/settings fixture deliberately has no sidebar.
+        if (_dependencies.every(dependency => Object.hasOwn(context, dependency))) callback(context)
       },
     })
 

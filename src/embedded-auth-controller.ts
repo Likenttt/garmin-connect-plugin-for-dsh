@@ -1,11 +1,19 @@
 import type { GarminRegion } from './config'
 import type { EmbeddedAuthRuntimeConfig } from './embedded-auth-runtime'
+import {
+  authDiagnosticCodeFromError,
+  reportAuthDiagnostic,
+  type AuthDiagnosticCode,
+  type AuthDiagnosticEvent,
+  type AuthDiagnosticReporter,
+} from './auth-diagnostics'
 import type {
   EmbeddedAuthFlowManager,
   EmbeddedAuthPublicState,
 } from './embedded-auth-flow'
 import type { EmbeddedAuthServer } from './embedded-auth-server'
 import { isExactLoopbackOrigin } from './embedded-auth-url'
+import type { CdpBrowserLauncher, CdpBrowserSession } from './cdp-browser'
 
 const MAX_USERNAME_LENGTH = 320
 const MAX_SESSION_TOKEN_PATH_LENGTH = 4 * 1024
@@ -14,6 +22,7 @@ const CSRF_PATTERN = /^[A-Za-z0-9_-]{32,128}$/
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f-\u009f]/
 const DEFAULT_COMMIT_DRAIN_TIMEOUT_MS = 30_000
 const MAX_COMMIT_DRAIN_TIMEOUT_MS = 2 * 60 * 1000
+const MAX_TIMER_DELAY_MS = 2_147_483_647
 
 export type EmbeddedAuthControllerFlowPort = Pick<
   EmbeddedAuthFlowManager,
@@ -29,6 +38,11 @@ export interface EmbeddedAuthControllerOptions extends EmbeddedAuthRuntimeConfig
   flows: EmbeddedAuthControllerFlowPort
   server: EmbeddedAuthControllerServerPort
   prepareDestination: (path: string) => Promise<void>
+  diagnostics?: AuthDiagnosticReporter
+  /** Explicit, user-triggered fallback that owns an isolated Chromium process. */
+  cdpBrowser?: CdpBrowserLauncher
+  /** Internal clock seam for deterministic CDP expiry cleanup tests. */
+  now?: () => number
   /** Internal test seam; production uses a bounded 30-second commit drain. */
   commitDrainTimeoutMs?: number
 }
@@ -69,12 +83,20 @@ export class EmbeddedAuthController {
   private readonly flows?: EmbeddedAuthControllerFlowPort
   private readonly server?: EmbeddedAuthControllerServerPort
   private readonly prepareDestination?: (path: string) => Promise<void>
+  private readonly diagnostics?: AuthDiagnosticReporter
+  private readonly cdpBrowser?: CdpBrowserLauncher
+  private readonly now: () => number
   private readonly commitDrainTimeoutMs: number
   private currentFlowId?: string
   private bridgeOrigin?: string
   private beginning = false
   private closed = false
   private closeOperation?: Promise<void>
+  private activeCdp?: {
+    flowId: string
+    session: CdpBrowserSession
+    cleanupTimer: ReturnType<typeof setTimeout>
+  }
 
   constructor(options: EmbeddedAuthControllerOptions) {
     this.username = options?.username
@@ -83,6 +105,9 @@ export class EmbeddedAuthController {
     this.flows = options?.flows
     this.server = options?.server
     this.prepareDestination = options?.prepareDestination
+    this.diagnostics = options?.diagnostics
+    this.cdpBrowser = options?.cdpBrowser
+    this.now = options?.now ?? Date.now
     this.commitDrainTimeoutMs = normalizeCommitDrainTimeout(
       options?.commitDrainTimeoutMs,
     )
@@ -92,61 +117,127 @@ export class EmbeddedAuthController {
     signal?: AbortSignal,
     requestedRegion?: GarminRegion,
   ): Promise<EmbeddedAuthBeginResult> {
+    reportAuthDiagnostic(this.diagnostics, 'begin_started')
     const configuration = normalizeConfiguration(
       this.username,
       this.region,
       this.sessionTokenFile,
     )
-    if (!configuration) return configurationFailure()
+    if (!configuration) {
+      reportAuthDiagnostic(this.diagnostics, 'begin_rejected', 'configuration')
+      return configurationFailure()
+    }
     if (
       requestedRegion !== undefined
       && requestedRegion !== configuration.region
     ) {
+      reportAuthDiagnostic(this.diagnostics, 'begin_rejected', 'region_mismatch')
       return regionMismatchFailure()
     }
-    if (this.closed || isAborted(signal)) return unavailableFailure()
-    if (this.beginning) return busyFailure()
+    if (this.closed || isAborted(signal)) {
+      reportAuthDiagnostic(
+        this.diagnostics,
+        'begin_rejected',
+        isAborted(signal) ? 'cancelled' : 'unavailable',
+      )
+      return unavailableFailure()
+    }
+    if (this.beginning) {
+      reportAuthDiagnostic(this.diagnostics, 'begin_rejected', 'busy')
+      return busyFailure()
+    }
     if (!this.flows || !this.server || !this.prepareDestination) {
+      reportAuthDiagnostic(this.diagnostics, 'begin_rejected', 'unavailable')
       return unavailableFailure()
     }
 
     if (this.currentFlowId) {
       const currentStatus = this.readPublicStatus(this.currentFlowId)
-      if (!currentStatus) return unavailableFailure()
-      if (currentStatus === 'in_progress') return busyFailure()
+      if (!currentStatus) {
+        reportAuthDiagnostic(this.diagnostics, 'begin_rejected', 'unavailable')
+        return unavailableFailure()
+      }
+      if (currentStatus === 'in_progress') {
+        reportAuthDiagnostic(this.diagnostics, 'begin_rejected', 'busy')
+        return busyFailure()
+      }
+      this.closeCdpBestEffort(this.currentFlowId)
     }
 
     this.beginning = true
     let orphanFlowId: string | undefined
+    let failureEvent: AuthDiagnosticEvent = 'session_destination_prepare_failed'
+    let failureCode: AuthDiagnosticCode = 'destination_prepare_failed'
     try {
+      reportAuthDiagnostic(this.diagnostics, 'session_destination_prepare_started')
       await this.prepareDestination(configuration.sessionTokenFile)
-      if (this.closed || isAborted(signal)) return unavailableFailure()
+      reportAuthDiagnostic(this.diagnostics, 'session_destination_prepare_succeeded')
+      if (this.closed || isAborted(signal)) {
+        reportAuthDiagnostic(this.diagnostics, 'begin_rejected', 'cancelled')
+        return unavailableFailure()
+      }
 
-      const bridgeOrigin = this.bridgeOrigin ?? await this.server.start()
+      failureEvent = 'loopback_server_start_failed'
+      failureCode = 'loopback_start_failed'
+      let bridgeOrigin = this.bridgeOrigin
+      if (!bridgeOrigin) {
+        reportAuthDiagnostic(this.diagnostics, 'loopback_server_start_started')
+        bridgeOrigin = await this.server.start()
+      }
       if (
         this.closed
         || isAborted(signal)
-        || !isExactLoopbackOrigin(bridgeOrigin)
       ) {
+        reportAuthDiagnostic(this.diagnostics, 'begin_rejected', 'cancelled')
         return unavailableFailure()
+      }
+      if (!isExactLoopbackOrigin(bridgeOrigin)) {
+        reportAuthDiagnostic(
+          this.diagnostics,
+          'loopback_server_start_failed',
+          'loopback_origin_invalid',
+        )
+        return unavailableFailure()
+      }
+      if (!this.bridgeOrigin) {
+        reportAuthDiagnostic(this.diagnostics, 'loopback_server_start_succeeded')
       }
       this.bridgeOrigin = bridgeOrigin
 
+      failureEvent = 'auth_flow_start_failed'
+      failureCode = 'flow_start_failed'
+      reportAuthDiagnostic(this.diagnostics, 'auth_flow_start_started')
       const started = this.flows.start({
         ...configuration,
         bridgeOrigin,
       })
-      if (!isStartedFlow(started)) return unavailableFailure()
+      if (!isStartedFlow(started)) {
+        reportAuthDiagnostic(
+          this.diagnostics,
+          'auth_flow_start_failed',
+          'flow_start_failed',
+        )
+        return unavailableFailure()
+      }
+      reportAuthDiagnostic(this.diagnostics, 'auth_flow_start_succeeded')
       orphanFlowId = started.flowId
 
       if (this.closed || isAborted(signal)) {
         this.cancelBestEffort(orphanFlowId)
+        reportAuthDiagnostic(this.diagnostics, 'begin_rejected', 'cancelled')
         return unavailableFailure()
       }
 
+      failureEvent = 'bridge_url_validation_failed'
+      failureCode = 'bridge_url_invalid'
       const bridgeUrl = this.server.bridgeUrl(started.flowId)
       if (!isSafeBridgeUrl(bridgeUrl, bridgeOrigin, started.flowId)) {
         this.cancelBestEffort(orphanFlowId)
+        reportAuthDiagnostic(
+          this.diagnostics,
+          'bridge_url_validation_failed',
+          'bridge_url_invalid',
+        )
         return unavailableFailure()
       }
 
@@ -158,11 +249,75 @@ export class EmbeddedAuthController {
         bridgeUrl,
         expiresAt: started.expiresAt,
       }
-    } catch {
+    } catch (error) {
       if (orphanFlowId) this.cancelBestEffort(orphanFlowId)
+      reportAuthDiagnostic(
+        this.diagnostics,
+        failureEvent,
+        authDiagnosticCodeFromError(error, failureCode),
+      )
       return unavailableFailure()
     } finally {
       this.beginning = false
+    }
+  }
+
+  /** Start the same trusted bridge in an owned, isolated Chromium CDP session. */
+  async beginCdp(
+    signal?: AbortSignal,
+    requestedRegion?: GarminRegion,
+  ): Promise<EmbeddedAuthBeginResult> {
+    if (!this.cdpBrowser) {
+      reportAuthDiagnostic(
+        this.diagnostics,
+        'cdp_browser_open_failed',
+        'browser_launch_failed',
+      )
+      return unavailableFailure()
+    }
+
+    const started = await this.begin(signal, requestedRegion)
+    if (!started.success) return started
+    reportAuthDiagnostic(this.diagnostics, 'cdp_browser_open_started')
+    let session: CdpBrowserSession | undefined
+    try {
+      session = await this.cdpBrowser.open(started.bridgeUrl, signal)
+      if (
+        this.closed
+        || isAborted(signal)
+        || this.currentFlowId !== started.flowId
+        || this.readPublicStatus(started.flowId) !== 'in_progress'
+      ) {
+        await session.close().catch(() => undefined)
+        this.cancelBestEffort(started.flowId)
+        reportAuthDiagnostic(
+          this.diagnostics,
+          'cdp_browser_open_failed',
+          'cancelled',
+        )
+        return unavailableFailure()
+      }
+      const cleanupTimer = setTimeout(
+        () => this.handleCdpExpiry(started.flowId, session!),
+        this.cdpCleanupDelay(started.expiresAt),
+      )
+      cleanupTimer.unref?.()
+      this.activeCdp = { flowId: started.flowId, session, cleanupTimer }
+      reportAuthDiagnostic(this.diagnostics, 'cdp_browser_open_succeeded')
+      void Promise.resolve(session.closed).then(
+        () => this.handleCdpClosed(started.flowId, session!),
+        () => this.handleCdpClosed(started.flowId, session!),
+      )
+      return started
+    } catch (error) {
+      if (session) await session.close().catch(() => undefined)
+      this.cancelBestEffort(started.flowId)
+      reportAuthDiagnostic(
+        this.diagnostics,
+        'cdp_browser_open_failed',
+        cdpDiagnosticCodeFromError(error),
+      )
+      return unavailableFailure()
     }
   }
 
@@ -172,12 +327,14 @@ export class EmbeddedAuthController {
 
     const status = this.readPublicStatus(flowId)
     if (!status) return unavailableFailure()
+    if (status !== 'in_progress') this.closeCdpBestEffort(flowId)
     return { success: true, status }
   }
 
   cancel(payload: unknown): EmbeddedAuthCancelResult {
     const flowId = exactCurrentFlowId(payload, this.currentFlowId)
     if (!flowId) return invalidFailure()
+    this.closeCdpBestEffort(flowId)
     if (!this.flows) return unavailableFailure()
 
     try {
@@ -201,10 +358,54 @@ export class EmbeddedAuthController {
     if (flowId && !this.cancelBestEffort(flowId)) {
       await this.drainFlowBestEffort(flowId)
     }
+    await this.closeCdp(flowId)
     try {
       await this.server?.close()
     } catch {
       // Shutdown is best effort and must not surface sensitive dependency text.
+    }
+  }
+
+  private handleCdpClosed(flowId: string, session: CdpBrowserSession): void {
+    if (this.activeCdp?.flowId !== flowId || this.activeCdp.session !== session) return
+    clearTimeout(this.activeCdp.cleanupTimer)
+    this.activeCdp = undefined
+    reportAuthDiagnostic(this.diagnostics, 'cdp_browser_closed')
+    if (this.readPublicStatus(flowId) === 'in_progress') {
+      this.cancelBestEffort(flowId)
+    }
+  }
+
+  private handleCdpExpiry(flowId: string, session: CdpBrowserSession): void {
+    if (this.activeCdp?.flowId !== flowId || this.activeCdp.session !== session) return
+    this.cancelBestEffort(flowId)
+    this.closeCdpBestEffort(flowId)
+  }
+
+  private cdpCleanupDelay(expiresAt: number): number {
+    try {
+      const current = this.now()
+      if (!Number.isFinite(current)) return 0
+      return Math.max(0, Math.min(MAX_TIMER_DELAY_MS, expiresAt - current))
+    } catch {
+      return 0
+    }
+  }
+
+  private closeCdpBestEffort(flowId: string): void {
+    void this.closeCdp(flowId)
+  }
+
+  private async closeCdp(flowId: string | undefined): Promise<void> {
+    const active = this.activeCdp
+    if (!active || (flowId !== undefined && active.flowId !== flowId)) return
+    this.activeCdp = undefined
+    clearTimeout(active.cleanupTimer)
+    try {
+      await active.session.close()
+      reportAuthDiagnostic(this.diagnostics, 'cdp_browser_closed')
+    } catch {
+      reportAuthDiagnostic(this.diagnostics, 'cdp_browser_cleanup_failed')
     }
   }
 
@@ -351,6 +552,21 @@ function isAborted(signal: AbortSignal | undefined): boolean {
   } catch {
     return true
   }
+}
+
+function cdpDiagnosticCodeFromError(error: unknown): AuthDiagnosticCode {
+  try {
+    if (typeof error === 'object' && error !== null) {
+      const code = (error as { code?: unknown }).code
+      if (code === 'CANCELLED') return 'cancelled'
+      if (code === 'DRIVER_UNAVAILABLE') return 'cdp_driver_unavailable'
+      if (code === 'TIMED_OUT') return 'cdp_start_timeout'
+      if (code === 'BROWSER_UNAVAILABLE') return 'cdp_browser_unavailable'
+    }
+  } catch {
+    // Fall through to the existing closed diagnostic-code seam.
+  }
+  return authDiagnosticCodeFromError(error, 'browser_launch_failed')
 }
 
 function isSafeBridgeUrl(

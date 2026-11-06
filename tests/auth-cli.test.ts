@@ -141,6 +141,7 @@ describe('Garmin interactive auth CLI', () => {
     expect(result.stdout).toContain('--account <alias>')
     expect(result.stdout).toContain('--region <global|cn>')
     expect(result.stdout).toContain('--output <path>')
+    expect(result.stdout).toContain('--verbose')
     expect(result.stdout).toContain('password blank to use Garmin\'s browser page')
     expect(result.stderr).toBe('')
   })
@@ -416,6 +417,7 @@ describe('Garmin interactive auth CLI', () => {
     await expect(runAuthSetup({
       argv: [
         'login',
+        '--verbose',
         '--account', 'personal',
         '--region', 'cn',
         '--output', '/safe/personal.json',
@@ -440,11 +442,13 @@ describe('Garmin interactive auth CLI', () => {
       username: 'runner@example.test',
       region: 'cn',
       sessionTokenFile: path.resolve('/safe/personal.json'),
+      diagnostics: expect.any(Function),
     }))
     expect(browserAuthenticate.mock.calls[0][0]).not.toHaveProperty('password')
     expect(writeSession).not.toHaveBeenCalled()
     expect(prompt).toHaveBeenCalledTimes(2)
     expect(write.mock.calls.flat().join('')).not.toContain('PASSWORD_MARKER')
+    expect(write.mock.calls.flat().join('')).toContain('"source":"cli_serve"')
   })
 
   it('does not report a CAPTCHA browser recovery as MFA use', async () => {
@@ -642,6 +646,73 @@ describe('Garmin interactive auth CLI', () => {
     expect(output).toContain('Session saved securely to: "/safe/personal-cn.json"')
     expect(output).not.toMatch(
       /runner@example|PASSWORD_MARKER|serviceTicket|access_token|bridge\//,
+    )
+    expect(output).not.toContain('[garmin-auth:diagnostic]')
+  })
+
+  it('emits only allowlisted redacted diagnostics for verbose serve authentication', async () => {
+    const write = jest.fn()
+    const io: AuthCliIO = { prompt: jest.fn(), write }
+    const authenticate = jest.fn(async (options: any) => {
+      options.diagnostics?.('di_exchange_started')
+      options.diagnostics?.('profile_probe_succeeded')
+      return { success: true as const, region: 'cn' as const }
+    })
+
+    await runAuthServe({
+      argv: [
+        'serve', '--verbose', '--open', '--account', 'private-account',
+        '--region', 'cn', '--output', '/private/runner/session.json',
+      ],
+      env: {
+        GARMIN_USERNAME: 'runner@example.test',
+        GARMIN_PASSWORD: 'PASSWORD_MARKER',
+      },
+      io,
+      dependencies: serveDependencies(authenticate),
+    })
+
+    expect(authenticate).toHaveBeenCalledWith(expect.objectContaining({
+      diagnostics: expect.any(Function),
+    }))
+    const output = write.mock.calls.flat().join('')
+    expect(output).toContain('[garmin-auth:diagnostic]')
+    expect(output).toContain('"event":"diagnostics_started"')
+    expect(output).toContain('"event":"session_destination_prepare_succeeded"')
+    expect(output).toContain('"event":"di_exchange_started"')
+    expect(output).toContain('"event":"profile_probe_succeeded"')
+    expect(output).toContain('"source":"cli_serve"')
+    expect(output).toContain('"session_path_source":"explicit"')
+    const diagnostics = output.split('\n')
+      .filter(line => line.startsWith('[garmin-auth:diagnostic]'))
+      .join('\n')
+    expect(diagnostics).not.toMatch(
+      /runner@example|PASSWORD_MARKER|private-account|\/private\/runner|session\.json/,
+    )
+  })
+
+  it('reports a fixed verbose preflight failure without rendering dependency text', async () => {
+    const write = jest.fn()
+    const secretFailure =
+      'runner@example.test ticket=ST-SECRET /private/runner/session.json'
+
+    await expect(runAuthServe({
+      argv: [
+        'serve', '--verbose', '--open', '--account', 'private-account',
+        '--region', 'global', '--output', '/private/runner/session.json',
+      ],
+      env: { GARMIN_USERNAME: 'runner@example.test' },
+      io: { prompt: jest.fn(), write },
+      dependencies: {
+        authenticate: jest.fn(),
+        prepareDestination: jest.fn().mockRejectedValue(new Error(secretFailure)),
+      },
+    })).rejects.toThrow(secretFailure)
+
+    const output = write.mock.calls.flat().join('')
+    expect(output).toContain('"event":"session_destination_prepare_failed"')
+    expect(output).not.toMatch(
+      /runner@example|ST-SECRET|private-account|\/private\/runner|session\.json/,
     )
   })
 
@@ -1095,6 +1166,28 @@ describe('Garmin interactive auth CLI', () => {
     expect(output).toContain('canary_stage=ticket_captured')
     expect(output).not.toMatch(/MUST_NOT|private@example|access_token/)
     expect(output).not.toContain('canary_stage=ticket=')
+    expect(output).not.toContain('[garmin-auth:diagnostic]')
+  })
+
+  it('adds structured diagnostics to canary output only with --verbose', async () => {
+    const write = jest.fn()
+    const canary = jest.fn(async (options: any) => {
+      options.onStage('ticket_captured')
+      options.onStage('di_exchange_started')
+      return { ok: true as const, region: 'global' as const, persisted: false as const }
+    })
+
+    await runAuthCanary({
+      argv: ['canary', '--verbose', '--region', 'global'],
+      io: { prompt: jest.fn(), write },
+      dependencies: { canary },
+    })
+
+    const output = write.mock.calls.flat().join('')
+    expect(output).toContain('"event":"diagnostics_started"')
+    expect(output).toContain('"event":"ticket_captured"')
+    expect(output).toContain('"event":"di_exchange_started"')
+    expect(output).toContain('"source":"cli_canary"')
   })
 
   it('requires an explicit canary region and rejects login-only options', async () => {

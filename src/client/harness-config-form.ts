@@ -15,7 +15,8 @@ export interface ConfigFormSnapshot<T> {
   user: unknown
   revision: number | undefined
   writable: boolean
-  mode: 'host' | 'memory'
+  /** Older settings clients expose this field; newer Host snapshots omit it. */
+  mode?: 'host' | 'memory'
 }
 
 export interface ConfigForm<T> {
@@ -43,15 +44,13 @@ export interface GarminStoredAccount {
   revision?: string
 }
 
-/** Personal keys stay on their saved endpoint; new Personal accounts use global. */
+/** Both providers use the region explicitly selected in the settings form. */
 export function accountRegionForProvider(
-  savedAccount: GarminStoredAccount,
-  provider: 'connect-web' | 'personal',
-  webRegion: GarminStoredAccount['region'],
+  _savedAccount: GarminStoredAccount,
+  _provider: 'connect-web' | 'personal',
+  selectedRegion: GarminStoredAccount['region'],
 ): GarminStoredAccount['region'] {
-  return provider === 'personal'
-    ? savedAccount.provider === 'personal' ? savedAccount.region : 'global'
-    : webRegion
+  return selectedRegion
 }
 
 /** Update public metadata atomically with an optional new secret email or API key. */
@@ -73,8 +72,8 @@ export function saveAccountMutations(
     || !validAccounts(next)
     || (account.provider === 'personal'
       ? (!saved.alias
-        || account.region !== (previous?.provider === 'personal' ? previous.region : 'global')
-        || ((!previous || previous.provider !== 'personal') && !personalApiKey.trim()))
+        || ((!previous || previous.provider !== 'personal' || account.region !== previous.region)
+          && !personalApiKey.trim()))
       : ((!previous || previous.provider === 'personal') && !email))
     || email.includes('****@')) return undefined
   return [

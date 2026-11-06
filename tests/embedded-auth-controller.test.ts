@@ -1,9 +1,11 @@
 import type { GarminRegion } from '../src/config'
+import type { AuthDiagnosticReporter } from '../src/auth-diagnostics'
 import {
   EmbeddedAuthController,
   type EmbeddedAuthControllerFlowPort,
   type EmbeddedAuthControllerServerPort,
 } from '../src/embedded-auth-controller'
+import type { CdpBrowserLauncher, CdpBrowserSession } from '../src/cdp-browser'
 
 const FLOW_ONE = '1'.repeat(64)
 const FLOW_TWO = '2'.repeat(64)
@@ -58,6 +60,9 @@ function createController(overrides: {
   server?: EmbeddedAuthControllerServerPort
   prepareDestination?: (path: string) => Promise<void>
   commitDrainTimeoutMs?: number
+  diagnostics?: AuthDiagnosticReporter
+  cdpBrowser?: CdpBrowserLauncher
+  now?: () => number
 } = {}) {
   const flows = overrides.flows ?? createFlows()
   const server = overrides.server ?? createServer()
@@ -72,6 +77,9 @@ function createController(overrides: {
     prepareDestination: overrides.prepareDestination
       ?? jest.fn().mockResolvedValue(undefined),
     commitDrainTimeoutMs: overrides.commitDrainTimeoutMs,
+    diagnostics: overrides.diagnostics,
+    cdpBrowser: overrides.cdpBrowser,
+    now: overrides.now ?? (() => 0),
   })
   return {
     controller,
@@ -81,6 +89,150 @@ function createController(overrides: {
 }
 
 describe('EmbeddedAuthController', () => {
+  it('opens CDP only for an explicit CDP begin and keeps the existing bridge flow', async () => {
+    const session: CdpBrowserSession = {
+      closed: new Promise(() => undefined),
+      close: jest.fn().mockResolvedValue(undefined),
+    }
+    const cdpBrowser: CdpBrowserLauncher = {
+      open: jest.fn().mockResolvedValue(session),
+    }
+    const { controller, flows } = createController({ cdpBrowser })
+
+    await expect(controller.beginCdp(undefined, 'cn')).resolves.toEqual({
+      success: true,
+      flowId: FLOW_ONE,
+      bridgeUrl: BRIDGE_ONE,
+      expiresAt: 50_000,
+    })
+    expect(cdpBrowser.open).toHaveBeenCalledWith(BRIDGE_ONE, undefined)
+    expect(flows.start).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not open CDP for the default embedded begin', async () => {
+    const cdpBrowser: CdpBrowserLauncher = {
+      open: jest.fn(),
+    }
+    const { controller } = createController({ cdpBrowser })
+
+    await expect(controller.begin()).resolves.toMatchObject({ success: true })
+    expect(cdpBrowser.open).not.toHaveBeenCalled()
+  })
+
+  it('cancels the new flow and returns a fixed result when CDP cannot start', async () => {
+    const diagnostics = jest.fn()
+    const cdpBrowser: CdpBrowserLauncher = {
+      open: jest.fn().mockRejectedValue(
+        new Error('ws://127.0.0.1:43123 private@example.test'),
+      ),
+    }
+    const { controller, flows } = createController({ cdpBrowser, diagnostics })
+
+    await expect(controller.beginCdp()).resolves.toEqual({
+      success: false,
+      code: 'unavailable',
+    })
+    expect(flows.cancel).toHaveBeenCalledWith(FLOW_ONE, CSRF)
+    expect(diagnostics.mock.calls).toContainEqual([
+      'cdp_browser_open_failed',
+      'browser_launch_failed',
+    ])
+    expect(JSON.stringify(diagnostics.mock.calls)).not.toMatch(/ws:|43123|private@/i)
+  })
+
+  it.each([
+    ['BROWSER_UNAVAILABLE', 'cdp_browser_unavailable'],
+    ['DRIVER_UNAVAILABLE', 'cdp_driver_unavailable'],
+    ['TIMED_OUT', 'cdp_start_timeout'],
+    ['CANCELLED', 'cancelled'],
+  ] as const)('maps CDP %s to the safe diagnostic code %s', async (
+    upstreamCode,
+    diagnosticCode,
+  ) => {
+    const diagnostics = jest.fn()
+    const cdpBrowser: CdpBrowserLauncher = {
+      open: jest.fn().mockRejectedValue(Object.assign(
+        new Error('ws://127.0.0.1:43123 private@example.test'),
+        { code: upstreamCode },
+      )),
+    }
+    const { controller } = createController({ cdpBrowser, diagnostics })
+
+    await expect(controller.beginCdp()).resolves.toEqual({
+      success: false,
+      code: 'unavailable',
+    })
+    expect(diagnostics.mock.calls).toContainEqual([
+      'cdp_browser_open_failed',
+      diagnosticCode,
+    ])
+    expect(JSON.stringify(diagnostics.mock.calls)).not.toMatch(/ws:|43123|private@/i)
+  })
+
+  it.each(['succeeded', 'failed', 'cancelled', 'expired'] as const)(
+    'closes the owned CDP browser when the flow becomes %s',
+    async (state) => {
+      const close = jest.fn().mockResolvedValue(undefined)
+      const cdpBrowser: CdpBrowserLauncher = {
+        open: jest.fn().mockResolvedValue({
+          closed: new Promise(() => undefined),
+          close,
+        }),
+      }
+      const { controller, flows } = createController({ cdpBrowser })
+      const started = await controller.beginCdp()
+      expect(started.success).toBe(true)
+      flows.publicStatus.mockReturnValue({ state })
+
+      expect(controller.status({ flowId: FLOW_ONE })).toEqual({
+        success: true,
+        status: state,
+      })
+      await Promise.resolve()
+      expect(close).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('cancels the flow if the user closes the owned CDP browser early', async () => {
+    const browserClosed = deferred<void>()
+    const cdpBrowser: CdpBrowserLauncher = {
+      open: jest.fn().mockResolvedValue({
+        closed: browserClosed.promise,
+        close: jest.fn().mockResolvedValue(undefined),
+      }),
+    }
+    const { controller, flows } = createController({ cdpBrowser })
+    await controller.beginCdp()
+
+    browserClosed.resolve()
+    await browserClosed.promise
+    await Promise.resolve()
+
+    expect(flows.cancel).toHaveBeenCalledWith(FLOW_ONE, CSRF)
+  })
+
+  it('closes and cancels an abandoned CDP flow at its public expiry', async () => {
+    jest.useFakeTimers()
+    try {
+      const close = jest.fn().mockResolvedValue(undefined)
+      const cdpBrowser: CdpBrowserLauncher = {
+        open: jest.fn().mockResolvedValue({
+          closed: new Promise(() => undefined),
+          close,
+        }),
+      }
+      const { controller, flows } = createController({ cdpBrowser })
+      await controller.beginCdp()
+
+      jest.advanceTimersByTime(50_000)
+      await Promise.resolve()
+
+      expect(flows.cancel).toHaveBeenCalledWith(FLOW_ONE, CSRF)
+      expect(close).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
   it('lazily starts the bridge and returns only the public flow handle', async () => {
     const { controller, flows, server } = createController()
 
@@ -116,6 +268,50 @@ describe('EmbeddedAuthController', () => {
     expect(prepareDestination).toHaveBeenCalledWith('/private/account/session.json')
     expect(server.start).not.toHaveBeenCalled()
     expect(flows.start).not.toHaveBeenCalled()
+  })
+
+  it('reports a fixed destination failure code without forwarding the error text', async () => {
+    const diagnostics = jest.fn()
+    const unsafeError = Object.assign(
+      new Error('runner@example.com C:\\Users\\runner\\session.json SECRET_TICKET'),
+      { authDiagnosticCode: 'windows_acl_rejected' as const },
+    )
+    const prepareDestination = jest.fn().mockRejectedValue(unsafeError)
+    const { controller } = createController({ prepareDestination, diagnostics })
+
+    await expect(controller.begin()).resolves.toEqual({
+      success: false,
+      code: 'unavailable',
+    })
+    expect(diagnostics.mock.calls).toEqual([
+      ['begin_started', undefined],
+      ['session_destination_prepare_started', undefined],
+      ['session_destination_prepare_failed', 'windows_acl_rejected'],
+    ])
+    expect(JSON.stringify(diagnostics.mock.calls)).not.toMatch(
+      /runner|users|session\.json|secret|ticket/i,
+    )
+  })
+
+  it('distinguishes loopback startup from destination and flow failures', async () => {
+    const diagnostics = jest.fn()
+    const server = createServer()
+    server.start.mockRejectedValue(
+      new Error('listen failed for runner@example.com at C:\\private'),
+    )
+    const { controller } = createController({ diagnostics, server })
+
+    await expect(controller.begin()).resolves.toEqual({
+      success: false,
+      code: 'unavailable',
+    })
+    expect(diagnostics.mock.calls).toEqual([
+      ['begin_started', undefined],
+      ['session_destination_prepare_started', undefined],
+      ['session_destination_prepare_succeeded', undefined],
+      ['loopback_server_start_started', undefined],
+      ['loopback_server_start_failed', 'loopback_start_failed'],
+    ])
   })
 
   it('does not start a bridge when cancellation happens during destination preflight', async () => {
@@ -329,6 +525,28 @@ describe('EmbeddedAuthController', () => {
 
     expect(result).toEqual({ success: false, code: 'unavailable' })
     expect(JSON.stringify(result)).not.toMatch(/csrf|runner|secret/i)
+  })
+
+  it('closes an owned CDP browser even when flow cancellation fails', async () => {
+    const close = jest.fn().mockResolvedValue(undefined)
+    const cdpBrowser: CdpBrowserLauncher = {
+      open: jest.fn().mockResolvedValue({
+        closed: new Promise(() => undefined),
+        close,
+      }),
+    }
+    const { controller, flows } = createController({ cdpBrowser })
+    await controller.beginCdp()
+    flows.cancel.mockImplementation(() => {
+      throw new Error('csrf-secret runner@example.com')
+    })
+
+    expect(controller.cancel({ flowId: FLOW_ONE })).toEqual({
+      success: false,
+      code: 'unavailable',
+    })
+    await Promise.resolve()
+    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it('cancels an active current flow and closes the server', async () => {

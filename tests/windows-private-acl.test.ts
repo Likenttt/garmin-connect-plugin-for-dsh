@@ -150,6 +150,36 @@ describe('Windows exact owner-only session ACLs', () => {
       .rejects.toThrow('Garmin session token file could not be written')
     expect(run).not.toHaveBeenCalled()
   })
+
+  it.each([
+    [Object.assign(new Error('missing executable SECRET'), { code: 'ENOENT' }), 'windows_powershell_unavailable'],
+    [Object.assign(new Error('timeout SECRET'), { code: 'ETIMEDOUT', killed: true }), 'windows_acl_timeout'],
+    [new Error('ACL stderr SECRET'), 'windows_acl_rejected'],
+  ])('classifies a subprocess failure without retaining its text', async (failure, code) => {
+    const acl = await createWindowsPrivateAcl({
+      systemRoot,
+      run: async () => { throw failure },
+    })
+
+    await expect(acl.prepareDirectory('C:\\private\\SECRET_ACCOUNT'))
+      .rejects.toEqual(expect.objectContaining({
+        authDiagnosticCode: code,
+        message: 'Garmin session token file could not be written',
+      }))
+  })
+
+  it('classifies invalid Windows roots and targets with fixed codes', async () => {
+    await expect(createWindowsPrivateAcl({ systemRoot: 'relative', run: jest.fn() }))
+      .rejects.toEqual(expect.objectContaining({
+        authDiagnosticCode: 'windows_system_root_invalid',
+      }))
+
+    const acl = await createWindowsPrivateAcl({ systemRoot, run: jest.fn() })
+    await expect(acl.prepareDirectory('relative\\SECRET_ACCOUNT'))
+      .rejects.toEqual(expect.objectContaining({
+        authDiagnosticCode: 'windows_target_invalid',
+      }))
+  })
 })
 
 describe('Windows exact-private session write ordering', () => {
@@ -250,6 +280,29 @@ describe('Windows exact-private session write ordering', () => {
     await prepareSessionTokenWriteDestination(destination)
 
     expect(prepareDirectory).toHaveBeenCalledWith(join(root, 'account'))
+  })
+
+  it('preserves only a fixed destination diagnostic code across the public error boundary', async () => {
+    jest.doMock('../src/windows-private-acl', () => ({
+      createWindowsPrivateAcl: async () => ({
+        prepareDirectory: async () => {
+          throw Object.assign(
+            new Error('C:\\Users\\runner\\SECRET_ACCOUNT'),
+            { authDiagnosticCode: 'windows_acl_rejected' },
+          )
+        },
+        secureFile: jest.fn(),
+        verifyFile: jest.fn(),
+      }),
+    }))
+    const { prepareSessionTokenWriteDestination } = await import('../src/session-store')
+
+    await expect(prepareSessionTokenWriteDestination(
+      'C:\\Users\\runner\\SECRET_ACCOUNT\\session.json',
+    )).rejects.toEqual(expect.objectContaining({
+      authDiagnosticCode: 'windows_acl_rejected',
+      message: 'Garmin session token destination could not be prepared',
+    }))
   })
 
   it('verifies the exact parent and file ACL before reading token bytes', async () => {
