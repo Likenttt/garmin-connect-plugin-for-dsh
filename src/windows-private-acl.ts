@@ -249,7 +249,14 @@ switch ($operation) {
       ([System.Security.AccessControl.AccessControlSections]::Owner -bor [System.Security.AccessControl.AccessControlSections]::Access)
     )
     $owner = $security.GetOwner([System.Security.Principal.SecurityIdentifier])
-    if ($owner.Value -cne $script:currentSid.Value) { Fail-Acl }
+    # Windows gives a new object the creator token's default owner, which can
+    # differ from User for administrators. Accept only that token owner or User
+    # on this new empty leaf; the final owner is always normalized to User.
+    $tokenOwner = [System.Security.Principal.WindowsIdentity]::GetCurrent().Owner
+    if (
+      $owner.Value -cne $script:currentSid.Value -and
+      ($null -eq $tokenOwner -or $owner.Value -cne $tokenOwner.Value)
+    ) { Fail-Acl }
     $rules = @($security.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
     if ($rules.Count -ne 1) { Fail-Acl }
     $rule = $rules[0]

@@ -1,6 +1,5 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import type {
@@ -8,65 +7,6 @@ import type {
   WindowsAclCommandRunner,
 } from '../src/windows-private-acl'
 import { createWindowsPrivateAcl } from '../src/windows-private-acl'
-
-// Temporary native-only probe: print categorical ACL state, never identifiers,
-// paths, environment values or raw PowerShell exception output.
-const diagnosticWindowsRunner: WindowsAclCommandRunner = (file, args, options) => {
-  const original = Buffer.from(args.at(-1)!, 'base64').toString('utf16le')
-  const probe = String.raw`
-} catch {
-  $failure = $_
-  $shape = $null
-  try {
-    if ([Environment]::GetEnvironmentVariable('GARMIN_ACL_OPERATION', 'Process') -eq 'secure-directory') {
-      $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-      $path = [Environment]::GetEnvironmentVariable('GARMIN_ACL_TARGET', 'Process')
-      $acl = [IO.Directory]::GetAccessControl($path, ([System.Security.AccessControl.AccessControlSections]::Owner -bor [System.Security.AccessControl.AccessControlSections]::Access))
-      $ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier])
-      $entries = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
-      $shape = @{
-        ownerIsUser = ($ownerSid.Value -ceq $identity.User.Value)
-        ownerIsTokenOwner = ($null -ne $identity.Owner -and $ownerSid.Value -ceq $identity.Owner.Value)
-        rulesCount = $entries.Count
-        protected = $acl.AreAccessRulesProtected
-        empty = ([IO.Directory]::GetFileSystemEntries($path).Length -eq 0)
-        rules = @($entries | Select-Object -First 8 | ForEach-Object { @{
-          identityIsUser = ($_.IdentityReference.Value -ceq $identity.User.Value)
-          inherited = $_.IsInherited
-          allow = ($_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow)
-          fullControl = ([int] $_.FileSystemRights -eq [int] [System.Security.AccessControl.FileSystemRights]::FullControl)
-          inheritance = [int] $_.InheritanceFlags
-          propagation = [int] $_.PropagationFlags
-        } })
-      }
-    }
-  } catch { $shape = @{ readable = $false } }
-  $frames = @()
-  foreach ($frame in ($failure.ScriptStackTrace -split '\r?\n')) {
-    if ($frame -match '^at ([A-Za-z0-9_-]+|<ScriptBlock>), .*: line ([0-9]+)$') {
-      $frames += @{ name = $matches[1]; line = [int] $matches[2] }
-    }
-  }
-  [Console]::Error.WriteLine('__GARMIN_ACL_DIAG__' + (@{ shape = $shape; frames = $frames } | ConvertTo-Json -Compress -Depth 5))
-  exit 1
-}
-`
-  const script = `try {\n${original}\n${probe}`
-  const command = [...args.slice(0, -1), Buffer.from(script, 'utf16le').toString('base64')]
-  const started = Date.now()
-  return new Promise((resolve, reject) => execFile(file, command, options, (error, stdout, stderr) => {
-    if (!error) { resolve({ stdout, stderr }); return }
-    const native = error as NodeJS.ErrnoException & { killed?: boolean }
-    const authDiagnosticCode = native.code === 'ENOENT' ? 'windows_powershell_unavailable'
-      : native.code === 'ETIMEDOUT' || native.killed ? 'windows_acl_timeout' : 'windows_acl_rejected'
-    const marker = stderr.split(/\r?\n/).find(line => line.startsWith('__GARMIN_ACL_DIAG__'))
-    let diagnostic: unknown
-    try { diagnostic = marker && JSON.parse(marker.slice('__GARMIN_ACL_DIAG__'.length)) } catch { /* No raw output. */ }
-    console.warn('[DEBUG-ws-acl]', JSON.stringify({ operation: options.env.GARMIN_ACL_OPERATION,
-      authDiagnosticCode, durationMs: Date.now() - started, diagnostic }))
-    reject(error)
-  }))
-}
 
 describe('Windows exact owner-only session ACLs', () => {
   const systemRoot = 'C:\\Windows'
@@ -135,10 +75,15 @@ describe('Windows exact owner-only session ACLs', () => {
     expect(secureDirectoryScript).toContain('Assert-ExactPrivateDirectoryChain ([IO.Path]::GetDirectoryName($fullPath)) $false')
     expect(secureDirectoryScript).toContain('Assert-NoReparseChain $fullPath')
     expect(secureDirectoryScript).toContain('$owner.Value -cne $script:currentSid.Value')
+    expect(secureDirectoryScript).toContain('$tokenOwner = [System.Security.Principal.WindowsIdentity]::GetCurrent().Owner')
+    expect(secureDirectoryScript).toContain('($null -eq $tokenOwner -or $owner.Value -cne $tokenOwner.Value)')
     expect(secureDirectoryScript).toContain('$rule.IdentityReference.Value -cne $script:currentSid.Value')
     expect(secureDirectoryScript).toContain('GetFileSystemEntries($fullPath).Length -ne 0')
     expect(secureDirectoryScript.indexOf('GetFileSystemEntries($fullPath)')).toBeLessThan(secureDirectoryScript.indexOf('SetAccessControl($fullPath'))
     expect(secureDirectoryScript).toContain('Assert-ExactSecurity $fullPath $true')
+    const exactSecurityScript = script.slice(script.indexOf('function Assert-ExactSecurity'), script.indexOf('function Assert-ExactPrivateDirectoryChain'))
+    expect(exactSecurityScript).toContain('if ($owner.Value -cne $script:currentSid.Value) { Fail-Acl }')
+    expect(exactSecurityScript).not.toContain('$tokenOwner')
     expect(script).not.toContain('[IO.Directory]::CreateDirectory($fullPath')
     expect(script).not.toContain('C:\\private\\account')
 
@@ -449,11 +394,7 @@ describe('Windows exact-private session host integration', () => {
   itOnWindows('creates a real private workspace lease without replacing its active owner', async () => {
     jest.resetModules()
     jest.unmock('../src/windows-private-acl')
-    const aclModule = await import('../src/windows-private-acl')
-    const realFactory = aclModule.createWindowsPrivateAcl
-    const factorySpy = jest.spyOn(aclModule, 'createWindowsPrivateAcl').mockImplementation(dependencies => (
-      realFactory({ ...dependencies, run: diagnosticWindowsRunner })
-    ))
+    const { createWindowsPrivateAcl } = await import('../src/windows-private-acl')
     const { acquireWorkspaceLease, readWorkspaceEndpoint, workspaceDigest } = await import('../src/workspace-runtime')
     const localAppData = process.env.LOCALAPPDATA?.trim()
     if (!localAppData) throw new Error('LOCALAPPDATA is required for Windows lease smoke')
@@ -462,7 +403,7 @@ describe('Windows exact-private session host integration', () => {
     const descriptor = { scopeId, dataDirectory: join(parent, 'workspace') }
     let owner: Awaited<ReturnType<typeof acquireWorkspaceLease>>
     try {
-      const acl = await aclModule.createWindowsPrivateAcl()
+      const acl = await createWindowsPrivateAcl()
       await acl.prepareDirectory(parent)
       owner = await acquireWorkspaceLease(descriptor)
       if (!owner) throw new Error('Expected to acquire the new Windows workspace lease')
@@ -485,7 +426,6 @@ describe('Windows exact-private session host integration', () => {
       owner = undefined
       expect(await readWorkspaceEndpoint(descriptor)).toBeUndefined()
     } finally {
-      factorySpy.mockRestore()
       await owner?.close()
       await rm(parent, { recursive: true, force: true })
     }
@@ -500,7 +440,7 @@ describe('Windows exact-private session host integration', () => {
     const suffix = `garmin-connect-directory-acl-${process.pid}-${randomUUID()}`
     const parent = join(localAppData, suffix)
     const sharedParent = join(localAppData, `${suffix}-shared`)
-    const acl = await createWindowsPrivateAcl({ run: diagnosticWindowsRunner })
+    const acl = await createWindowsPrivateAcl()
     try {
       await acl.prepareDirectory(parent)
       const lock = join(parent, 'runtime.lock')
